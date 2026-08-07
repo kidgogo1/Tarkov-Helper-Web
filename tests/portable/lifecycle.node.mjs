@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -54,17 +56,25 @@ test("double-click scripts start and stop the hidden broker without a console", 
   assert.match(stopVbs, /\.Run\([\s\S]*,\s*0\s*,/i);
   assert.match(diagnosticCommand, /-Action Serve/i);
   assert.match(launcher, /Start-Process[\s\S]*-WindowStyle Hidden/i);
+  assert.equal((launcher.match(/Start-Process/g) ?? []).length, 1);
+  assert.equal((launcher.match(/Get-StateMutexName -Purpose "Control"/g) ?? []).length, 2);
+  assert.match(launcher, /Get-FileHash -LiteralPath \$PSCommandPath -Algorithm SHA256/);
 });
 
 test("Start reuses one hidden server and Stop gracefully terminates only its recorded instance", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-lifecycle-"));
   const appRoot = path.join(temporaryRoot, "app");
-  const screenshotFolder = path.join(temporaryRoot, "Screenshots");
+  const otherAppRoot = path.join(temporaryRoot, "other-app");
+  const screenshotFolder = path.join(temporaryRoot, "Screenshots with space");
+  const screenshotFolderArgument = `${screenshotFolder}${path.sep}`;
   const stateDirectory = path.join(temporaryRoot, "state");
   const instancePath = path.join(stateDirectory, "instance.json");
+  const configPath = path.join(stateDirectory, "config.json");
   await mkdir(appRoot);
+  await mkdir(otherAppRoot);
   await mkdir(screenshotFolder);
   await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Lifecycle test</title>", "utf8");
+  await writeFile(path.join(otherAppRoot, "index.html"), "<!doctype html><title>Different build</title>", "utf8");
 
   let instance;
   t.after(async () => {
@@ -79,7 +89,7 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
     "-Root", appRoot,
     "-Port", "0",
     "-NoBrowser",
-    "-ScreenshotFolder", screenshotFolder,
+    "-ScreenshotFolder", screenshotFolderArgument,
     "-StateDirectory", stateDirectory,
   ];
   const started = runLauncher(["-Action", "Start", ...commonArguments]);
@@ -89,6 +99,10 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
   assert.equal(instance.protocolVersion, 1);
   assert.equal(Number.isInteger(instance.pid), true);
   assert.match(instance.controlToken, /^[A-Za-z0-9_-]{40,}$/);
+  assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {
+    protocolVersion: 1,
+    screenshotFolder: screenshotFolderArgument,
+  });
   const baseUrl = `http://127.0.0.1:${instance.port}/`;
   const response = await fetch(new URL("api/v1/local-tracker/status", baseUrl));
   assert.equal(response.status, 200);
@@ -98,6 +112,21 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
   const repeatedInstance = JSON.parse(await readFile(instancePath, "utf8"));
   assert.equal(repeatedInstance.pid, instance.pid);
   assert.equal(repeatedInstance.controlToken, instance.controlToken);
+
+  const mismatched = runLauncher([
+    "-Action", "Start",
+    "-Root", otherAppRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-ScreenshotFolder", screenshotFolder,
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(mismatched.status, 2, `${mismatched.stdout}\n${mismatched.stderr}`);
+  assert.match(`${mismatched.stdout}\n${mismatched.stderr}`, /different build|stop.*restart/i);
+  const afterMismatch = JSON.parse(await readFile(instancePath, "utf8"));
+  assert.equal(afterMismatch.pid, instance.pid);
+  assert.equal(afterMismatch.controlToken, instance.controlToken);
+  assert.equal((await fetch(baseUrl)).status, 200);
 
   const stopped = runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory]);
   assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
@@ -114,4 +143,141 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
 
   const stoppedAgain = runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory]);
   assert.equal(stoppedAgain.status, 0, `${stoppedAgain.stdout}\n${stoppedAgain.stderr}`);
+});
+
+test("Start preserves a live recorded instance when authenticated health probes time out", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-live-state-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  const indexContents = "<!doctype html><title>Live state test</title>";
+  await mkdir(appRoot);
+  await mkdir(stateDirectory);
+  await writeFile(path.join(appRoot, "index.html"), indexContents, "utf8");
+
+  const fakeSockets = new Set();
+  const fakeServer = net.createServer((socket) => {
+    fakeSockets.add(socket);
+    socket.once("close", () => fakeSockets.delete(socket));
+    // Deliberately leave the connection unanswered until the broker probe times out.
+  });
+  await new Promise((resolve, reject) => {
+    fakeServer.once("error", reject);
+    fakeServer.listen(0, "127.0.0.1", resolve);
+  });
+  const address = fakeServer.address();
+  assert(address && typeof address === "object");
+
+  const startTimeResult = spawnSync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-Command", `(Get-Process -Id ${process.pid}).StartTime.ToUniversalTime().ToString('o')`],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(startTimeResult.status, 0, startTimeResult.stderr);
+  const recordedInstance = {
+    protocolVersion: 1,
+    pid: process.pid,
+    processStartTimeUtc: startTimeResult.stdout.trim(),
+    port: address.port,
+    controlToken: "A".repeat(43),
+    buildIdentity: createHash("sha256").update(`${createHash("sha256").update(indexContents).digest("hex")}:${createHash("sha256").update(await readFile(launcherPath)).digest("hex")}`).digest("hex"),
+    rootPath: appRoot,
+    startedAt: new Date().toISOString(),
+  };
+  await writeFile(instancePath, JSON.stringify(recordedInstance), "utf8");
+
+  t.after(async () => {
+    const finalState = JSON.parse(await readFile(instancePath, "utf8").catch(() => "null"));
+    if (finalState?.pid !== process.pid) {
+      runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    }
+    for (const socket of fakeSockets) socket.destroy();
+    await new Promise((resolve) => fakeServer.close(resolve));
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const result = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /could not be authenticated|already running/i);
+  assert.deepEqual(JSON.parse(await readFile(instancePath, "utf8")), recordedInstance);
+  assert.equal(fakeServer.listening, true);
+});
+
+test("Start and Stop preserve corrupt instance state and report that it cannot be authenticated", { skip: process.platform !== "win32" }, async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-corrupt-state-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  await mkdir(appRoot);
+  await mkdir(stateDirectory);
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Corrupt state test</title>", "utf8");
+  await writeFile(instancePath, "{not valid json", "utf8");
+
+  try {
+    const startResult = runLauncher([
+      "-Action", "Start",
+      "-Root", appRoot,
+      "-Port", "0",
+      "-NoBrowser",
+      "-StateDirectory", stateDirectory,
+    ]);
+    assert.equal(startResult.status, 2, `${startResult.stdout}\n${startResult.stderr}`);
+    assert.match(`${startResult.stdout}\n${startResult.stderr}`, /state|instance|authenticate/i);
+    assert.equal(await readFile(instancePath, "utf8"), "{not valid json");
+
+    const result = runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory]);
+    assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /state|instance|authenticate/i);
+    assert.equal(await readFile(instancePath, "utf8"), "{not valid json");
+  } finally {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("Serve refuses a second listener that would overwrite the same instance state", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-serve-singleton-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  await mkdir(appRoot);
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Serve singleton test</title>", "utf8");
+
+  let originalInstance;
+  t.after(async () => {
+    if (originalInstance) {
+      const current = JSON.parse(await readFile(instancePath, "utf8").catch(() => "null"));
+      if (current?.pid !== originalInstance.pid) {
+        await writeFile(instancePath, JSON.stringify(originalInstance), "utf8");
+      }
+      runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    }
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  originalInstance = JSON.parse(await readFile(instancePath, "utf8"));
+
+  const competing = runLauncher([
+    "-Action", "Serve",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ], 3_000);
+  assert.equal(competing.status, 2, `${competing.stdout}\n${competing.stderr}`);
+  assert.deepEqual(JSON.parse(await readFile(instancePath, "utf8")), originalInstance);
 });

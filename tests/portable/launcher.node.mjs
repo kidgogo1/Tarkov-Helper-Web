@@ -8,7 +8,7 @@ import test from "node:test";
 
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const launcherPath = path.join(projectRoot, "portable", "launcher.ps1");
-const commandPath = path.join(projectRoot, "portable", "Tarkov Helper 실행.cmd");
+const commandPath = path.join(projectRoot, "portable", "문제 해결용 실행.cmd");
 
 function waitForUrl(child) {
   return new Promise((resolve, reject) => {
@@ -73,6 +73,7 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov helper portable "));
   const appRoot = path.join(temporaryParent, "앱 파일");
   const otherAppRoot = path.join(temporaryParent, "다른 앱 파일");
+  const stateDirectory = path.join(temporaryParent, "state");
   await mkdir(path.join(appRoot, "data"), { recursive: true });
   await mkdir(path.join(appRoot, "assets"), { recursive: true });
   await mkdir(path.join(otherAppRoot, "data"), { recursive: true });
@@ -99,6 +100,8 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
       "-Port",
       "0",
       "-NoBrowser",
+      "-StateDirectory",
+      stateDirectory,
       "-MaxRequests",
       "13",
     ],
@@ -109,6 +112,14 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
   });
 
   const { url, port } = await waitForUrl(child);
+  const instancePath = path.join(stateDirectory, "instance.json");
+  const runningInstance = JSON.parse(await readFile(instancePath, "utf8"));
+  assert.equal(runningInstance.rootPath, appRoot);
+  const authenticatedHealth = await fetch(new URL(".tarkov-helper-portable", url), {
+    headers: { "x-tarkov-control": runningInstance.controlToken },
+  });
+  assert.equal(authenticatedHealth.status, 200);
+  assert.equal(await authenticatedHealth.text(), `tarkov-helper-web-portable-v1:${runningInstance.buildIdentity}:authenticated`);
 
   const reused = spawnSync(
     "powershell.exe",
@@ -124,6 +135,8 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
       "-Port",
       String(port),
       "-NoBrowser",
+      "-StateDirectory",
+      stateDirectory,
     ],
     { encoding: "utf8", windowsHide: true },
   );
@@ -144,11 +157,38 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
       "-Port",
       String(port),
       "-NoBrowser",
+      "-StateDirectory",
+      stateDirectory,
     ],
     { encoding: "utf8", windowsHide: true },
   );
   assert.equal(mismatchedBuild.status, 2);
-  assert.match(`${mismatchedBuild.stdout}\n${mismatchedBuild.stderr}`, /used by another program/i);
+  assert.match(`${mismatchedBuild.stdout}\n${mismatchedBuild.stderr}`, /used by another program|owns this local runtime state/i);
+
+  const instanceState = await readFile(instancePath, "utf8");
+  await rm(instancePath);
+  const unauthenticatedReuse = spawnSync(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      launcherPath,
+      "-Root",
+      appRoot,
+      "-Port",
+      String(port),
+      "-NoBrowser",
+      "-StateDirectory",
+      stateDirectory,
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(unauthenticatedReuse.status, 2);
+  assert.match(`${unauthenticatedReuse.stdout}\n${unauthenticatedReuse.stderr}`, /used by another program|owns this local runtime state/i);
+  await writeFile(instancePath, instanceState, "utf8");
 
   const indexResponse = await fetch(url);
   assert.equal(indexResponse.status, 200);
@@ -228,11 +268,12 @@ test("portable launcher fails clearly when index.html is missing", { skip: proce
   }
 });
 
-test("double-click command resolves the launcher beside itself", async () => {
+test("diagnostic command resolves the launcher beside itself", async () => {
   const command = await readFile(commandPath, "utf8");
   const launcher = await readFile(launcherPath, "utf8");
   assert.match(command, /%~dp0launcher\.ps1/);
   assert.match(command, /powershell\.exe/i);
+  assert.match(command, /-Action Serve/i);
   assert.match(command, /TARKOV_HELPER_EXIT/);
   assert.match(command, /endlocal & exit \/b/i);
   assert.match(command, /%\*/);
@@ -240,13 +281,13 @@ test("double-click command resolves the launcher beside itself", async () => {
   assert.match(launcher, /\[int\]\$Port = 41753/);
 });
 
-test("double-click command starts its sibling app outside the package working directory", { skip: process.platform !== "win32" }, async (t) => {
+test("diagnostic command starts its sibling app outside the package working directory", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-command-"));
   const packageRoot = path.join(temporaryParent, "Tarkov Helper 바로 실행");
   const appRoot = path.join(packageRoot, "app");
   await mkdir(appRoot, { recursive: true });
   await copyFile(launcherPath, path.join(packageRoot, "launcher.ps1"));
-  await copyFile(commandPath, path.join(packageRoot, "Tarkov Helper 실행.cmd"));
+  await copyFile(commandPath, path.join(packageRoot, "문제 해결용 실행.cmd"));
   await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Direct command</title>", "utf8");
 
   const child = spawn(
@@ -254,12 +295,14 @@ test("double-click command starts its sibling app outside the package working di
     [
       "/d",
       "/c",
-      path.join(packageRoot, "Tarkov Helper 실행.cmd"),
+      path.join(packageRoot, "문제 해결용 실행.cmd"),
       "-NoBrowser",
       "-Port",
       "0",
       "-MaxRequests",
       "1",
+      "-StateDirectory",
+      path.join(temporaryParent, "state"),
     ],
     { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
@@ -277,7 +320,7 @@ test("double-click command starts its sibling app outside the package working di
   await rm(appRoot, { recursive: true, force: true });
   const failed = spawnSync(
     "cmd.exe",
-    ["/d", "/c", path.join(packageRoot, "Tarkov Helper 실행.cmd"), "-NoBrowser"],
+    ["/d", "/c", path.join(packageRoot, "문제 해결용 실행.cmd"), "-NoBrowser"],
     { cwd: projectRoot, encoding: "utf8", windowsHide: true },
   );
   assert.equal(failed.status, 2, `${failed.stdout}\n${failed.stderr}`);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -102,6 +102,18 @@ async function waitForCursor(baseUrl, expectedCursor, timeoutMs = 15_000) {
   throw new Error(`Timed out waiting for tracker cursor ${expectedCursor}.`);
 }
 
+async function waitForWatcherState(baseUrl, expectedState, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await fetch(new URL("api/v1/local-tracker/status", baseUrl));
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    if (payload.screenshotWatcher.state === expectedState) return payload;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for screenshot watcher state ${expectedState}.`);
+}
+
 test("local tracker reports watcher state and emits debounced filename-only events", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-tracker-"));
   const appRoot = path.join(temporaryRoot, "app");
@@ -150,6 +162,13 @@ test("local tracker reports watcher state and emits debounced filename-only even
     isResetRequired: false,
   });
 
+  const renamedScreenshotName = "renamed-into-screenshot-folder.png";
+  const temporaryScreenshotPath = path.join(screenshotFolder, "capture-in-progress.tmp");
+  await writeFile(temporaryScreenshotPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  await rename(temporaryScreenshotPath, path.join(screenshotFolder, renamedScreenshotName));
+  const renamedEvents = await waitForEvents(baseUrl, 1, 1, 12_000);
+  assert.equal(renamedEvents.data[0].fileName, renamedScreenshotName);
+
   const invalidCursor = await fetch(new URL("api/v1/local-tracker/events?afterCursor=-1&pageSize=10", baseUrl));
   assert.equal(invalidCursor.status, 400);
 
@@ -192,16 +211,17 @@ test("local tracker reports watcher state and emits debounced filename-only even
   assert.equal(oversizedPage.status, 400);
 });
 
-test("local tracker reports NOT_FOUND for a missing configured folder", { skip: process.platform !== "win32" }, async (t) => {
+test("local tracker starts watching when a missing configured folder appears", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-tracker-missing-"));
   const appRoot = path.join(temporaryRoot, "app");
+  const screenshotFolder = path.join(temporaryRoot, "missing");
   const stateDirectory = path.join(temporaryRoot, "state");
   await mkdir(appRoot);
   await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Tracker test</title>", "utf8");
 
   const server = startServer({
     appRoot,
-    screenshotFolder: path.join(temporaryRoot, "missing"),
+    screenshotFolder,
     stateDirectory,
   });
   t.after(async () => {
@@ -217,4 +237,17 @@ test("local tracker reports NOT_FOUND for a missing configured folder", { skip: 
     screenshotWatcher: { state: "NOT_FOUND" },
     latestCursor: 0,
   });
+
+  await mkdir(screenshotFolder);
+  const screenshotName = "folder-created-before-watcher-reattaches.png";
+  await writeFile(path.join(screenshotFolder, screenshotName), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const watching = await waitForWatcherState(baseUrl, "WATCHING");
+  assert.deepEqual(watching, {
+    protocolVersion: 1,
+    screenshotWatcher: { state: "WATCHING", folderPath: screenshotFolder },
+    latestCursor: 0,
+  });
+
+  const events = await waitForEvents(baseUrl, 0, 1);
+  assert.equal(events.data[0].fileName, screenshotName);
 });

@@ -41,13 +41,19 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.equal((await stat(path.join(output, "app", "LICENSE"))).isFile(), true);
     assert.equal((await stat(path.join(output, "app", "THIRD_PARTY_NOTICES.md"))).isFile(), true);
     assert.equal((await stat(path.join(output, "launcher.ps1"))).isFile(), true);
-    assert.equal((await stat(path.join(output, "Tarkov Helper 실행.cmd"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "Tarkov Helper 실행.vbs"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "Tarkov Helper 종료.vbs"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "문제 해결용 실행.cmd"))).isFile(), true);
     assert.equal((await stat(path.join(output, "사용 안내.txt"))).isFile(), true);
     assert.equal((await stat(path.join(output, "LICENSE"))).isFile(), true);
     assert.equal((await stat(path.join(output, "README.md"))).isFile(), true);
     assert.equal((await stat(path.join(output, "THIRD_PARTY_NOTICES.md"))).isFile(), true);
     assert.equal((await stat(path.join(output, "PACKAGE_INFO.txt"))).isFile(), true);
     assert.equal((await stat(path.join(output, "SHA256SUMS.txt"))).isFile(), true);
+    const guide = await readFile(path.join(output, "사용 안내.txt"), "utf8");
+    assert.match(guide, /실행\.vbs/);
+    assert.match(guide, /종료\.vbs/);
+    assert.match(guide, /백그라운드/);
 
     assert.equal(
       await readFile(path.join(output, "app", "index.html"), "utf8"),
@@ -59,7 +65,13 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     }
 
     const packageInfo = await readFile(path.join(output, "PACKAGE_INFO.txt"), "utf8");
-    assert.match(packageInfo, /Source commit: (?:[0-9a-f]{40}|unavailable)/);
+    assert.match(packageInfo, /Source commit: (?:[0-9a-f]{40}(?:-dirty)?|unavailable)/);
+    const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: projectRoot, encoding: "utf8" });
+    const workingTree = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: projectRoot, encoding: "utf8" });
+    if (revision.status === 0 && workingTree.status === 0) {
+      const expectedSource = `${revision.stdout.trim()}${workingTree.stdout.trim() ? "-dirty" : ""}`;
+      assert.match(packageInfo, new RegExp(`^Source commit: ${expectedSource}$`, "m"));
+    }
     assert.match(packageInfo, /App files: \d+/);
     const appFiles = await listFiles(path.join(output, "app"));
     const appRecords = await Promise.all(appFiles.map(async (filename) => ({
