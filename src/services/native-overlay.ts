@@ -1,7 +1,12 @@
 export const NATIVE_OVERLAY_PROTOCOL_VERSION = 1 as const;
 export const NATIVE_OVERLAY_CAPABILITY = "WINDOWS_DOCUMENT_PIP" as const;
+export const NATIVE_OVERLAY_HOTKEY_EVENT = "tarkov-helper:native-hotkey" as const;
 
 export type NativeOverlayMode = "UNLOCKED" | "LOCKED" | "CLICK_THROUGH";
+export type NativeOverlayEventAction = "ZOOM_IN" | "ZOOM_OUT";
+export type NativeOverlayHotkeyAction =
+  | "MINIMAP_ZOOM_IN"
+  | "MINIMAP_ZOOM_OUT";
 
 export interface NativeOverlaySizeLimits {
   minWidth: 240;
@@ -39,6 +44,17 @@ export interface NativeOverlayAttachment {
   bounds: NativeOverlayBounds;
 }
 
+export interface NativeOverlayEvent {
+  cursor: number;
+  action: NativeOverlayEventAction;
+}
+
+export interface NativeOverlayEventBatch {
+  protocolVersion: typeof NATIVE_OVERLAY_PROTOCOL_VERSION;
+  latestCursor: number;
+  events: NativeOverlayEvent[];
+}
+
 export interface NativeOverlayDetachOptions {
   keepalive?: boolean;
 }
@@ -56,6 +72,11 @@ type FetchRequest = (
 const SESSION_PATH = "/api/v1/native-overlay/session";
 const CLAIM_PATH = "/api/v1/native-overlay/claims";
 const MINIMAP_PATH = "/api/v1/native-overlay/minimap";
+const EVENTS_PATH = "/api/v1/native-overlay/events";
+const EVENT_BATCH_LIMIT = 100;
+const EVENT_POLL_INTERVAL_MS = 200;
+const EVENT_POLL_RETRY_LIMIT = 3;
+const EVENT_POLL_MAX_RETRY_DELAY_MS = 800;
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
 const UTC_ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/;
 const ALLOWED_ERROR_CODES = new Set([
@@ -63,6 +84,7 @@ const ALLOWED_ERROR_CODES = new Set([
   "CLAIM_NOT_FOUND",
   "FORBIDDEN",
   "INVALID_JSON",
+  "INVALID_QUERY",
   "INVALID_REQUEST",
   "NATIVE_FAILURE",
   "OVERLAY_ALREADY_ATTACHED",
@@ -231,6 +253,56 @@ function parseAttachment(
   };
 }
 
+function parseEventBatch(
+  value: unknown,
+  after: number,
+): NativeOverlayEventBatch | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["protocolVersion", "latestCursor", "events"]) ||
+    value.protocolVersion !== NATIVE_OVERLAY_PROTOCOL_VERSION ||
+    !isSafeInteger(value.latestCursor) ||
+    value.latestCursor < after ||
+    !Array.isArray(value.events) ||
+    value.events.length > EVENT_BATCH_LIMIT
+  ) {
+    return null;
+  }
+
+  const events: NativeOverlayEvent[] = [];
+  let previousCursor = after;
+  for (const candidate of value.events) {
+    if (
+      !isRecord(candidate) ||
+      !hasExactKeys(candidate, ["cursor", "action"]) ||
+      !isSafeInteger(candidate.cursor) ||
+      candidate.cursor <= previousCursor ||
+      candidate.cursor > value.latestCursor ||
+      (candidate.action !== "ZOOM_IN" && candidate.action !== "ZOOM_OUT")
+    ) {
+      return null;
+    }
+    events.push({
+      cursor: candidate.cursor,
+      action: candidate.action,
+    });
+    previousCursor = candidate.cursor;
+  }
+
+  if (
+    (events.length === 0 && value.latestCursor !== after) ||
+    (events.length > 0 && previousCursor !== value.latestCursor)
+  ) {
+    return null;
+  }
+
+  return {
+    protocolVersion: NATIVE_OVERLAY_PROTOCOL_VERSION,
+    latestCursor: value.latestCursor,
+    events,
+  };
+}
+
 async function readJson(response: Response): Promise<unknown | null> {
   try {
     return await response.json() as unknown;
@@ -243,6 +315,13 @@ function authenticatedHeaders(session: NativeOverlaySession): HeadersInit {
   return {
     Accept: "application/json",
     "Content-Type": "application/json",
+    "X-Tarkov-Overlay": session.token,
+  };
+}
+
+function authenticatedReadHeaders(session: NativeOverlaySession): HeadersInit {
+  return {
+    Accept: "application/json",
     "X-Tarkov-Overlay": session.token,
   };
 }
@@ -289,6 +368,102 @@ export async function fetchNativeOverlaySession(
     return parseSession(await readJson(response));
   } catch {
     return null;
+  }
+}
+
+export async function fetchNativeOverlayEvents(
+  session: NativeOverlaySession,
+  after: number,
+  signal?: AbortSignal,
+  request: FetchRequest = globalThis.fetch,
+): Promise<NativeOverlayEventBatch> {
+  if (!isSafeInteger(after) || after < 0) {
+    throw new NativeOverlayApiError("INVALID_REQUEST", 0);
+  }
+  const response = await fetchCommand(`${EVENTS_PATH}?after=${after}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: authenticatedReadHeaders(session),
+    signal,
+  }, request);
+  if (response.status !== 200) throw await commandError(response);
+  const batch = parseEventBatch(await readJson(response), after);
+  if (!batch) throw new NativeOverlayApiError("INVALID_RESPONSE", response.status);
+  return batch;
+}
+
+function waitForNativeEventPoll(
+  delayMs: number,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const handleAbort = () => {
+      clearTimeout(timeout);
+      resolve(false);
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", handleAbort);
+      resolve(true);
+    }, delayMs);
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+}
+
+function dispatchNativeOverlayHotkey(
+  target: EventTarget,
+  action: NativeOverlayEventAction,
+): void {
+  const hotkeyAction: NativeOverlayHotkeyAction = action === "ZOOM_IN"
+    ? "MINIMAP_ZOOM_IN"
+    : "MINIMAP_ZOOM_OUT";
+  target.dispatchEvent(new CustomEvent(NATIVE_OVERLAY_HOTKEY_EVENT, {
+    detail: {
+      protocolVersion: NATIVE_OVERLAY_PROTOCOL_VERSION,
+      action: hotkeyAction,
+    },
+  }));
+}
+
+export async function pollNativeOverlayEvents(
+  session: NativeOverlaySession,
+  signal: AbortSignal,
+  target: EventTarget,
+  request: FetchRequest = globalThis.fetch,
+): Promise<void> {
+  let cursor = 0;
+  let consecutiveFailures = 0;
+  let nextDelayMs = EVENT_POLL_INTERVAL_MS;
+
+  while (await waitForNativeEventPoll(nextDelayMs, signal)) {
+    try {
+      const batch = await fetchNativeOverlayEvents(
+        session,
+        cursor,
+        signal,
+        request,
+      );
+      if (signal.aborted) return;
+      for (const event of batch.events) {
+        if (signal.aborted) return;
+        if (event.cursor <= cursor) continue;
+        cursor = event.cursor;
+        dispatchNativeOverlayHotkey(target, event.action);
+      }
+      cursor = batch.latestCursor;
+      consecutiveFailures = 0;
+      nextDelayMs = EVENT_POLL_INTERVAL_MS;
+    } catch (error) {
+      if (signal.aborted) return;
+      const retryable = error instanceof NativeOverlayApiError &&
+        (error.code === "NETWORK_ERROR" || error.status >= 500);
+      consecutiveFailures += 1;
+      if (!retryable || consecutiveFailures > EVENT_POLL_RETRY_LIMIT) return;
+      nextDelayMs = Math.min(
+        EVENT_POLL_INTERVAL_MS * 2 ** (consecutiveFailures - 1),
+        EVENT_POLL_MAX_RETRY_DELAY_MS,
+      );
+    }
   }
 }
 

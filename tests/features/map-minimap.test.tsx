@@ -133,9 +133,14 @@ function nativeAttachment(mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH") {
 
 function createNativeOverlayApi(options: {
   claimResponse?: Promise<Response>;
+  eventBatches?: unknown[];
   failAttach?: boolean;
+  loseOverlayAfterLock?: boolean;
 } = {}) {
   const order: string[] = [];
+  const eventSignals: AbortSignal[] = [];
+  const eventBatches = [...(options.eventBatches ?? [])];
+  let patchCount = 0;
   const request = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input);
     const method = init?.method ?? "GET";
@@ -167,15 +172,35 @@ function createNativeOverlayApi(options: {
     if (path.endsWith("/api/v1/native-overlay/minimap") && method === "PATCH") {
       const body = JSON.parse(String(init?.body)) as { mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH" };
       order.push(`PATCH_${body.mode}`);
+      patchCount += 1;
+      if (options.loseOverlayAfterLock && patchCount > 1) {
+        return jsonResponse({
+          error: {
+            code: "OVERLAY_NOT_FOUND",
+            message: "gone",
+          },
+        }, 404);
+      }
       return jsonResponse(nativeAttachment(body.mode));
     }
     if (path.endsWith("/api/v1/native-overlay/minimap") && method === "DELETE") {
       order.push("DETACH");
       return new Response(null, { status: 204 });
     }
+    if (path.includes("/api/v1/native-overlay/events?") && method === "GET") {
+      order.push("EVENTS");
+      if (init?.signal) eventSignals.push(init.signal);
+      const after = Number(new URL(path, window.location.href).searchParams.get("after"));
+      const nextBatch = await eventBatches.shift();
+      return jsonResponse(nextBatch === undefined ? {
+        protocolVersion: 1,
+        latestCursor: after,
+        events: [],
+      } : nextBatch);
+    }
     throw new Error(`Unexpected native overlay request: ${method} ${path}`);
   });
-  return { order, request };
+  return { eventSignals, order, request };
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -517,9 +542,82 @@ describe("MapMiniMap", () => {
       mode: "LOCKED",
     });
 
+    await waitFor(() => expect(api.eventSignals.length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
     await waitFor(() => expect(pipWindow.close).toHaveBeenCalledTimes(1));
+    expect(api.eventSignals.length).toBeGreaterThan(0);
+    expect(api.eventSignals.every((signal) => signal.aborted)).toBe(true);
     expect(api.order.indexOf("DETACH")).toBeLessThan(api.order.indexOf("WINDOW_CLOSE"));
+  });
+
+  it("polls attached native hotkeys without also applying the PiP document shortcut", async () => {
+    let resolveFirstBatch: ((batch: unknown) => void) | undefined;
+    const firstBatch = new Promise<unknown>((resolve) => {
+      resolveFirstBatch = resolve;
+    });
+    const api = createNativeOverlayApi({
+      eventBatches: [firstBatch],
+    });
+    vi.stubGlobal("fetch", api.request);
+    const pipWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
+    });
+
+    renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const world = await within(pipWindow.document.body).findByTestId("map-minimap-world");
+    await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+    await waitFor(() => expect(api.eventSignals.length).toBeGreaterThan(0));
+
+    const documentShortcut = new KeyboardEvent("keydown", {
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+      code: "NumpadAdd",
+      key: "+",
+    });
+    fireEvent(pipWindow.document, documentShortcut);
+    expect(documentShortcut.defaultPrevented).toBe(false);
+    expect(world.style.transform).toBe("translate(120px, 90px) scale(0.3)");
+
+    resolveFirstBatch?.({
+      protocolVersion: 1,
+      latestCursor: 1,
+      events: [{ cursor: 1, action: "ZOOM_IN" }],
+    });
+
+    await waitFor(() => {
+      expect(world.style.transform).toBe("translate(117px, 84px) scale(0.33)");
+    });
+    expect(api.order).toContain("EVENTS");
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
+    await waitFor(() => expect(pipWindow.close).toHaveBeenCalledOnce());
+    expect(api.eventSignals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("stops native event polling when the attached overlay is lost", async () => {
+    const api = createNativeOverlayApi({ loseOverlayAfterLock: true });
+    vi.stubGlobal("fetch", api.request);
+    const pipWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
+    });
+
+    renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+    await waitFor(() => expect(api.eventSignals.length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("button", { name: "오버레이 위치 잠금 해제" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "오버레이 연결이 종료되었습니다",
+    );
+    expect(api.eventSignals.every((signal) => signal.aborted)).toBe(true);
+    expect(screen.getByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
   });
 
   it("hides native controls on a static host and keeps the normal PiP working", async () => {
@@ -633,12 +731,14 @@ describe("MapMiniMap", () => {
     await screen.findByRole("button", { name: "오버레이 위치 고정" });
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
     await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+    await waitFor(() => expect(pageHideApi.eventSignals.length).toBeGreaterThan(0));
 
     act(() => pageHideWindow.dispatchPageHide());
     await waitFor(() => {
       const detachCall = pageHideApi.request.mock.calls.find(([, init]) => init?.method === "DELETE");
       expect(detachCall?.[1]).toMatchObject({ keepalive: true });
     });
+    expect(pageHideApi.eventSignals.every((signal) => signal.aborted)).toBe(true);
     firstView.unmount();
 
     const unmountApi = createNativeOverlayApi();
@@ -651,12 +751,14 @@ describe("MapMiniMap", () => {
     await screen.findByRole("button", { name: "오버레이 위치 고정" });
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
     await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+    await waitFor(() => expect(unmountApi.eventSignals.length).toBeGreaterThan(0));
 
     secondView.unmount();
     await waitFor(() => {
       const detachCall = unmountApi.request.mock.calls.find(([, init]) => init?.method === "DELETE");
       expect(detachCall?.[1]).toMatchObject({ keepalive: true });
     });
+    expect(unmountApi.eventSignals.every((signal) => signal.aborted)).toBe(true);
     expect(unmountWindow.close).toHaveBeenCalledTimes(1);
   });
 });

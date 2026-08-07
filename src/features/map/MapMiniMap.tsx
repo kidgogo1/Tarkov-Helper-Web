@@ -22,25 +22,22 @@ import {
 import type { MapConfig, MapFloor } from "../../types/data";
 import {
   NativeOverlayApiError,
+  NATIVE_OVERLAY_HOTKEY_EVENT,
   attachNativeMiniMap,
   beginNativeOverlayClaim,
   detachNativeMiniMap,
   fetchNativeOverlaySession,
+  pollNativeOverlayEvents,
   updateNativeMiniMap,
   type NativeOverlayAttachment,
   type NativeOverlayMode,
   type NativeOverlaySession,
+  type NativeOverlayHotkeyAction,
 } from "../../services/native-overlay";
 import "../../styles/minimap.css";
 
 const MINI_MAP_SIZE = 300;
 const ZOOM_STEP = 0.1;
-const NATIVE_HOTKEY_EVENT = "tarkov-helper:native-hotkey";
-
-type NativeMiniMapHotkeyAction =
-  | "MINIMAP_ZOOM_IN"
-  | "MINIMAP_ZOOM_OUT";
-
 interface DocumentPictureInPictureController {
   requestWindow: (options: { width: number; height: number }) => Promise<Window>;
 }
@@ -170,7 +167,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
     );
 }
 
-function nativeHotkeyAction(event: Event): NativeMiniMapHotkeyAction | undefined {
+function nativeHotkeyAction(event: Event): NativeOverlayHotkeyAction | undefined {
   if (!(event instanceof CustomEvent)) return undefined;
   const detail: unknown = event.detail;
   if (typeof detail !== "object" || detail === null || Array.isArray(detail)) {
@@ -258,6 +255,7 @@ function MiniMapSurface({
   }, [updateMapSettings]);
 
   useEffect(() => {
+    if (nativeOverlayMode) return;
     const surfaceDocument = surfaceRef.current?.ownerDocument;
     if (!surfaceDocument) return;
 
@@ -280,7 +278,7 @@ function MiniMapSurface({
     };
     surfaceDocument.addEventListener("keydown", handleKeyDown);
     return () => surfaceDocument.removeEventListener("keydown", handleKeyDown);
-  }, [zoomBy]);
+  }, [nativeOverlayMode, zoomBy]);
 
   useEffect(() => {
     const handleNativeHotkey = (event: Event) => {
@@ -288,8 +286,8 @@ function MiniMapSurface({
       if (!action) return;
       zoomBy(action === "MINIMAP_ZOOM_IN" ? 1 : -1);
     };
-    window.addEventListener(NATIVE_HOTKEY_EVENT, handleNativeHotkey);
-    return () => window.removeEventListener(NATIVE_HOTKEY_EVENT, handleNativeHotkey);
+    window.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, handleNativeHotkey);
+    return () => window.removeEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, handleNativeHotkey);
   }, [zoomBy]);
 
   const syncFloor = useCallback(() => {
@@ -544,15 +542,37 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const openAttemptRef = useRef(0);
   const nativeSessionRef = useRef<NativeOverlaySession | null>(null);
   const nativeOverlayRef = useRef<NativeOverlayAttachment | null>(null);
+  const nativeEventPollingAbortRef = useRef<AbortController | null>(null);
   const sessionDetectionRef = useRef<Promise<NativeOverlaySession | null> | null>(null);
   const nativeSessionCheckedRef = useRef(false);
   const pipLifecycleCleanupRef = useRef<(() => void) | null>(null);
   const isOpen = Boolean(pictureInPicture || fallbackOpen);
 
+  const stopNativeEventPolling = useCallback(() => {
+    nativeEventPollingAbortRef.current?.abort();
+    nativeEventPollingAbortRef.current = null;
+  }, []);
+
+  const startNativeEventPolling = useCallback((session: NativeOverlaySession) => {
+    stopNativeEventPolling();
+    const controller = new AbortController();
+    nativeEventPollingAbortRef.current = controller;
+    void pollNativeOverlayEvents(
+      session,
+      controller.signal,
+      window,
+    ).finally(() => {
+      if (nativeEventPollingAbortRef.current === controller) {
+        nativeEventPollingAbortRef.current = null;
+      }
+    });
+  }, [stopNativeEventPolling]);
+
   const rememberNativeOverlay = useCallback((next: NativeOverlayAttachment | null) => {
+    if (!next) stopNativeEventPolling();
     nativeOverlayRef.current = next;
     if (mountedRef.current) setNativeOverlay(next);
-  }, []);
+  }, [stopNativeEventPolling]);
 
   const resolveNativeSession = useCallback(async () => {
     if (nativeSessionRef.current) return nativeSessionRef.current;
@@ -577,6 +597,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   }, []);
 
   const detachCurrentNativeOverlay = useCallback(async (keepalive: boolean) => {
+    stopNativeEventPolling();
     const session = nativeSessionRef.current;
     const overlay = nativeOverlayRef.current;
     if (!session || !overlay) return;
@@ -593,7 +614,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
       // The browser window may already be gone. The launcher also restores
       // attached windows during shutdown, so cleanup remains best-effort.
     }
-  }, []);
+  }, [stopNativeEventPolling]);
 
   const clearPictureInPictureLifecycle = useCallback(() => {
     const cleanup = pipLifecycleCleanupRef.current;
@@ -666,6 +687,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
       window.removeEventListener("pagehide", handlePageHide);
       mountedRef.current = false;
       openAttemptRef.current += 1;
+      stopNativeEventPolling();
       const session = nativeSessionRef.current;
       const overlay = nativeOverlayRef.current;
       nativeOverlayRef.current = null;
@@ -683,7 +705,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
       clearPictureInPictureLifecycle();
       if (pipWindow) pipWindow.close();
     };
-  }, [clearPictureInPictureLifecycle, detachCurrentNativeOverlay]);
+  }, [clearPictureInPictureLifecycle, detachCurrentNativeOverlay, stopNativeEventPolling]);
 
   useEffect(() => {
     void resolveNativeSession();
@@ -787,6 +809,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
               return;
             }
             rememberNativeOverlay(attached);
+            startNativeEventPolling(session);
             const locked = await updateNativeMiniMap(
               session,
               attached.overlayId,
@@ -801,6 +824,12 @@ export function MapMiniMap(props: MapMiniMapProps) {
               setNativeNotice(nativeOverlayModeNotice(locked.mode));
             }
           } catch (error) {
+            if (
+              error instanceof NativeOverlayApiError &&
+              error.code === "OVERLAY_NOT_FOUND"
+            ) {
+              rememberNativeOverlay(null);
+            }
             if (isCurrentAttempt()) {
               setNativeNotice(nativeOverlayErrorNotice(error));
             }

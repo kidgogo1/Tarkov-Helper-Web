@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   NativeOverlayApiError,
+  NATIVE_OVERLAY_HOTKEY_EVENT,
   attachNativeMiniMap,
   beginNativeOverlayClaim,
   detachNativeMiniMap,
+  fetchNativeOverlayEvents,
   fetchNativeOverlaySession,
+  pollNativeOverlayEvents,
   updateNativeMiniMap,
   type NativeOverlaySession,
 } from "../../src/services/native-overlay";
@@ -282,5 +285,272 @@ describe("native overlay API boundary", () => {
     expect(error).toBeInstanceOf(NativeOverlayApiError);
     expect(error).toMatchObject({ code: "AMBIGUOUS_WINDOW", status: 409 });
     expect((error as Error).message).not.toContain("secret");
+  });
+
+  it("reads an exact authenticated native event batch without a manual Origin header", async () => {
+    const controller = new AbortController();
+    const payload = {
+      protocolVersion: 1,
+      latestCursor: 9,
+      events: [
+        { cursor: 8, action: "ZOOM_IN" },
+        { cursor: 9, action: "ZOOM_OUT" },
+      ],
+    } as const;
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload));
+
+    await expect(fetchNativeOverlayEvents(
+      session,
+      7,
+      controller.signal,
+      request,
+    )).resolves.toEqual(payload);
+    expect(request).toHaveBeenCalledWith("/api/v1/native-overlay/events?after=7", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-Tarkov-Overlay": session.token,
+      },
+      signal: controller.signal,
+    });
+    const headers = request.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers).not.toHaveProperty("Origin");
+    expect(headers).not.toHaveProperty("Content-Type");
+  });
+
+  it.each([
+    {
+      protocolVersion: 1,
+      latestCursor: 0,
+      events: [],
+      extra: true,
+    },
+    {
+      protocolVersion: 1,
+      latestCursor: -1,
+      events: [],
+    },
+    {
+      protocolVersion: 1,
+      latestCursor: 1,
+      events: [],
+    },
+    {
+      protocolVersion: 1,
+      latestCursor: 1,
+      events: [{ cursor: 1, action: "ZOOM_IN", extra: true }],
+    },
+    {
+      protocolVersion: 1,
+      latestCursor: 1,
+      events: [{ cursor: 0, action: "ZOOM_IN" }],
+    },
+    {
+      protocolVersion: 1,
+      latestCursor: 2,
+      events: [
+        { cursor: 2, action: "ZOOM_IN" },
+        { cursor: 1, action: "ZOOM_OUT" },
+      ],
+    },
+    {
+      protocolVersion: 1,
+      latestCursor: 1,
+      events: [{ cursor: 1, action: "MOVE_WINDOW" }],
+    },
+  ])("rejects an invalid native event batch", async (payload) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload));
+    await expect(fetchNativeOverlayEvents(
+      session,
+      0,
+      undefined,
+      request,
+    )).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("rejects overlarge batches and an invalid cursor before it can affect polling", async () => {
+    const overlarge = {
+      protocolVersion: 1,
+      latestCursor: 101,
+      events: Array.from({ length: 101 }, (_, index) => ({
+        cursor: index + 1,
+        action: "ZOOM_IN",
+      })),
+    };
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(overlarge));
+
+    await expect(fetchNativeOverlayEvents(
+      session,
+      0,
+      undefined,
+      request,
+    )).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+
+    const untouchedRequest = vi.fn<typeof fetch>();
+    await expect(fetchNativeOverlayEvents(
+      session,
+      -1,
+      undefined,
+      untouchedRequest,
+    )).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    expect(untouchedRequest).not.toHaveBeenCalled();
+  });
+
+  it("polls from the latest cursor and converts each native action exactly once", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({
+          protocolVersion: 1,
+          latestCursor: 2,
+          events: [
+            { cursor: 1, action: "ZOOM_IN" },
+            { cursor: 2, action: "ZOOM_OUT" },
+          ],
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          protocolVersion: 1,
+          latestCursor: 2,
+          events: [],
+        }));
+      const target = new EventTarget();
+      const received: unknown[] = [];
+      target.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, (event) => {
+        received.push((event as CustomEvent).detail);
+      });
+      const controller = new AbortController();
+
+      const polling = pollNativeOverlayEvents(session, controller.signal, target, request);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(received).toEqual([
+        { protocolVersion: 1, action: "MINIMAP_ZOOM_IN" },
+        { protocolVersion: 1, action: "MINIMAP_ZOOM_OUT" },
+      ]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(request.mock.calls.map(([input]) => String(input))).toEqual([
+        "/api/v1/native-overlay/events?after=0",
+        "/api/v1/native-overlay/events?after=2",
+      ]);
+      expect(received).toHaveLength(2);
+
+      controller.abort();
+      await polling;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("recovers after a transient network failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn<typeof fetch>()
+        .mockRejectedValueOnce(new TypeError("temporary"))
+        .mockResolvedValueOnce(jsonResponse({
+          protocolVersion: 1,
+          latestCursor: 1,
+          events: [{ cursor: 1, action: "ZOOM_IN" }],
+        }));
+      const target = new EventTarget();
+      const listener = vi.fn();
+      target.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, listener);
+      const controller = new AbortController();
+      const polling = pollNativeOverlayEvents(
+        session,
+        controller.signal,
+        target,
+        request,
+      );
+
+      await vi.advanceTimersByTimeAsync(400);
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(listener).toHaveBeenCalledOnce();
+      expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+        protocolVersion: 1,
+        action: "MINIMAP_ZOOM_IN",
+      });
+
+      controller.abort();
+      await polling;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops after exhausting the bounded network retry budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("temporary"));
+      const controller = new AbortController();
+      const polling = pollNativeOverlayEvents(
+        session,
+        controller.signal,
+        new EventTarget(),
+        request,
+      );
+
+      await vi.runAllTimersAsync();
+      await polling;
+      expect(request).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts an in-flight poll without dispatching a stale event", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveRequest: ((response: Response) => void) | undefined;
+      const requestResponse = new Promise<Response>((resolve) => {
+        resolveRequest = resolve;
+      });
+      const request = vi.fn<typeof fetch>().mockReturnValue(requestResponse);
+      const target = new EventTarget();
+      const listener = vi.fn();
+      target.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, listener);
+      const controller = new AbortController();
+
+      const polling = pollNativeOverlayEvents(session, controller.signal, target, request);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(request).toHaveBeenCalledOnce();
+      expect(request.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+      controller.abort();
+      resolveRequest?.(jsonResponse({
+        protocolVersion: 1,
+        latestCursor: 1,
+        events: [{ cursor: 1, action: "ZOOM_IN" }],
+      }));
+      await polling;
+
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops dispatching the current batch as soon as polling is aborted", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+        protocolVersion: 1,
+        latestCursor: 2,
+        events: [
+          { cursor: 1, action: "ZOOM_IN" },
+          { cursor: 2, action: "ZOOM_OUT" },
+        ],
+      }));
+      const controller = new AbortController();
+      const target = new EventTarget();
+      const listener = vi.fn(() => controller.abort());
+      target.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, listener);
+
+      const polling = pollNativeOverlayEvents(session, controller.signal, target, request);
+      await vi.advanceTimersByTimeAsync(200);
+      await polling;
+
+      expect(listener).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
