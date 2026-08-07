@@ -9,15 +9,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  LocateFixed,
   MousePointer2,
-  Minus,
   Navigation,
   Pin,
-  Plus,
-  RotateCcw,
-  Scan,
-  X,
 } from "lucide-react";
 
 import { useAppStore } from "../../app/store";
@@ -41,6 +35,11 @@ import "../../styles/minimap.css";
 
 const MINI_MAP_SIZE = 300;
 const ZOOM_STEP = 0.1;
+const NATIVE_HOTKEY_EVENT = "tarkov-helper:native-hotkey";
+
+type NativeMiniMapHotkeyAction =
+  | "MINIMAP_ZOOM_IN"
+  | "MINIMAP_ZOOM_OUT";
 
 interface DocumentPictureInPictureController {
   requestWindow: (options: { width: number; height: number }) => Promise<Window>;
@@ -151,7 +150,6 @@ function clampMapTranslation(
 
 interface MiniMapSurfaceProps extends MapMiniMapProps {
   nativeOverlayMode?: NativeOverlayMode;
-  onClose: () => void;
   presentation: MiniMapPresentation;
   viewport: MiniMapViewport;
 }
@@ -164,6 +162,35 @@ interface PanGesture {
   startOffsetY: number;
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  const candidate = target as { matches?: unknown } | null;
+  return typeof candidate?.matches === "function" &&
+    (candidate.matches as (selector: string) => boolean)(
+      "input, select, textarea, [contenteditable]:not([contenteditable='false'])",
+    );
+}
+
+function nativeHotkeyAction(event: Event): NativeMiniMapHotkeyAction | undefined {
+  if (!(event instanceof CustomEvent)) return undefined;
+  const detail: unknown = event.detail;
+  if (typeof detail !== "object" || detail === null || Array.isArray(detail)) {
+    return undefined;
+  }
+  const record = detail as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (
+    keys.length !== 2 ||
+    !keys.includes("protocolVersion") ||
+    !keys.includes("action") ||
+    record.protocolVersion !== 1
+  ) {
+    return undefined;
+  }
+  return record.action === "MINIMAP_ZOOM_IN" || record.action === "MINIMAP_ZOOM_OUT"
+    ? record.action
+    : undefined;
+}
+
 function MiniMapSurface({
   config,
   orderedFloors,
@@ -171,14 +198,15 @@ function MiniMapSurface({
   player,
   playerMarkerSize,
   nativeOverlayMode,
-  onClose,
   presentation,
   viewport,
 }: MiniMapSurfaceProps) {
   const { settings, updateMapSettings } = useAppStore();
   const mapSettings = settings.map;
+  const surfaceRef = useRef<HTMLElement>(null);
   const mapObjectRef = useRef<HTMLObjectElement>(null);
   const panGestureRef = useRef<PanGesture | null>(null);
+  const zoomRef = useRef(mapSettings.miniMapZoom);
   const mapWidth = Math.max(1, config.imageWidth);
   const mapHeight = Math.max(1, config.imageHeight);
   const viewportWidth = Math.max(1, viewport.width);
@@ -218,6 +246,51 @@ function MiniMapSurface({
     : getMapDirectionAngle(player.angle, config.key, config.mapRotation);
   const markerSize = Math.max(1, playerMarkerSize)
     * mapSettings.miniMapPlayerMarkerScale;
+
+  useEffect(() => {
+    zoomRef.current = mapSettings.miniMapZoom;
+  }, [mapSettings.miniMapZoom]);
+
+  const zoomBy = useCallback((direction: -1 | 1) => {
+    const nextZoom = Math.min(4, Math.max(0.01, zoomRef.current + direction * ZOOM_STEP));
+    zoomRef.current = nextZoom;
+    updateMapSettings({ miniMapZoom: nextZoom });
+  }, [updateMapSettings]);
+
+  useEffect(() => {
+    const surfaceDocument = surfaceRef.current?.ownerDocument;
+    if (!surfaceDocument) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        isEditableTarget(event.target)
+      ) {
+        return;
+      }
+      const zoomIn = event.key === "+" || event.code === "NumpadAdd" ||
+        (event.code === "Equal" && event.shiftKey);
+      const zoomOut = event.key === "-" || event.code === "Minus" ||
+        event.code === "NumpadSubtract";
+      if (!zoomIn && !zoomOut) return;
+      event.preventDefault();
+      zoomBy(zoomIn ? 1 : -1);
+    };
+    surfaceDocument.addEventListener("keydown", handleKeyDown);
+    return () => surfaceDocument.removeEventListener("keydown", handleKeyDown);
+  }, [zoomBy]);
+
+  useEffect(() => {
+    const handleNativeHotkey = (event: Event) => {
+      const action = nativeHotkeyAction(event);
+      if (!action) return;
+      zoomBy(action === "MINIMAP_ZOOM_IN" ? 1 : -1);
+    };
+    window.addEventListener(NATIVE_HOTKEY_EVENT, handleNativeHotkey);
+    return () => window.removeEventListener(NATIVE_HOTKEY_EVENT, handleNativeHotkey);
+  }, [zoomBy]);
 
   const syncFloor = useCallback(() => {
     try {
@@ -326,9 +399,11 @@ function MiniMapSurface({
 
   return (
     <section
+      aria-keyshortcuts="Alt+Shift+= Alt+-"
       aria-label={`${config.displayName} 미니맵`}
       className={`map-minimap map-minimap--${presentation}`}
       data-native-overlay={nativeOverlayMode ?? undefined}
+      ref={surfaceRef}
       role="dialog"
       style={rootStyle}
     >
@@ -377,106 +452,6 @@ function MiniMapSurface({
         </div>
       </div>
 
-      <header className="map-minimap-header">
-        <strong>{config.displayName}</strong>
-        <div className="map-minimap-actions">
-          <button
-            aria-label={tracking ? "고정 뷰로 전환" : "플레이어 추적 뷰로 전환"}
-            className="map-minimap-icon-button"
-            onClick={() => updateMapSettings({
-              miniMapViewMode: tracking ? "fixed" : "playerTracking",
-            })}
-            title={tracking ? "고정 뷰로 전환" : "플레이어 추적 뷰로 전환"}
-            type="button"
-          >
-            {tracking ? <Scan aria-hidden="true" /> : <LocateFixed aria-hidden="true" />}
-          </button>
-          <button
-            aria-label="미니맵 축소"
-            className="map-minimap-icon-button"
-            onClick={() => updateMapSettings({
-              miniMapZoom: mapSettings.miniMapZoom - ZOOM_STEP,
-            })}
-            type="button"
-          >
-            <Minus aria-hidden="true" />
-          </button>
-          <span className="map-minimap-zoom" aria-label="미니맵 확대율">
-            {Math.round(mapSettings.miniMapZoom * 100)}%
-          </span>
-          <button
-            aria-label="미니맵 확대"
-            className="map-minimap-icon-button"
-            onClick={() => updateMapSettings({
-              miniMapZoom: mapSettings.miniMapZoom + ZOOM_STEP,
-            })}
-            type="button"
-          >
-            <Plus aria-hidden="true" />
-          </button>
-          <button
-            aria-label="미니맵 위치 초기화"
-            className="map-minimap-icon-button"
-            disabled={
-              mapSettings.miniMapOffsetX === 0 &&
-              mapSettings.miniMapOffsetY === 0
-            }
-            onClick={() => updateMapSettings({
-              miniMapOffsetX: 0,
-              miniMapOffsetY: 0,
-            })}
-            type="button"
-          >
-            <RotateCcw aria-hidden="true" />
-          </button>
-          <button
-            aria-label="미니맵 닫기"
-            className="map-minimap-icon-button"
-            onClick={onClose}
-            type="button"
-          >
-            <X aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-
-      <details className="map-minimap-settings">
-        <summary>표시 설정</summary>
-        <label>
-          <span>투명도 {Math.round(mapSettings.miniMapOpacity * 100)}%</span>
-          <input
-            aria-label="미니맵 투명도"
-            max="100"
-            min="10"
-            onChange={(event) => updateMapSettings({
-              miniMapOpacity: Number(event.currentTarget.value) / 100,
-            })}
-            type="range"
-            value={Math.round(mapSettings.miniMapOpacity * 100)}
-          />
-        </label>
-        <label>
-          <span>
-            플레이어 크기 {Math.round(mapSettings.miniMapPlayerMarkerScale * 100)}%
-          </span>
-          <input
-            aria-label="미니맵 플레이어 크기"
-            max="300"
-            min="50"
-            onChange={(event) => updateMapSettings({
-              miniMapPlayerMarkerScale: Number(event.currentTarget.value) / 100,
-            })}
-            type="range"
-            value={Math.round(mapSettings.miniMapPlayerMarkerScale * 100)}
-          />
-        </label>
-      </details>
-
-      <p className="map-minimap-browser-note">
-        {nativeOverlayMode
-          ? "오버레이 위치와 클릭 통과는 메인 지도에서 언제든 해제할 수 있습니다."
-          : "고정 뷰: 가운데 버튼 드래그 · 클릭 투과와 전역 단축키는 브라우저에서 지원하지 않습니다."}
-      </p>
     </section>
   );
 }
@@ -925,7 +900,6 @@ export function MapMiniMap(props: MapMiniMapProps) {
           ) : null}
           <MiniMapSurface
             {...props}
-            onClose={() => void closeMiniMap()}
             presentation="fallback"
             viewport={{ width: MINI_MAP_SIZE, height: MINI_MAP_SIZE }}
           />
@@ -936,7 +910,6 @@ export function MapMiniMap(props: MapMiniMapProps) {
             <MiniMapSurface
               {...props}
               nativeOverlayMode={nativeOverlay?.mode}
-              onClose={() => void closeMiniMap()}
               presentation="pip"
               viewport={pictureInPicture.viewport}
             />,

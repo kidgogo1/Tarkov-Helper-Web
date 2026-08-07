@@ -109,6 +109,31 @@
   border-top: 1px solid var(--line);
 }
 
+.settings-option-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.settings-option-panel legend {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.settings-option-panel .settings-help,
+.settings-option-panel .settings-grid {
+  margin-bottom: 0;
+}
+
+.settings-option-actions {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+}
+
 .file-drop-card {
   display: grid;
   min-height: 240px;

@@ -2,12 +2,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { StrictMode, type PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppStoreProvider } from "../../src/app/store";
+import { APP_STATE_STORAGE_KEY, AppStoreProvider, createDefaultState } from "../../src/app/store";
 import {
   MapMiniMap,
   type MapMiniMapPlayer,
 } from "../../src/features/map/MapMiniMap";
 import type { MapConfig } from "../../src/types/data";
+import type { MapDisplaySettings } from "../../src/types/state";
 
 const config: MapConfig = {
   key: "Customs",
@@ -42,6 +43,12 @@ function renderMiniMap(currentPlayer: MapMiniMapPlayer | undefined = player) {
     />,
     { wrapper: StoreWrapper },
   );
+}
+
+function persistMapSettings(patch: Partial<MapDisplaySettings>) {
+  const state = createDefaultState();
+  Object.assign(state.settings.map, patch);
+  window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
 }
 
 interface FakePictureInPictureWindow {
@@ -205,6 +212,9 @@ describe("MapMiniMap", () => {
     await waitFor(() => expect(requestWindow).toHaveBeenCalledWith({ width: 300, height: 300 }));
     const pipDialog = within(pipWindow.document.body).getByRole("dialog", { name: "Customs 미니맵" });
     expect(pipDialog).toHaveClass("map-minimap--pip");
+    expect(pipDialog.querySelector(".map-minimap-header")).not.toBeInTheDocument();
+    expect(pipDialog.querySelector(".map-minimap-settings")).not.toBeInTheDocument();
+    expect(pipDialog.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
     const pipWorld = within(pipWindow.document.body).getByTestId("map-minimap-world");
     expect(pipWorld.style.transform).toBe("translate(275px, 90px) scale(0.45)");
 
@@ -266,13 +276,82 @@ describe("MapMiniMap", () => {
     );
   });
 
+  it("starts as a clean overlay without internal top or bottom chrome", async () => {
+    renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    await screen.findByTestId("map-minimap-fallback");
+    expect(document.querySelector(".map-minimap-header")).not.toBeInTheDocument();
+    expect(document.querySelector(".map-minimap-settings")).not.toBeInTheDocument();
+    expect(document.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
+  });
+
+  it("zooms with Alt plus and Alt minus while the fallback has focus", async () => {
+    renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const world = await screen.findByTestId("map-minimap-world");
+
+    const zoomIn = new KeyboardEvent("keydown", {
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+      code: "Equal",
+      key: "+",
+      shiftKey: true,
+    });
+    fireEvent(document, zoomIn);
+    expect(zoomIn.defaultPrevented).toBe(true);
+    expect(world.style.transform).toBe("translate(117px, 84px) scale(0.33)");
+
+    const zoomOut = new KeyboardEvent("keydown", {
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+      code: "Minus",
+      key: "-",
+    });
+    fireEvent(document, zoomOut);
+    expect(zoomOut.defaultPrevented).toBe(true);
+    expect(world.style.transform).toBe("translate(120px, 90px) scale(0.3)");
+
+    fireEvent.keyDown(document, { key: "+", code: "Equal" });
+    expect(world.style.transform).toBe("translate(120px, 90px) scale(0.3)");
+  });
+
+  it("handles Alt zoom in the PiP document and validated native hotkey events", async () => {
+    const pipWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
+    });
+    renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const pipWorld = await within(pipWindow.document.body).findByTestId("map-minimap-world");
+
+    fireEvent.keyDown(pipWindow.document, {
+      altKey: true,
+      code: "NumpadAdd",
+      key: "+",
+    });
+    expect(pipWorld.style.transform).toBe("translate(117px, 84px) scale(0.33)");
+
+    act(() => window.dispatchEvent(new CustomEvent("tarkov-helper:native-hotkey", {
+      detail: { protocolVersion: 1, action: "MINIMAP_ZOOM_OUT" },
+    })));
+    expect(pipWorld.style.transform).toBe("translate(120px, 90px) scale(0.3)");
+
+    act(() => window.dispatchEvent(new CustomEvent("tarkov-helper:native-hotkey", {
+      detail: { protocolVersion: 2, action: "MINIMAP_ZOOM_IN" },
+    })));
+    expect(pipWorld.style.transform).toBe("translate(120px, 90px) scale(0.3)");
+  });
+
   it("follows position updates in tracking mode but keeps the map fixed in fixed mode", async () => {
-    const view = renderMiniMap();
+    const trackingView = renderMiniMap();
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
     const world = await screen.findByTestId("map-minimap-world");
     const trackingTransform = world.style.transform;
 
-    view.rerender(
+    trackingView.rerender(
       <MapMiniMap
         config={config}
         orderedFloors={config.floors}
@@ -282,10 +361,14 @@ describe("MapMiniMap", () => {
       />,
     );
     expect(world.style.transform).not.toBe(trackingTransform);
+    trackingView.unmount();
 
-    fireEvent.click(screen.getByRole("button", { name: "고정 뷰로 전환" }));
-    const fixedTransform = world.style.transform;
-    view.rerender(
+    persistMapSettings({ miniMapViewMode: "fixed" });
+    const fixedView = renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const fixedWorld = await screen.findByTestId("map-minimap-world");
+    const fixedTransform = fixedWorld.style.transform;
+    fixedView.rerender(
       <MapMiniMap
         config={config}
         orderedFloors={config.floors}
@@ -294,18 +377,16 @@ describe("MapMiniMap", () => {
         selectedFloor="main"
       />,
     );
-    expect(world).toHaveAttribute("data-view-mode", "fixed");
-    expect(world.style.transform).toBe(fixedTransform);
+    expect(fixedWorld).toHaveAttribute("data-view-mode", "fixed");
+    expect(fixedWorld.style.transform).toBe(fixedTransform);
   });
 
-  it("pans fixed view with a middle-button pointer drag, ignores offsets while tracking, and resets the saved offset", async () => {
+  it("pans fixed view with a middle-button pointer drag", async () => {
+    persistMapSettings({ miniMapViewMode: "fixed" });
     renderMiniMap();
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
     const world = await screen.findByTestId("map-minimap-world");
     const stage = screen.getByTestId("map-minimap-stage");
-    const trackingTransform = world.style.transform;
-
-    fireEvent.click(screen.getByRole("button", { name: "고정 뷰로 전환" }));
     const centeredFixedTransform = world.style.transform;
     fireEvent.pointerDown(stage, {
       button: 1,
@@ -322,20 +403,12 @@ describe("MapMiniMap", () => {
     });
     fireEvent.pointerUp(stage, { button: 1, pointerId: 7 });
     expect(world.style.transform).not.toBe(centeredFixedTransform);
-
-    fireEvent.click(screen.getByRole("button", { name: "플레이어 추적 뷰로 전환" }));
-    expect(world.style.transform).toBe(trackingTransform);
-
-    fireEvent.click(screen.getByRole("button", { name: "고정 뷰로 전환" }));
-    expect(world.style.transform).not.toBe(centeredFixedTransform);
-    fireEvent.click(screen.getByRole("button", { name: "미니맵 위치 초기화" }));
-    expect(world.style.transform).toBe(centeredFixedTransform);
   });
 
   it("keeps at least one quarter of the map visible after an extreme fixed-view pan", async () => {
+    persistMapSettings({ miniMapViewMode: "fixed" });
     renderMiniMap();
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
-    fireEvent.click(screen.getByRole("button", { name: "고정 뷰로 전환" }));
     const world = await screen.findByTestId("map-minimap-world");
     const stage = screen.getByTestId("map-minimap-stage");
 
@@ -369,7 +442,7 @@ describe("MapMiniMap", () => {
     });
     expect(screen.queryByTestId("player-trail")).not.toBeInTheDocument();
     expect(screen.queryByText(/퀘스트|탈출구/)).not.toBeInTheDocument();
-    expect(screen.getByText(/클릭 투과와 전역 단축키는 브라우저에서 지원하지 않습니다/)).toBeInTheDocument();
+    expect(document.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
   });
 
   it("claims the PiP before opening, applies a 300px locked overlay, and keeps click-through controls on the main page", async () => {
