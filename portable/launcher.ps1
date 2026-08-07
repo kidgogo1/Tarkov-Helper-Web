@@ -895,16 +895,26 @@ namespace TarkovHelper {
             return dpi == 0 ? 96u : dpi;
         }
 
+        public static int DipsToPixelsAtDpi(int value, uint dpi) {
+            if (dpi == 0) throw new ArgumentOutOfRangeException("dpi");
+            return checked((int)Math.Round(value * dpi / 96.0, MidpointRounding.AwayFromZero));
+        }
+
+        public static int PixelsToDipsAtDpi(int value, uint dpi) {
+            if (dpi == 0) throw new ArgumentOutOfRangeException("dpi");
+            return checked((int)Math.Round(value * 96.0 / dpi, MidpointRounding.AwayFromZero));
+        }
+
         public static int DipsToPixels(long handle, int value) {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
-            return checked((int)Math.Round(value * ReadDpi(window) / 96.0, MidpointRounding.AwayFromZero));
+            return DipsToPixelsAtDpi(value, ReadDpi(window));
         }
 
         public static int PixelsToDips(long handle, int value) {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
-            return checked((int)Math.Round(value * 96.0 / ReadDpi(window), MidpointRounding.AwayFromZero));
+            return PixelsToDipsAtDpi(value, ReadDpi(window));
         }
 
         public static NativePointInfo ScreenPointToDips(long handle, int x, int y) {
@@ -921,14 +931,8 @@ namespace TarkovHelper {
             // absolute screen coordinate. Preserve the selected monitor origin
             // (including negative origins), and scale only the monitor-local
             // offset so left/top use the same DIP distance unit as width/height.
-            int logicalX = checked(information.Monitor.Left + (int)Math.Round(
-                (x - information.Monitor.Left) * 96.0 / dpi,
-                MidpointRounding.AwayFromZero
-            ));
-            int logicalY = checked(information.Monitor.Top + (int)Math.Round(
-                (y - information.Monitor.Top) * 96.0 / dpi,
-                MidpointRounding.AwayFromZero
-            ));
+            int logicalX = checked(information.Monitor.Left + PixelsToDipsAtDpi(x - information.Monitor.Left, dpi));
+            int logicalY = checked(information.Monitor.Top + PixelsToDipsAtDpi(y - information.Monitor.Top, dpi));
             return new NativePointInfo { X = logicalX, Y = logicalY };
         }
 
@@ -1237,6 +1241,30 @@ namespace TarkovHelper {
                 rect.Bottom - rect.Top == height;
         }
 
+        private static void SetConvergencePosition(
+            IntPtr window,
+            long style,
+            long exStyle,
+            int left,
+            int top,
+            int width,
+            int height
+        ) {
+            WriteWindowLong(window, StyleIndex, style);
+            WriteWindowLong(window, ExStyleIndex, exStyle);
+            if (!SetWindowPos(window, new IntPtr(-1), left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            long effectiveExStyleMask = ~WindowEdge;
+            if (
+                ReadWindowLong(window, StyleIndex) != style ||
+                (ReadWindowLong(window, ExStyleIndex) & effectiveExStyleMask) !=
+                    (exStyle & effectiveExStyleMask)
+            ) {
+                throw new InvalidOperationException("The overlay window rejected its requested style.");
+            }
+        }
+
         public static NativeWindowInfo[] EnumerateWindows() {
             var windows = new List<NativeWindowInfo>();
             EnumWindows(delegate(IntPtr window, IntPtr parameter) {
@@ -1355,7 +1383,8 @@ namespace TarkovHelper {
             }
         }
 
-        public static void ApplyCropped(
+        private static NativeContentInfo ConvergeContent(
+            IntPtr window,
             long handle,
             long style,
             long exStyle,
@@ -1364,8 +1393,51 @@ namespace TarkovHelper {
             int visibleWidth,
             int visibleHeight
         ) {
+            NativeContentInfo content = WaitForContent(handle);
+            if (content == null) throw new InvalidOperationException("A unique stable browser content surface was not found.");
+            for (int attempt = 0; attempt < 5; attempt++) {
+                Rect outer;
+                if (!GetWindowRect(window, out outer)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                int outerWidth = outer.Right - outer.Left;
+                int outerHeight = outer.Bottom - outer.Top;
+                int nextLeft = checked(outer.Left + visibleLeft - content.Left);
+                int nextTop = checked(outer.Top + visibleTop - content.Top);
+                int nextWidth = checked(outerWidth + visibleWidth - content.Width);
+                int nextHeight = checked(outerHeight + visibleHeight - content.Height);
+                if (nextWidth <= 0 || nextHeight <= 0) {
+                    throw new InvalidOperationException("The browser content geometry is invalid.");
+                }
+                // A PMv2 window can accept SetWindowPos and then adjust its physical
+                // rectangle while processing WM_DPICHANGED. Keep style verification
+                // strict, but let the measured content drive the next bounded pass.
+                SetConvergencePosition(window, style, exStyle, nextLeft, nextTop, nextWidth, nextHeight);
+                content = WaitForContent(handle);
+                if (content == null) throw new InvalidOperationException("The browser content surface became ambiguous.");
+                if (
+                    content.Left == visibleLeft && content.Top == visibleTop &&
+                    content.Width == visibleWidth && content.Height == visibleHeight
+                ) return content;
+                if (attempt == 4) {
+                    throw new InvalidOperationException("The browser content surface did not converge to the requested bounds.");
+                }
+            }
+            throw new InvalidOperationException("The browser content surface did not converge.");
+        }
+
+        public static NativeContentInfo ApplyCroppedDips(
+            long handle,
+            long style,
+            long exStyle,
+            int visibleLeft,
+            int visibleTop,
+            int visibleWidthDips,
+            int visibleHeightDips
+        ) {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            if (visibleWidthDips <= 0 || visibleHeightDips <= 0) {
+                throw new ArgumentOutOfRangeException("visibleWidthDips");
+            }
             long previousStyle = ReadWindowLong(window, StyleIndex);
             long previousExStyle = ReadWindowLong(window, ExStyleIndex);
             Rect previousRect;
@@ -1374,39 +1446,70 @@ namespace TarkovHelper {
             }
             byte[] previousRegionData = CaptureRegionData(window);
             try {
-                NativeContentInfo content = WaitForContent(handle);
-                if (content == null) throw new InvalidOperationException("A unique stable browser content surface was not found.");
-                for (int attempt = 0; attempt < 5; attempt++) {
-                    Rect outer;
-                    if (!GetWindowRect(window, out outer)) throw new Win32Exception(Marshal.GetLastWin32Error());
-                    int outerWidth = outer.Right - outer.Left;
-                    int outerHeight = outer.Bottom - outer.Top;
-                    int nextLeft = checked(outer.Left + visibleLeft - content.Left);
-                    int nextTop = checked(outer.Top + visibleTop - content.Top);
-                    int nextWidth = checked(outerWidth + visibleWidth - content.Width);
-                    int nextHeight = checked(outerHeight + visibleHeight - content.Height);
-                    if (nextWidth <= 0 || nextHeight <= 0) {
-                        throw new InvalidOperationException("The browser content geometry is invalid.");
+                var observedDpiStates = new HashSet<string>(StringComparer.Ordinal);
+                for (int dpiAttempt = 0; dpiAttempt < 5; dpiAttempt++) {
+                    uint targetDpi = ReadDpi(window);
+                    int targetWidth = DipsToPixelsAtDpi(visibleWidthDips, targetDpi);
+                    int targetHeight = DipsToPixelsAtDpi(visibleHeightDips, targetDpi);
+                    NativeContentInfo content = ConvergeContent(
+                        window,
+                        handle,
+                        style,
+                        exStyle,
+                        visibleLeft,
+                        visibleTop,
+                        targetWidth,
+                        targetHeight
+                    );
+                    uint appliedDpi = ReadDpi(window);
+                    int appliedTargetWidth = DipsToPixelsAtDpi(visibleWidthDips, appliedDpi);
+                    int appliedTargetHeight = DipsToPixelsAtDpi(visibleHeightDips, appliedDpi);
+                    string state;
+                    if (content.Width == appliedTargetWidth && content.Height == appliedTargetHeight) {
+                        Rect finalOuter;
+                        if (!GetWindowRect(window, out finalOuter)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                        int regionLeft = checked(content.Left - finalOuter.Left);
+                        int regionTop = checked(content.Top - finalOuter.Top);
+                        AssignRectRegion(window, regionLeft, regionTop, content.Width, content.Height);
+                        NativeContentInfo verified = WaitForContent(handle);
+                        uint verifiedDpi = ReadDpi(window);
+                        Rect verifiedOuter;
+                        if (!GetWindowRect(window, out verifiedOuter)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                        int verifiedTargetWidth = DipsToPixelsAtDpi(visibleWidthDips, verifiedDpi);
+                        int verifiedTargetHeight = DipsToPixelsAtDpi(visibleHeightDips, verifiedDpi);
+                        int verifiedRegionLeft = verified == null ? 0 : checked(verified.Left - verifiedOuter.Left);
+                        int verifiedRegionTop = verified == null ? 0 : checked(verified.Top - verifiedOuter.Top);
+                        if (
+                            verified != null &&
+                            verified.Left == visibleLeft && verified.Top == visibleTop &&
+                            verified.Width == content.Width && verified.Height == content.Height &&
+                            verified.Width == verifiedTargetWidth && verified.Height == verifiedTargetHeight &&
+                            MatchesRectRegion(
+                                window,
+                                verifiedRegionLeft,
+                                verifiedRegionTop,
+                                verified.Width,
+                                verified.Height
+                            )
+                        ) {
+                            return verified;
+                        }
+                        state = "region:" + targetDpi.ToString() + ":" + appliedDpi.ToString() + ":" +
+                            verifiedDpi.ToString() + ":" + (verified == null ? "ambiguous" :
+                                verified.Width.ToString() + ":" + verified.Height.ToString());
+                        // The region was sized in the previous physical coordinate
+                        // system. Restore the pre-operation region before measuring
+                        // the next DPI-adjusted geometry pass.
+                        AssignRegion(window, previousRegionData);
+                    } else {
+                        state = "content:" + targetDpi.ToString() + ":" + appliedDpi.ToString() + ":" +
+                            content.Width.ToString() + ":" + content.Height.ToString();
                     }
-                    SetPosition(window, style, exStyle, nextLeft, nextTop, nextWidth, nextHeight, true);
-                    content = WaitForContent(handle);
-                    if (content == null) throw new InvalidOperationException("The browser content surface became ambiguous.");
-                    if (
-                        content.Left == visibleLeft && content.Top == visibleTop &&
-                        content.Width == visibleWidth && content.Height == visibleHeight
-                    ) break;
-                    if (attempt == 4) {
-                        throw new InvalidOperationException("The browser content surface did not converge to the requested bounds.");
+                    if (!observedDpiStates.Add(state)) {
+                        throw new InvalidOperationException("The overlay DPI transition did not converge.");
                     }
                 }
-                Rect finalOuter;
-                if (!GetWindowRect(window, out finalOuter)) throw new Win32Exception(Marshal.GetLastWin32Error());
-                int regionLeft = checked(visibleLeft - finalOuter.Left);
-                int regionTop = checked(visibleTop - finalOuter.Top);
-                AssignRectRegion(window, regionLeft, regionTop, visibleWidth, visibleHeight);
-                if (!MatchesRectRegion(window, regionLeft, regionTop, visibleWidth, visibleHeight)) {
-                    throw new InvalidOperationException("The overlay window rejected its cropped region.");
-                }
+                throw new InvalidOperationException("The overlay DPI transition exceeded its retry limit.");
             } catch (Exception applyError) {
                 if (!IsWindow(window)) throw;
                 try {
@@ -1779,8 +1882,6 @@ function Set-NativeOverlayMode {
         }
     }
     if ($null -ne $Width -and $null -ne $Height) {
-        $nextVisibleRect.width = [TarkovHelper.NativeOverlayBridge]::DipsToPixels($record.handle, [int]$Width)
-        $nextVisibleRect.height = [TarkovHelper.NativeOverlayBridge]::DipsToPixels($record.handle, [int]$Height)
         $nextBoundsDip.width = [int]$Width
         $nextBoundsDip.height = [int]$Height
     }
@@ -1803,15 +1904,26 @@ function Set-NativeOverlayMode {
     } else {
         $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00080020)
     }
-    [TarkovHelper.NativeOverlayBridge]::ApplyCropped(
+    $appliedContent = [TarkovHelper.NativeOverlayBridge]::ApplyCroppedDips(
         $record.handle,
         $pinnedStyle,
         $pinnedExStyle,
         $nextVisibleRect.left,
         $nextVisibleRect.top,
-        $nextVisibleRect.width,
-        $nextVisibleRect.height
+        $nextBoundsDip.width,
+        $nextBoundsDip.height
     )
+    $nextVisibleRect.left = [int]$appliedContent.Left
+    $nextVisibleRect.top = [int]$appliedContent.Top
+    $nextVisibleRect.width = [int]$appliedContent.Width
+    $nextVisibleRect.height = [int]$appliedContent.Height
+    $appliedTopLeftDip = [TarkovHelper.NativeOverlayBridge]::ScreenPointToDips(
+        $record.handle,
+        $nextVisibleRect.left,
+        $nextVisibleRect.top
+    )
+    $nextBoundsDip.left = [int]$appliedTopLeftDip.X
+    $nextBoundsDip.top = [int]$appliedTopLeftDip.Y
     $record.lockedVisibleRect = $nextVisibleRect
     $record.lockedBoundsDip = $nextBoundsDip
     $record.mode = $Mode

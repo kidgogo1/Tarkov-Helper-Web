@@ -250,6 +250,48 @@ function dipsToPixels(value, dpi) {
   return scaleAwayFromZero((value * dpi) / 96);
 }
 
+test("native overlay recomputes requested DIP bounds after a DPI transition", { skip: process.platform !== "win32" }, async (t) => {
+  const launcherSource = await readFile(launcherPath, "utf8");
+  const bridgeSource = launcherSource.match(/Add-Type -TypeDefinition @'\r?\n([\s\S]*?)\r?\n'@/)?.[1];
+  assert(bridgeSource, "Expected the native overlay C# bridge in launcher.ps1");
+
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-native-dpi-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const sourcePath = path.join(temporaryRoot, "NativeOverlayBridge.cs");
+  const probePath = path.join(temporaryRoot, "probe.ps1");
+  await writeFile(sourcePath, bridgeSource, "utf8");
+  await writeFile(
+    probePath,
+    String.raw`$source = Get-Content -Raw -LiteralPath $args[0]
+Add-Type -TypeDefinition $source
+$result = [ordered]@{
+    at100 = [TarkovHelper.NativeOverlayBridge]::DipsToPixelsAtDpi(300, 96)
+    at200 = [TarkovHelper.NativeOverlayBridge]::DipsToPixelsAtDpi(300, 192)
+    backToDips = [TarkovHelper.NativeOverlayBridge]::PixelsToDipsAtDpi(600, 192)
+}
+$result | ConvertTo-Json -Compress`,
+    "utf8",
+  );
+
+  const probe = spawnSync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", probePath, sourcePath],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(probe.status, 0, probe.stderr || probe.stdout);
+  assert.deepEqual(JSON.parse(probe.stdout.trim()), {
+    at100: 300,
+    at200: 600,
+    backToDips: 300,
+  });
+
+  assert.match(
+    launcherSource,
+    /::ApplyCroppedDips\([\s\S]*?\$nextBoundsDip\.width,[\s\S]*?\$nextBoundsDip\.height[\s\S]*?\)/,
+    "The live PowerShell path must pass requested DIPs into the bounded native reconvergence loop",
+  );
+});
+
 async function compileSyntheticBrowser(temporaryRoot) {
   const sourcePath = path.join(temporaryRoot, "SyntheticBrowser.cs");
   const compilePath = path.join(temporaryRoot, "compile.ps1");
