@@ -1,11 +1,15 @@
 [CmdletBinding()]
 param(
+    [ValidateSet("Start", "Serve", "Stop")]
+    [string]$Action = "Serve",
     [string]$Root,
     [ValidateRange(0, 65535)]
     [int]$Port = 41753,
     [switch]$NoBrowser,
     [ValidateRange(0, 2147483647)]
-    [int]$MaxRequests = 0
+    [int]$MaxRequests = 0,
+    [string]$ScreenshotFolder,
+    [string]$StateDirectory
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +17,171 @@ $healthPath = "/.tarkov-helper-portable"
 
 if ([string]::IsNullOrWhiteSpace($Root)) {
     $Root = Join-Path $PSScriptRoot "app"
+}
+
+if ([string]::IsNullOrWhiteSpace($StateDirectory)) {
+    $StateDirectory = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) "TarkovHelperWeb"
+}
+
+$trackerProtocolVersion = 1
+$trackerEventLimit = 100
+$trackerDebounceMilliseconds = 500
+$trackerEvents = New-Object 'Collections.Generic.List[object]'
+$trackerLatestCursor = [long]0
+$screenshotWatcher = $null
+$screenshotWatcherSources = @()
+$screenshotPendingFiles = @{}
+$screenshotWatcherState = [pscustomobject]@{ state = "NOT_FOUND" }
+
+function Get-ScreenshotCandidates {
+    $paths = New-Object 'Collections.Generic.List[string]'
+    $knownPaths = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $gameFolders = @("Escape from Tarkov", "Escape From Tarkov", "escape from tarkov")
+    $documentFolders = @("Documents", "문서", "My Documents")
+
+    function Add-Candidate {
+        param([string]$Candidate)
+        if (-not [string]::IsNullOrWhiteSpace($Candidate)) {
+            try {
+                $normalized = [IO.Path]::GetFullPath($Candidate)
+                if ($knownPaths.Add($normalized)) {
+                    $paths.Add($normalized)
+                }
+            } catch {
+                # Ignore malformed environment-derived candidates.
+            }
+        }
+    }
+
+    $documents = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
+    foreach ($gameFolder in $gameFolders) {
+        Add-Candidate (Join-Path (Join-Path $documents $gameFolder) "Screenshots")
+    }
+
+    $userProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    foreach ($documentFolder in $documentFolders) {
+        foreach ($gameFolder in $gameFolders) {
+            Add-Candidate (Join-Path (Join-Path (Join-Path $userProfile $documentFolder) $gameFolder) "Screenshots")
+        }
+    }
+
+    foreach ($oneDriveVariable in @("OneDrive", "OneDriveConsumer", "OneDriveCommercial")) {
+        $oneDrive = [Environment]::GetEnvironmentVariable($oneDriveVariable)
+        if ([string]::IsNullOrWhiteSpace($oneDrive)) { continue }
+        foreach ($documentFolder in $documentFolders) {
+            foreach ($gameFolder in $gameFolders) {
+                Add-Candidate (Join-Path (Join-Path (Join-Path $oneDrive $documentFolder) $gameFolder) "Screenshots")
+            }
+        }
+        foreach ($gameFolder in $gameFolders) {
+            Add-Candidate (Join-Path (Join-Path $oneDrive $gameFolder) "Screenshots")
+        }
+    }
+
+    return $paths.ToArray()
+}
+
+function Stop-ScreenshotWatcher {
+    foreach ($source in $script:screenshotWatcherSources) {
+        Get-Event -SourceIdentifier $source -ErrorAction SilentlyContinue | Remove-Event -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $source -ErrorAction SilentlyContinue
+    }
+    $script:screenshotWatcherSources = @()
+    $script:screenshotPendingFiles.Clear()
+    if ($null -ne $script:screenshotWatcher) {
+        $script:screenshotWatcher.EnableRaisingEvents = $false
+        $script:screenshotWatcher.Dispose()
+        $script:screenshotWatcher = $null
+    }
+}
+
+function Start-ScreenshotWatcher {
+    Stop-ScreenshotWatcher
+
+    try {
+        $selectedFolder = $null
+        if (-not [string]::IsNullOrWhiteSpace($ScreenshotFolder)) {
+            $selectedFolder = [IO.Path]::GetFullPath($ScreenshotFolder)
+        } else {
+            $selectedFolder = Get-ScreenshotCandidates | Where-Object { [IO.Directory]::Exists($_) } | Select-Object -First 1
+        }
+
+        if ([string]::IsNullOrWhiteSpace($selectedFolder) -or -not [IO.Directory]::Exists($selectedFolder)) {
+            $script:screenshotWatcherState = [pscustomobject]@{ state = "NOT_FOUND" }
+            return
+        }
+
+        $watcher = [IO.FileSystemWatcher]::new($selectedFolder, "*.png")
+        $watcher.IncludeSubdirectories = $false
+        $watcher.NotifyFilter = [IO.NotifyFilters]::FileName -bor [IO.NotifyFilters]::CreationTime -bor [IO.NotifyFilters]::LastWrite
+        $createdSource = "TarkovHelper.Screenshot.Created.$PID.$([Guid]::NewGuid().ToString('N'))"
+        $changedSource = "TarkovHelper.Screenshot.Changed.$PID.$([Guid]::NewGuid().ToString('N'))"
+        Register-ObjectEvent -InputObject $watcher -EventName Created -SourceIdentifier $createdSource | Out-Null
+        Register-ObjectEvent -InputObject $watcher -EventName Changed -SourceIdentifier $changedSource | Out-Null
+        $watcher.EnableRaisingEvents = $true
+
+        $script:screenshotWatcher = $watcher
+        $script:screenshotWatcherSources = @($createdSource, $changedSource)
+        $script:screenshotWatcherState = [pscustomobject]@{
+            state = "WATCHING"
+            folderPath = $selectedFolder
+        }
+    } catch {
+        Stop-ScreenshotWatcher
+        $script:screenshotWatcherState = [pscustomobject]@{
+            state = "ERROR"
+            message = "The screenshot folder could not be monitored."
+        }
+    }
+}
+
+function Add-ScreenshotEvent {
+    param([string]$FileName)
+
+    if ([string]::IsNullOrWhiteSpace($FileName) -or $FileName.Length -gt 255) { return }
+    if ([IO.Path]::GetFileName($FileName) -ne $FileName) { return }
+    if (-not [IO.Path]::GetExtension($FileName).Equals(".png", [StringComparison]::OrdinalIgnoreCase)) { return }
+
+    $script:trackerLatestCursor++
+    $script:trackerEvents.Add([pscustomobject]@{
+        type = "SCREENSHOT_CREATED"
+        sequence = $script:trackerLatestCursor
+        fileName = $FileName
+        detectedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    })
+    while ($script:trackerEvents.Count -gt $trackerEventLimit) {
+        $script:trackerEvents.RemoveAt(0)
+    }
+}
+
+function Update-ScreenshotWatcher {
+    if ($script:screenshotWatcherState.state -ne "WATCHING") { return }
+
+    foreach ($source in $script:screenshotWatcherSources) {
+        foreach ($eventRecord in @(Get-Event -SourceIdentifier $source -ErrorAction SilentlyContinue)) {
+            try {
+                $fullPath = [string]$eventRecord.SourceEventArgs.FullPath
+                $parentPath = [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($fullPath))
+                $watchRoot = [IO.Path]::GetFullPath($script:screenshotWatcher.Path)
+                $fileName = [IO.Path]::GetFileName($fullPath)
+                if (
+                    $parentPath.Equals($watchRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                    [IO.Path]::GetExtension($fileName).Equals(".png", [StringComparison]::OrdinalIgnoreCase)
+                ) {
+                    $script:screenshotPendingFiles[$fileName] = [DateTime]::UtcNow
+                }
+            } finally {
+                Remove-Event -EventIdentifier $eventRecord.EventIdentifier -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    $now = [DateTime]::UtcNow
+    foreach ($fileName in @($script:screenshotPendingFiles.Keys)) {
+        if (($now - $script:screenshotPendingFiles[$fileName]).TotalMilliseconds -lt $trackerDebounceMilliseconds) { continue }
+        $script:screenshotPendingFiles.Remove($fileName)
+        Add-ScreenshotEvent -FileName $fileName
+    }
 }
 
 function Get-ContentType {
@@ -144,6 +313,103 @@ function Send-TextResponse {
         -ExtraHeaders $ExtraHeaders
 }
 
+function Send-JsonResponse {
+    param(
+        [Parameter(Mandatory = $true)]
+        [IO.Stream]$Stream,
+        [Parameter(Mandatory = $true)]
+        [int]$StatusCode,
+        [Parameter(Mandatory = $true)]
+        [string]$Reason,
+        [Parameter(Mandatory = $true)]
+        [object]$Value,
+        [switch]$HeadOnly
+    )
+
+    $json = ConvertTo-Json -InputObject $Value -Compress -Depth 8
+    $body = [Text.Encoding]::UTF8.GetBytes($json)
+    Send-Response -Stream $Stream -StatusCode $StatusCode -Reason $Reason `
+        -ContentType "application/json; charset=utf-8" -Body $body -HeadOnly:$HeadOnly
+}
+
+function Get-QueryParameters {
+    param([string]$RequestTarget)
+
+    $result = @{}
+    $queryIndex = $RequestTarget.IndexOf("?")
+    if ($queryIndex -lt 0 -or $queryIndex -eq $RequestTarget.Length - 1) { return $result }
+
+    foreach ($pair in $RequestTarget.Substring($queryIndex + 1).Split("&")) {
+        if ([string]::IsNullOrEmpty($pair)) { continue }
+        $separator = $pair.IndexOf("=")
+        $rawName = if ($separator -lt 0) { $pair } else { $pair.Substring(0, $separator) }
+        $rawValue = if ($separator -lt 0) { "" } else { $pair.Substring($separator + 1) }
+        if ($rawName -match "%(?![0-9A-Fa-f]{2})" -or $rawValue -match "%(?![0-9A-Fa-f]{2})") {
+            throw [ArgumentException]::new("Malformed query string.")
+        }
+        $name = [Uri]::UnescapeDataString($rawName.Replace("+", " "))
+        $value = [Uri]::UnescapeDataString($rawValue.Replace("+", " "))
+        if ($result.ContainsKey($name)) {
+            throw [ArgumentException]::new("Duplicate query parameter.")
+        }
+        $result[$name] = $value
+    }
+
+    return $result
+}
+
+function Get-TrackerEventsPayload {
+    param([string]$RequestTarget)
+
+    $query = Get-QueryParameters -RequestTarget $RequestTarget
+    foreach ($name in $query.Keys) {
+        if ($name -ne "afterCursor" -and $name -ne "pageSize") {
+            throw [ArgumentException]::new("Unknown query parameter.")
+        }
+    }
+
+    $afterCursor = [long]0
+    if ($query.ContainsKey("afterCursor")) {
+        if ($query["afterCursor"] -notmatch "^\d{1,19}$" -or -not [long]::TryParse($query["afterCursor"], [ref]$afterCursor)) {
+            throw [ArgumentException]::new("afterCursor must be a non-negative integer.")
+        }
+    }
+
+    $pageSize = 50
+    if ($query.ContainsKey("pageSize")) {
+        if ($query["pageSize"] -notmatch "^\d{1,3}$" -or -not [int]::TryParse($query["pageSize"], [ref]$pageSize)) {
+            throw [ArgumentException]::new("pageSize must be an integer.")
+        }
+    }
+    if ($pageSize -lt 1 -or $pageSize -gt 100) {
+        throw [ArgumentException]::new("pageSize must be between 1 and 100.")
+    }
+    if ($afterCursor -gt $script:trackerLatestCursor) {
+        throw [ArgumentException]::new("afterCursor is ahead of the latest cursor.")
+    }
+
+    $earliestSequence = if ($script:trackerEvents.Count -gt 0) {
+        [long]$script:trackerEvents[0].sequence
+    } else {
+        $script:trackerLatestCursor + 1
+    }
+    $isResetRequired = $script:trackerEvents.Count -gt 0 -and $afterCursor -lt ($earliestSequence - 1)
+    $available = @($script:trackerEvents | Where-Object { [long]$_.sequence -gt $afterCursor })
+    $data = @($available | Select-Object -First $pageSize)
+    $nextCursor = if ($data.Count -gt 0) { [long]$data[$data.Count - 1].sequence } else { $afterCursor }
+
+    return [pscustomobject]@{
+        protocolVersion = $trackerProtocolVersion
+        data = $data
+        pagination = [pscustomobject]@{
+            afterCursor = $afterCursor
+            nextCursor = $nextCursor
+            hasMore = $available.Count -gt $data.Count
+            isResetRequired = [bool]$isResetRequired
+        }
+    }
+}
+
 try {
     $rootPath = [IO.Path]::GetFullPath($Root)
 } catch {
@@ -156,6 +422,8 @@ if (-not [IO.File]::Exists($indexPath)) {
     [Console]::Error.WriteLine("The app directory must contain index.html: $rootPath")
     exit 2
 }
+
+Start-ScreenshotWatcher
 $buildIdentity = $null
 $packageInfoPath = Join-Path (Split-Path -Parent $rootPath) "PACKAGE_INFO.txt"
 if ([IO.File]::Exists($packageInfoPath)) {
@@ -236,6 +504,7 @@ try {
 
     while ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests) {
         while (-not $listener.Pending()) {
+            Update-ScreenshotWatcher
             Start-Sleep -Milliseconds 100
         }
         $client = $listener.AcceptTcpClient()
@@ -308,6 +577,28 @@ try {
             }
 
             $requestPath = $requestTarget.Split("?", 2)[0]
+            if ($requestPath -eq "/api/v1/local-tracker/status") {
+                Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -HeadOnly:$headOnly -Value ([pscustomobject]@{
+                    protocolVersion = $trackerProtocolVersion
+                    screenshotWatcher = $script:screenshotWatcherState
+                    latestCursor = $script:trackerLatestCursor
+                })
+                continue
+            }
+            if ($requestPath -eq "/api/v1/local-tracker/events") {
+                try {
+                    $eventsPayload = Get-TrackerEventsPayload -RequestTarget $requestTarget
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -HeadOnly:$headOnly -Value $eventsPayload
+                } catch [ArgumentException] {
+                    Send-JsonResponse -Stream $stream -StatusCode 400 -Reason "Bad Request" -HeadOnly:$headOnly -Value ([pscustomobject]@{
+                        error = [pscustomobject]@{
+                            code = "INVALID_QUERY"
+                            message = $_.Exception.Message
+                        }
+                    })
+                }
+                continue
+            }
             if ($requestPath -eq $healthPath) {
                 Send-TextResponse -Stream $stream -StatusCode 200 -Reason "OK" `
                     -Message $healthResponse -HeadOnly:$headOnly
@@ -367,8 +658,10 @@ try {
         } finally {
             $client.Dispose()
             $handledRequests++
+            Update-ScreenshotWatcher
         }
     }
 } finally {
+    Stop-ScreenshotWatcher
     $listener.Stop()
 }
