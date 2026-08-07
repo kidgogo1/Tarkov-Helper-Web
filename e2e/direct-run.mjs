@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -15,6 +16,10 @@ const launcherPath = directReleaseRoot
   : path.resolve("portable", "launcher.ps1");
 const outputDirectory = path.resolve("output", "playwright");
 const storageProbeKey = "tarkov-helper-direct-e2e";
+const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-direct-e2e-"));
+const screenshotFolder = path.join(temporaryRoot, "Escape from Tarkov", "Screenshots");
+const stateDirectory = path.join(temporaryRoot, "state");
+await mkdir(screenshotFolder, { recursive: true });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -61,8 +66,14 @@ function startServer() {
       "Bypass",
       "-File",
       launcherPath,
+      "-Action",
+      "Serve",
       "-Root",
       appRoot,
+      "-ScreenshotFolder",
+      screenshotFolder,
+      "-StateDirectory",
+      stateDirectory,
       "-NoBrowser",
     ],
     { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
@@ -176,15 +187,46 @@ try {
   await page.getByRole("tab").nth(4).click();
   await page.locator("object.map-svg-image").waitFor();
   await page.waitForFunction(() => Boolean(globalThis.document.querySelector("object.map-svg-image")?.contentDocument?.documentElement));
+  await page.locator('.map-tracker-status[data-state="watching"]').waitFor();
+  assert(
+    await page.locator(".map-tracker-path").textContent() === screenshotFolder,
+    "The map did not report the watched EFT screenshot folder",
+  );
+
+  await page.locator("#map-picker").selectOption("Customs");
+  const trackedScreenshotName = "2026-08-08[00-20]_100, 1, 200_0, 0.7071068, 0, 0.7071068_16.74.png";
+  await writeFile(path.join(screenshotFolder, trackedScreenshotName), Buffer.alloc(0));
+  await page.locator(".map-player-marker").waitFor({ timeout: 10_000 });
+  const playerMarkerLabel = await page.locator(".map-player-marker").getAttribute("aria-label");
+  assert(
+    playerMarkerLabel?.includes("X 100") && playerMarkerLabel.includes("Y 1") && playerMarkerLabel.includes("Z 200"),
+    `Automatic screenshot tracking did not update the player position: ${playerMarkerLabel}`,
+  );
+
   await mkdir(outputDirectory, { recursive: true });
+  const miniMapPagePromise = context.waitForEvent("page", { timeout: 5_000 }).catch(() => null);
+  await page.locator("button.map-minimap-toggle").click();
+  const miniMapPage = await miniMapPagePromise;
+  if (miniMapPage) {
+    await miniMapPage.locator('[data-testid="map-minimap-player"]').waitFor();
+    await miniMapPage.locator("object.map-minimap-map").waitFor();
+    await miniMapPage.locator(".map-minimap").screenshot({
+      path: path.join(outputDirectory, "direct-minimap.png"),
+    });
+  } else {
+    await page.locator('[data-testid="map-minimap-fallback"]').waitFor();
+    await page.locator('[data-testid="map-minimap-player"]').waitFor();
+    await page.locator('[data-testid="map-minimap-fallback"] object.map-minimap-map').waitFor();
+  }
   await page.screenshot({ path: path.join(outputDirectory, "direct-release-1440.png"), fullPage: true });
 
   await page.evaluate(([key, value]) => localStorage.setItem(key, value), [storageProbeKey, "persisted"]);
+  await page.goto("about:blank");
   await stopServer(server);
   server = startServer();
   const restartedUrl = await server.ready;
   assert(restartedUrl === baseUrl, `Direct release origin changed: ${baseUrl} -> ${restartedUrl}`);
-  await page.reload({ waitUntil: "networkidle" });
+  await page.goto(baseUrl, { waitUntil: "networkidle" });
   assert(await page.evaluate((key) => localStorage.getItem(key), storageProbeKey) === "persisted", "Local storage did not survive server restart");
   assert(await levelInput.inputValue() === expectedLevel, "App progress did not survive direct server restart");
   await page.evaluate((key) => localStorage.removeItem(key), storageProbeKey);
@@ -197,4 +239,5 @@ try {
 } finally {
   if (browser) await browser.close();
   await stopServer(server);
+  await rm(temporaryRoot, { recursive: true, force: true });
 }

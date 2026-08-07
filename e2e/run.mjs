@@ -60,8 +60,10 @@ try {
   const externalRequests = [];
 
   page.on("console", (message) => {
-    if (message.type() === "error" || message.type() === "warning") {
-      const location = message.location();
+    const location = message.location();
+    const expectedHostedTrackerProbe =
+      message.type() === "error" && location.url.includes("/api/v1/local-tracker/status");
+    if ((message.type() === "error" || message.type() === "warning") && !expectedHostedTrackerProbe) {
       browserErrors.push(
         `${message.type()}: ${message.text()}${location.url ? ` (${location.url}:${location.lineNumber})` : ""}`,
       );
@@ -69,7 +71,12 @@ try {
   });
   page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
   page.on("response", (response) => {
-    if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
+    const url = new URL(response.url());
+    const expectedHostedTrackerProbe =
+      response.status() === 404 && url.pathname.startsWith("/api/v1/local-tracker/");
+    if (response.status() >= 400 && !expectedHostedTrackerProbe) {
+      failedResponses.push(`${response.status()} ${response.url()}`);
+    }
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
