@@ -19,6 +19,20 @@ PVP/PVE 분리·지도·커스텀 마커 변경을 브라우저에서 실행하�
 
 ## 실행
 
+### Windows 바로 실행 배포본
+
+`Tarkov Helper 실행.cmd`를 더블클릭하면 별도 설치 없이 기본 브라우저가 열립니다.
+진행도 보존을 위해 `http://127.0.0.1:41753/`을 고정으로 사용하며, 사용하는 동안 열린 실행 창을 유지합니다.
+종료할 때는 실행 창에서 `Ctrl+C`를 누르거나 창을 닫습니다. 자세한 내용은 배포본의 `사용 안내.txt`를 참고하세요.
+
+최신 `dist`에서 바로 실행 폴더를 생성하려면 다음 명령을 사용합니다. 출력 폴더가 이미 있으면 덮어쓰지 않고 중단합니다.
+
+```bash
+pnpm release:direct
+```
+
+### 개발 서버
+
 Node.js 22.22.2 이상과 pnpm 11.16.0이 필요합니다.
 
 ```bash
@@ -41,6 +55,7 @@ pnpm preview
 
 ```bash
 pnpm test --run
+pnpm test:portable
 pnpm typecheck
 pnpm lint
 pnpm build
