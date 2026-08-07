@@ -571,8 +571,8 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const nativeOverlayRef = useRef<NativeOverlayAttachment | null>(null);
   const sessionDetectionRef = useRef<Promise<NativeOverlaySession | null> | null>(null);
   const nativeSessionCheckedRef = useRef(false);
+  const pipLifecycleCleanupRef = useRef<(() => void) | null>(null);
   const isOpen = Boolean(pictureInPicture || fallbackOpen);
-  const activePipWindow = pictureInPicture?.window;
 
   const rememberNativeOverlay = useCallback((next: NativeOverlayAttachment | null) => {
     nativeOverlayRef.current = next;
@@ -620,11 +620,54 @@ export function MapMiniMap(props: MapMiniMapProps) {
     }
   }, []);
 
+  const clearPictureInPictureLifecycle = useCallback(() => {
+    const cleanup = pipLifecycleCleanupRef.current;
+    pipLifecycleCleanupRef.current = null;
+    cleanup?.();
+  }, []);
+
+  const registerPictureInPictureLifecycle = useCallback((pipWindow: Window) => {
+    clearPictureInPictureLifecycle();
+    const handlePageHide = () => {
+      if (pipWindowRef.current !== pipWindow) return;
+      pipWindowRef.current = null;
+      openAttemptRef.current += 1;
+      clearPictureInPictureLifecycle();
+      void detachCurrentNativeOverlay(true);
+      if (mountedRef.current) {
+        setPictureInPicture((current) =>
+          current?.window === pipWindow ? null : current,
+        );
+      }
+    };
+    const handleResize = () => {
+      if (!mountedRef.current) return;
+      const viewport = pictureInPictureViewport(pipWindow);
+      setPictureInPicture((current) => {
+        if (
+          current?.window !== pipWindow ||
+          (current.viewport.width === viewport.width &&
+            current.viewport.height === viewport.height)
+        ) {
+          return current;
+        }
+        return { ...current, viewport };
+      });
+    };
+    pipWindow.addEventListener("pagehide", handlePageHide);
+    pipWindow.addEventListener("resize", handleResize);
+    pipLifecycleCleanupRef.current = () => {
+      pipWindow.removeEventListener("pagehide", handlePageHide);
+      pipWindow.removeEventListener("resize", handleResize);
+    };
+  }, [clearPictureInPictureLifecycle, detachCurrentNativeOverlay]);
+
   const closeMiniMap = useCallback(async () => {
     if (closingRef.current) return;
     closingRef.current = true;
     openAttemptRef.current += 1;
     const pipWindow = pipWindowRef.current;
+    clearPictureInPictureLifecycle();
     await detachCurrentNativeOverlay(false);
     pipWindowRef.current = null;
     if (mountedRef.current) {
@@ -635,7 +678,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
     }
     if (pipWindow) pipWindow.close();
     closingRef.current = false;
-  }, [detachCurrentNativeOverlay]);
+  }, [clearPictureInPictureLifecycle, detachCurrentNativeOverlay]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -662,47 +705,14 @@ export function MapMiniMap(props: MapMiniMapProps) {
       }
       const pipWindow = pipWindowRef.current;
       pipWindowRef.current = null;
+      clearPictureInPictureLifecycle();
       if (pipWindow) pipWindow.close();
     };
-  }, [detachCurrentNativeOverlay]);
+  }, [clearPictureInPictureLifecycle, detachCurrentNativeOverlay]);
 
   useEffect(() => {
     void resolveNativeSession();
   }, [resolveNativeSession]);
-
-  useEffect(() => {
-    if (!activePipWindow) return;
-
-    const handlePageHide = () => {
-      if (pipWindowRef.current === activePipWindow) {
-        pipWindowRef.current = null;
-      }
-      void detachCurrentNativeOverlay(true);
-      setPictureInPicture((current) =>
-        current?.window === activePipWindow ? null : current,
-      );
-    };
-    const handleResize = () => {
-      const viewport = pictureInPictureViewport(activePipWindow);
-      setPictureInPicture((current) => {
-        if (
-          current?.window !== activePipWindow ||
-          (current.viewport.width === viewport.width &&
-            current.viewport.height === viewport.height)
-        ) {
-          return current;
-        }
-        return { ...current, viewport };
-      });
-    };
-    activePipWindow.addEventListener("pagehide", handlePageHide);
-    activePipWindow.addEventListener("resize", handleResize);
-    handleResize();
-    return () => {
-      activePipWindow.removeEventListener("pagehide", handlePageHide);
-      activePipWindow.removeEventListener("resize", handleResize);
-    };
-  }, [activePipWindow, detachCurrentNativeOverlay]);
 
   const updateNativeMode = useCallback(async (mode: NativeOverlayMode) => {
     const session = nativeSessionRef.current;
@@ -779,6 +789,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
           session?.windowTitle,
         );
         pipWindowRef.current = pipWindow;
+        registerPictureInPictureLifecycle(pipWindow);
         setPictureInPicture({
           root,
           window: pipWindow,
