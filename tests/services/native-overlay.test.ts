@@ -183,6 +183,25 @@ describe("native overlay API boundary", () => {
   });
 
   it.each([
+    { width: 301, height: 300 },
+    { width: 300, height: 301 },
+  ])("rejects a resized PATCH response whose bounds do not match the requested size", async (bounds) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      ...attachedPayload,
+      mode: "LOCKED",
+      bounds: { ...attachedPayload.bounds, ...bounds },
+    }));
+
+    await expect(updateNativeMiniMap(
+      session,
+      "o".repeat(43),
+      "LOCKED",
+      { width: 300, height: 300 },
+      request,
+    )).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it.each([
     {
       ...attachedPayload,
       overlayId: "x".repeat(43),

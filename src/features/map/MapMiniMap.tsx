@@ -566,6 +566,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const pipWindowRef = useRef<Window | null>(null);
   const mountedRef = useRef(true);
   const closingRef = useRef(false);
+  const openAttemptRef = useRef(0);
   const nativeSessionRef = useRef<NativeOverlaySession | null>(null);
   const nativeOverlayRef = useRef<NativeOverlayAttachment | null>(null);
   const sessionDetectionRef = useRef<Promise<NativeOverlaySession | null> | null>(null);
@@ -622,6 +623,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const closeMiniMap = useCallback(async () => {
     if (closingRef.current) return;
     closingRef.current = true;
+    openAttemptRef.current += 1;
     const pipWindow = pipWindowRef.current;
     await detachCurrentNativeOverlay(false);
     pipWindowRef.current = null;
@@ -638,12 +640,14 @@ export function MapMiniMap(props: MapMiniMapProps) {
   useEffect(() => {
     mountedRef.current = true;
     const handlePageHide = () => {
+      openAttemptRef.current += 1;
       void detachCurrentNativeOverlay(true);
     };
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       mountedRef.current = false;
+      openAttemptRef.current += 1;
       const session = nativeSessionRef.current;
       const overlay = nativeOverlayRef.current;
       nativeOverlayRef.current = null;
@@ -736,6 +740,10 @@ export function MapMiniMap(props: MapMiniMapProps) {
     }
     if (isOpening) return;
 
+    const attemptId = openAttemptRef.current + 1;
+    openAttemptRef.current = attemptId;
+    const isCurrentAttempt = () =>
+      mountedRef.current && openAttemptRef.current === attemptId;
     setIsOpening(true);
     const controller = getPictureInPictureController();
     if (controller) {
@@ -743,28 +751,33 @@ export function MapMiniMap(props: MapMiniMapProps) {
       let claimId: string | null = null;
       try {
         session = await resolveNativeSession();
+        if (!isCurrentAttempt()) return;
         if (session) {
           setNativeNotice({ kind: "status", text: "Windows 오버레이 창 준비 중…" });
           try {
             const claim = await beginNativeOverlayClaim(session);
             claimId = claim.claimId;
           } catch (error) {
-            setNativeNotice(nativeOverlayErrorNotice(error));
+            if (isCurrentAttempt()) {
+              setNativeNotice(nativeOverlayErrorNotice(error));
+            }
           }
         }
+
+        if (!isCurrentAttempt()) return;
 
         const pipWindow = await controller.requestWindow({
           width: MINI_MAP_SIZE,
           height: MINI_MAP_SIZE,
         });
+        if (!isCurrentAttempt()) {
+          pipWindow.close();
+          return;
+        }
         const root = preparePictureInPictureDocument(
           pipWindow,
           session?.windowTitle,
         );
-        if (!mountedRef.current) {
-          pipWindow.close();
-          return;
-        }
         pipWindowRef.current = pipWindow;
         setPictureInPicture({
           root,
@@ -777,7 +790,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
           try {
             const attached = await attachNativeMiniMap(session, claimId);
             if (
-              !mountedRef.current ||
+              !isCurrentAttempt() ||
               pipWindowRef.current !== pipWindow
             ) {
               await detachNativeMiniMap(
@@ -794,12 +807,15 @@ export function MapMiniMap(props: MapMiniMapProps) {
               "LOCKED",
               { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE },
             );
-            if (nativeOverlayRef.current?.overlayId === attached.overlayId) {
+            if (
+              isCurrentAttempt() &&
+              nativeOverlayRef.current?.overlayId === attached.overlayId
+            ) {
               rememberNativeOverlay(locked);
               setNativeNotice(nativeOverlayModeNotice(locked.mode));
             }
           } catch (error) {
-            if (mountedRef.current) {
+            if (isCurrentAttempt()) {
               setNativeNotice(nativeOverlayErrorNotice(error));
             }
           }
@@ -807,14 +823,18 @@ export function MapMiniMap(props: MapMiniMapProps) {
         return;
       } catch {
         // A rejected PiP request falls through to the fully functional page UI.
+        if (isCurrentAttempt()) setNativeNotice(null);
       } finally {
-        if (mountedRef.current) setIsOpening(false);
+        if (isCurrentAttempt()) setIsOpening(false);
       }
     } else {
-      setIsOpening(false);
+      if (isCurrentAttempt()) {
+        setIsOpening(false);
+        setNativeNotice(null);
+      }
     }
 
-    if (mountedRef.current) {
+    if (isCurrentAttempt()) {
       setFallbackNotice("페이지 안 미니맵으로 열었습니다.");
       setFallbackOpen(true);
     }
@@ -824,6 +844,9 @@ export function MapMiniMap(props: MapMiniMapProps) {
     nativeOverlay?.mode === "CLICK_THROUGH";
   const clickThrough = nativeOverlay?.mode === "CLICK_THROUGH";
   const nativeControlDisabled = !nativeOverlay || nativeBusy || isOpening;
+  const showNativeControls = Boolean(
+    nativeSession && getPictureInPictureController() && !fallbackOpen,
+  );
 
   return (
     <>
@@ -838,7 +861,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         {isOpening ? "미니맵 여는 중" : isOpen ? "미니맵 닫기" : "미니맵 열기"}
       </button>
 
-      {nativeSession ? (
+      {showNativeControls ? (
         <div
           aria-label="미니맵 오버레이 제어"
           className="map-minimap-native-controls"

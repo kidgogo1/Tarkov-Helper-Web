@@ -373,7 +373,11 @@ export async function updateNativeMiniMap(
   if (
     !attachment ||
     attachment.overlayId !== overlayId ||
-    attachment.mode !== mode
+    attachment.mode !== mode ||
+    (hasWidth && hasHeight && (
+      attachment.bounds.width !== options.width ||
+      attachment.bounds.height !== options.height
+    ))
   ) {
     throw new NativeOverlayApiError("INVALID_RESPONSE", response.status);
   }

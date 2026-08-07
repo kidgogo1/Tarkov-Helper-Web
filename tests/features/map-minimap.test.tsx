@@ -124,7 +124,10 @@ function nativeAttachment(mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH") {
   } as const;
 }
 
-function createNativeOverlayApi(options: { failAttach?: boolean } = {}) {
+function createNativeOverlayApi(options: {
+  claimResponse?: Promise<Response>;
+  failAttach?: boolean;
+} = {}) {
   const order: string[] = [];
   const request = vi.fn<typeof fetch>(async (input, init) => {
     const path = String(input);
@@ -135,6 +138,7 @@ function createNativeOverlayApi(options: { failAttach?: boolean } = {}) {
     }
     if (path.endsWith("/api/v1/native-overlay/claims") && method === "POST") {
       order.push("CLAIM");
+      if (options.claimResponse) return options.claimResponse;
       return jsonResponse({
         protocolVersion: 1,
         claimId: nativeClaimId,
@@ -480,6 +484,69 @@ describe("MapMiniMap", () => {
     expect(screen.getByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
     expect(pipWindow.close).not.toHaveBeenCalled();
     expect(screen.queryByTestId("map-minimap-fallback")).not.toBeInTheDocument();
+  });
+
+  it("clears the native preparing state when the browser rejects the PiP request", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockRejectedValue(new DOMException("denied", "NotAllowedError")),
+    });
+
+    renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
+    expect(screen.queryByText("Windows 오버레이 창 준비 중…")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
+    expect(api.order).toContain("CLAIM");
+    expect(api.order).not.toContain("ATTACH");
+  });
+
+  it("does not leave unusable native controls when Document PiP is unsupported", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
+    setPictureInPictureController(undefined);
+
+    renderMiniMap();
+    await waitFor(() => expect(api.request).toHaveBeenCalled());
+    expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
+    expect(screen.queryByText("Windows 오버레이 창 준비 중…")).not.toBeInTheDocument();
+    expect(api.order).not.toContain("CLAIM");
+  });
+
+  it("does not request a PiP window when unmounted while the native claim is pending", async () => {
+    let resolveClaim: ((response: Response) => void) | undefined;
+    const claimResponse = new Promise<Response>((resolve) => {
+      resolveClaim = resolve;
+    });
+    const api = createNativeOverlayApi({ claimResponse });
+    vi.stubGlobal("fetch", api.request);
+    const requestWindow = vi.fn();
+    setPictureInPictureController({ requestWindow });
+
+    const view = renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    await waitFor(() => expect(api.order).toContain("CLAIM"));
+    view.unmount();
+
+    await act(async () => {
+      resolveClaim?.(jsonResponse({
+        protocolVersion: 1,
+        claimId: nativeClaimId,
+        expiresAt: "2026-08-08T12:00:15.000Z",
+      }, 201));
+      await claimResponse;
+      await Promise.resolve();
+    });
+
+    expect(requestWindow).not.toHaveBeenCalled();
+    expect(api.order).not.toContain("REQUEST_WINDOW");
   });
 
   it("best-effort detaches and restores the native window on PiP pagehide and unmount", async () => {
