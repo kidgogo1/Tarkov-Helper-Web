@@ -245,6 +245,60 @@ function trackerResponse(body: unknown, status = 200): Response {
   });
 }
 
+function mockMapViewport(initialWidth: number, initialHeight: number) {
+  let width = initialWidth;
+  let height = initialHeight;
+  let resizeCallback: ResizeObserverCallback | undefined;
+  const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+
+  const rectSpy = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function getBoundingClientRect(this: HTMLElement) {
+      if (this.dataset.testid !== "map-viewport") {
+        return originalGetBoundingClientRect.call(this);
+      }
+      return {
+        bottom: height,
+        height,
+        left: 0,
+        right: width,
+        top: 0,
+        width,
+        x: 0,
+        y: 0,
+        toJSON: () => undefined,
+      };
+    });
+
+  class ResizeObserverStub {
+    constructor(callback: ResizeObserverCallback) {
+      resizeCallback = callback;
+    }
+
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  }
+
+  vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+
+  return {
+    setSize(nextWidth: number, nextHeight: number) {
+      width = nextWidth;
+      height = nextHeight;
+    },
+    resize(nextWidth: number, nextHeight: number) {
+      width = nextWidth;
+      height = nextHeight;
+      act(() => resizeCallback?.([], {} as ResizeObserver));
+    },
+    restore() {
+      rectSpy.mockRestore();
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
 describe("MapPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -252,6 +306,7 @@ describe("MapPage", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -344,6 +399,88 @@ describe("MapPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "전체 화면 열기" }));
     expect(requestFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it("fits and centers the selected map using the measured viewport", () => {
+    const viewport = mockMapViewport(600, 500);
+    renderPage();
+
+    expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "0,10");
+    expect(screen.getByTestId("map-world")).toHaveStyle({
+      transform: "translate3d(0px, 10px, 0) scale(0.6)",
+    });
+
+    fireEvent.pointerDown(screen.getByTestId("map-viewport"), {
+      pointerId: 1,
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+    });
+    fireEvent.pointerMove(screen.getByTestId("map-viewport"), {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 125,
+    });
+    fireEvent.pointerUp(screen.getByTestId("map-viewport"), {
+      pointerId: 1,
+      clientX: 150,
+      clientY: 125,
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+    expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "0,10");
+
+    viewport.restore();
+  });
+
+  it("centers the first focused quest point at the fitted map scale", () => {
+    const viewport = mockMapViewport(600, 500);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "180,106");
+    expect(screen.getByTestId("map-world")).toHaveStyle({
+      transform: "translate3d(180px, 106px, 0) scale(0.6)",
+    });
+
+    viewport.restore();
+  });
+
+  it("centers a quest point when focus arrives after the map page mounted", async () => {
+    const viewport = mockMapViewport(600, 500);
+    const rendered = renderPage();
+
+    rendered.rerender(
+      <AppStoreProvider>
+        <MapPage data={data} focusQuestId="quest-customs" />
+      </AppStoreProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Customs");
+      expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "180,106");
+    });
+
+    viewport.restore();
+  });
+
+  it("reapplies fit or quest focus after SVG load and viewport resize", () => {
+    const viewport = mockMapViewport(0, 0);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "0,0");
+
+    viewport.setSize(600, 500);
+    fireEvent.load(screen.getByRole("img", { name: "Customs 지도" }));
+    expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "180,106");
+
+    viewport.resize(800, 600);
+    expect(screen.getByTestId("map-world")).toHaveAttribute("data-pan", "250,120");
+    expect(screen.getByTestId("map-world")).toHaveStyle({
+      transform: "translate3d(250px, 120px, 0) scale(0.75)",
+    });
+
+    viewport.restore();
   });
 
   it("uses document landmarks and supports keyboard pan, zoom, and reset", () => {

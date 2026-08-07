@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -103,6 +104,11 @@ interface PendingMapFocus {
   markerId: string;
   floorId?: string;
 }
+
+type ViewIntent =
+  | { kind: "fit"; mapKey: string }
+  | { kind: "focus"; mapKey: string; point: ScreenPoint; scale: "fit" | number }
+  | { kind: "manual"; mapKey: string };
 
 type ObjectiveStatusFilter = "all" | "incomplete" | "completed";
 
@@ -357,6 +363,59 @@ function buildQuestMapPoints(
       buildPoint(point, index, true),
     ),
   ];
+}
+
+function focusedQuestPoint(
+  data: TarkovData,
+  focusQuestId: string | undefined,
+  config: MapConfig | undefined,
+): QuestMapPoint | undefined {
+  if (!focusQuestId || !config) return undefined;
+  const quest = data.quests.find(
+    (candidate) =>
+      candidate.id === focusQuestId || candidate.normalizedName === focusQuestId,
+  );
+  if (!quest) return undefined;
+
+  for (const objective of quest.objectives) {
+    const point = buildQuestMapPoints(
+      { quest, objective },
+      config,
+      data.mapFloorLocations,
+    )[0];
+    if (point) return point;
+  }
+  return undefined;
+}
+
+function fittedView(
+  config: MapConfig,
+  viewportWidth: number,
+  viewportHeight: number,
+  focus?: ScreenPoint,
+): ViewTransform | undefined {
+  if (
+    viewportWidth <= 0 ||
+    viewportHeight <= 0 ||
+    config.imageWidth <= 0 ||
+    config.imageHeight <= 0
+  ) {
+    return undefined;
+  }
+  const scale = Math.min(
+    viewportWidth / config.imageWidth,
+    viewportHeight / config.imageHeight,
+    MAX_ZOOM,
+  );
+  return {
+    scale,
+    x: focus
+      ? viewportWidth / 2 - focus.x * scale
+      : (viewportWidth - config.imageWidth * scale) / 2,
+    y: focus
+      ? viewportHeight / 2 - focus.y * scale
+      : (viewportHeight - config.imageHeight * scale) / 2,
+  };
 }
 
 function isExtractionType(markerType: string): boolean {
@@ -637,6 +696,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     focusedQuestMap(data, focusQuestId) ??
     findMapConfig(data.mapConfigs, mapSettings.lastMapKey) ??
     data.mapConfigs[0];
+  const initialQuestPoint = focusedQuestPoint(data, focusQuestId, initialConfig);
   const [selectedMapKey, setSelectedMapKey] = useState(initialConfig?.key ?? "");
   const config =
     findMapConfig(data.mapConfigs, selectedMapKey) ?? data.mapConfigs[0] ?? EMPTY_MAP;
@@ -675,6 +735,16 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   const consumedQuestRef = useRef<string | undefined>(undefined);
   const previousMapRef = useRef(config.key);
   const pendingMapFocusRef = useRef<PendingMapFocus | undefined>(undefined);
+  const viewIntentRef = useRef<ViewIntent>(
+    initialQuestPoint
+      ? {
+          kind: "focus",
+          mapKey: initialConfig?.key ?? "",
+          point: initialQuestPoint.screen,
+          scale: "fit",
+        }
+      : { kind: "fit", mapKey: initialConfig?.key ?? "" },
+  );
   const editorOpenerRef = useRef<HTMLElement | null>(null);
   const deleteOpenerRef = useRef<HTMLElement | null>(null);
   const addMarkerButtonRef = useRef<HTMLButtonElement>(null);
@@ -699,20 +769,81 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     syncSvgFloors();
   }, [syncSvgFloors]);
 
+  const applyViewIntent = useCallback(() => {
+    const viewport = viewportRef.current;
+    const intent = viewIntentRef.current;
+    if (!viewport || intent.mapKey !== config.key || intent.kind === "manual") return false;
+    const { width, height } = viewport.getBoundingClientRect();
+    const fitted = fittedView(
+      config,
+      width,
+      height,
+      intent.kind === "focus" ? intent.point : undefined,
+    );
+    if (!fitted) return false;
+    const next =
+      intent.kind === "focus" && intent.scale !== "fit"
+        ? {
+            scale: intent.scale,
+            x: width / 2 - intent.point.x * intent.scale,
+            y: height / 2 - intent.point.y * intent.scale,
+          }
+        : fitted;
+    setView((current) =>
+      current.scale === next.scale && current.x === next.x && current.y === next.y
+        ? current
+        : next,
+    );
+    return true;
+  }, [config]);
+
   const resetView = useCallback(() => {
-    setView({ scale: 1, x: 0, y: 0 });
-  }, []);
+    viewIntentRef.current = { kind: "fit", mapKey: config.key };
+    if (!applyViewIntent()) setView({ scale: 1, x: 0, y: 0 });
+  }, [applyViewIntent, config.key]);
 
   const centerOnPoint = useCallback((point: ScreenPoint) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
     const { width, height } = viewport.getBoundingClientRect();
-    setView((current) => ({
-      ...current,
-      x: width / 2 - point.x * current.scale,
-      y: height / 2 - point.y * current.scale,
-    }));
-  }, []);
+    setView((current) => {
+      viewIntentRef.current = {
+        kind: "focus",
+        mapKey: config.key,
+        point,
+        scale: current.scale,
+      };
+      return {
+        ...current,
+        x: width / 2 - point.x * current.scale,
+        y: height / 2 - point.y * current.scale,
+      };
+    });
+  }, [config.key]);
+
+  useLayoutEffect(() => {
+    applyViewIntent();
+  }, [applyViewIntent]);
+
+  const handleSvgLoad = useCallback(() => {
+    syncSvgFloors();
+    applyViewIntent();
+  }, [applyViewIntent, syncSvgFloors]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(() => applyViewIntent());
+    resizeObserver?.observe(viewport);
+    window.addEventListener("resize", applyViewIntent);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", applyViewIntent);
+    };
+  }, [applyViewIntent]);
 
   useEffect(() => {
     updateMapSettings({ lastMapKey: config.key });
@@ -731,18 +862,23 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     setPlayerPositions([]);
     setPositionError("");
     if (pendingFocus) {
-      const viewport = viewportRef.current;
-      const width = viewport?.getBoundingClientRect().width ?? 0;
-      const height = viewport?.getBoundingClientRect().height ?? 0;
-      setView({
-        scale: 1,
-        x: width / 2 - pendingFocus.screen.x,
-        y: height / 2 - pendingFocus.screen.y,
-      });
+      viewIntentRef.current = {
+        kind: "focus",
+        mapKey: config.key,
+        point: pendingFocus.screen,
+        scale: "fit",
+      };
+      if (!applyViewIntent()) {
+        setView({
+          scale: 1,
+          x: -pendingFocus.screen.x,
+          y: -pendingFocus.screen.y,
+        });
+      }
     } else {
       resetView();
     }
-  }, [config, resetView]);
+  }, [applyViewIntent, config, resetView]);
 
   useEffect(() => {
     if (!focusQuestId) return;
@@ -752,10 +888,33 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     const targetConfig = focusedQuestMap(data, focusQuestId);
     onQuestFocusConsumed?.();
     if (!targetConfig) return;
+    const targetPoint = focusedQuestPoint(data, focusQuestId, targetConfig);
+    if (targetPoint) {
+      if (targetConfig.key === config.key) {
+        viewIntentRef.current = {
+          kind: "focus",
+          mapKey: targetConfig.key,
+          point: targetPoint.screen,
+          scale: "fit",
+        };
+      } else {
+        pendingMapFocusRef.current = {
+          mapKey: targetConfig.key,
+          screen: targetPoint.screen,
+          markerId: targetPoint.id,
+          floorId: targetPoint.floorId,
+        };
+      }
+    }
     queueMicrotask(() => {
+      if (targetPoint && targetConfig.key === config.key) {
+        if (targetPoint.floorId) setSelectedFloor(targetPoint.floorId);
+        setSelectedMarkerId(targetPoint.id);
+        applyViewIntent();
+      }
       setSelectedMapKey(targetConfig.key);
     });
-  }, [data, focusQuestId, onQuestFocusConsumed]);
+  }, [applyViewIntent, config.key, data, focusQuestId, onQuestFocusConsumed]);
 
   useEffect(() => {
     const syncFullscreenState = () => {
@@ -981,10 +1140,16 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   };
 
   const zoomAtPoint = useCallback((factor: number, pointerX: number, pointerY: number) => {
+    viewIntentRef.current = { kind: "manual", mapKey: config.key };
+    const viewportBounds = viewportRef.current?.getBoundingClientRect();
+    const fitScale = viewportBounds
+      ? fittedView(config, viewportBounds.width, viewportBounds.height)?.scale
+      : undefined;
+    const minimumScale = Math.min(MIN_ZOOM, fitScale ?? MIN_ZOOM);
     setView((current) => {
       const nextScale = clamp(
         current.scale * factor,
-        MIN_ZOOM,
+        minimumScale,
         MAX_ZOOM,
       );
       const worldX = (pointerX - current.x) / current.scale;
@@ -995,7 +1160,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
         y: pointerY - worldY * nextScale,
       };
     });
-  }, []);
+  }, [config]);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1011,6 +1176,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     if (event.target !== event.currentTarget) return;
 
     const pan = (x: number, y: number) => {
+      viewIntentRef.current = { kind: "manual", mapKey: config.key };
       setView((current) => ({ ...current, x: current.x + x, y: current.y + y }));
     };
     if (event.key === "ArrowLeft") pan(KEYBOARD_PAN_STEP, 0);
@@ -1033,6 +1199,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     if (event.button !== 0) return;
     const target = event.target;
     if (target instanceof Element && target.closest("button, input, select, label")) return;
+    viewIntentRef.current = { kind: "manual", mapKey: config.key };
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1873,7 +2040,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
                 className="map-svg-image"
                 data={bundledAsset(`assets/maps/${encodeURIComponent(config.svgFileName)}`)}
                 height={config.imageHeight}
-                onLoad={syncSvgFloors}
+                onLoad={handleSvgLoad}
                 ref={mapObjectRef}
                 role="img"
                 type="image/svg+xml"
