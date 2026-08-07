@@ -96,14 +96,94 @@ function setPictureInPictureController(
   });
 }
 
+const nativeSessionPayload = {
+  protocolVersion: 1,
+  capability: "WINDOWS_DOCUMENT_PIP",
+  token: "t".repeat(43),
+  windowTitle: "Tarkov Helper Web",
+  sizeLimits: {
+    minWidth: 240,
+    minHeight: 240,
+    maxWidth: 1000,
+    maxHeight: 1000,
+  },
+} as const;
+
+const nativeClaimId = "c".repeat(43);
+const nativeOverlayId = "o".repeat(43);
+
+function nativeAttachment(mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH") {
+  return {
+    protocolVersion: 1,
+    overlayId: nativeOverlayId,
+    state: "ATTACHED",
+    mode,
+    bounds: mode === "LOCKED"
+      ? { left: 80, top: 60, width: 300, height: 300 }
+      : { left: 80, top: 60, width: 1200, height: 720 },
+  } as const;
+}
+
+function createNativeOverlayApi(options: { failAttach?: boolean } = {}) {
+  const order: string[] = [];
+  const request = vi.fn<typeof fetch>(async (input, init) => {
+    const path = String(input);
+    const method = init?.method ?? "GET";
+    if (path.endsWith("/api/v1/native-overlay/session") && method === "GET") {
+      order.push("SESSION");
+      return jsonResponse(nativeSessionPayload);
+    }
+    if (path.endsWith("/api/v1/native-overlay/claims") && method === "POST") {
+      order.push("CLAIM");
+      return jsonResponse({
+        protocolVersion: 1,
+        claimId: nativeClaimId,
+        expiresAt: "2026-08-08T12:00:15.000Z",
+      }, 201);
+    }
+    if (path.endsWith("/api/v1/native-overlay/minimap") && method === "POST") {
+      order.push("ATTACH");
+      if (options.failAttach) {
+        return jsonResponse({
+          error: {
+            code: "WINDOW_NOT_FOUND",
+            message: "internal native detail",
+          },
+        }, 409);
+      }
+      return jsonResponse(nativeAttachment("UNLOCKED"), 201);
+    }
+    if (path.endsWith("/api/v1/native-overlay/minimap") && method === "PATCH") {
+      const body = JSON.parse(String(init?.body)) as { mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH" };
+      order.push(`PATCH_${body.mode}`);
+      return jsonResponse(nativeAttachment(body.mode));
+    }
+    if (path.endsWith("/api/v1/native-overlay/minimap") && method === "DELETE") {
+      order.push("DETACH");
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`Unexpected native overlay request: ${method} ${path}`);
+  });
+  return { order, request };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 describe("MapMiniMap", () => {
   beforeEach(() => {
     window.localStorage.clear();
     setPictureInPictureController(undefined);
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("static host")));
   });
 
   afterEach(() => {
     setPictureInPictureController(undefined);
+    vi.unstubAllGlobals();
   });
 
   it("fills and tracks the resizable Picture-in-Picture viewport while copying stylesheet links", async () => {
@@ -286,5 +366,157 @@ describe("MapMiniMap", () => {
     expect(screen.queryByTestId("player-trail")).not.toBeInTheDocument();
     expect(screen.queryByText(/퀘스트|탈출구/)).not.toBeInTheDocument();
     expect(screen.getByText(/클릭 투과와 전역 단축키는 브라우저에서 지원하지 않습니다/)).toBeInTheDocument();
+  });
+
+  it("claims the PiP before opening, applies a 300px locked overlay, and keeps click-through controls on the main page", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
+    const pipWindow = createPictureInPictureWindow({ width: 1200, height: 720 });
+    const requestWindow = vi.fn(async () => {
+      api.order.push("REQUEST_WINDOW");
+      return pipWindow as unknown as Window;
+    });
+    setPictureInPictureController({ requestWindow });
+    pipWindow.close.mockImplementation(() => {
+      api.order.push("WINDOW_CLOSE");
+    });
+
+    renderMiniMap();
+    expect(await screen.findByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    expect(await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐")).toBeInTheDocument();
+    expect(api.order.slice(0, 5)).toEqual([
+      "SESSION",
+      "CLAIM",
+      "REQUEST_WINDOW",
+      "ATTACH",
+      "PATCH_LOCKED",
+    ]);
+    expect(pipWindow.document.title).toBe(nativeSessionPayload.windowTitle);
+    const firstPatch = api.request.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(firstPatch?.[1]?.body))).toEqual({
+      overlayId: nativeOverlayId,
+      mode: "LOCKED",
+      width: 300,
+      height: 300,
+    });
+
+    const lockButton = screen.getByRole("button", { name: "오버레이 위치 잠금 해제" });
+    expect(lockButton).toHaveAttribute("aria-pressed", "true");
+    expect(within(pipWindow.document.body).queryByRole("group", {
+      name: "미니맵 오버레이 제어",
+    })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "클릭 통과 켜기" }));
+    expect(await screen.findByRole("button", { name: "클릭 통과 끄기" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("클릭 통과 켜짐 · 메인 지도에서 언제든 끌 수 있습니다")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "클릭 통과 끄기" }));
+    expect(await screen.findByRole("button", { name: "클릭 통과 켜기" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "오버레이 위치 잠금 해제" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "오버레이 위치 잠금 해제" }));
+    expect(await screen.findByRole("button", { name: "오버레이 위치 고정" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByText("위치 잠금 해제됨 · 창을 이동하거나 크기를 조절하세요")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "오버레이 위치 고정" }));
+    await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+    const patchCalls = api.request.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
+      overlayId: nativeOverlayId,
+      mode: "LOCKED",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
+    await waitFor(() => expect(pipWindow.close).toHaveBeenCalledTimes(1));
+    expect(api.order.indexOf("DETACH")).toBeLessThan(api.order.indexOf("WINDOW_CLOSE"));
+  });
+
+  it("hides native controls on a static host and keeps the normal PiP working", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: "missing" }, 404));
+    vi.stubGlobal("fetch", request);
+    const pipWindow = createPictureInPictureWindow();
+    const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
+    setPictureInPictureController({ requestWindow });
+
+    renderMiniMap();
+    await waitFor(() => expect(request).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    expect(await within(pipWindow.document.body).findByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
+    expect(request.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+  });
+
+  it("keeps the PiP usable and explains the problem when native attachment fails", async () => {
+    const api = createNativeOverlayApi({ failAttach: true });
+    vi.stubGlobal("fetch", api.request);
+    const pipWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
+    });
+
+    renderMiniMap();
+    expect(await screen.findByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    expect(await within(pipWindow.document.body).findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "미니맵 창을 정확히 찾지 못했습니다. 창을 닫고 다시 열어 주세요",
+    );
+    expect(screen.getByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
+    expect(pipWindow.close).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("map-minimap-fallback")).not.toBeInTheDocument();
+  });
+
+  it("best-effort detaches and restores the native window on PiP pagehide and unmount", async () => {
+    const pageHideApi = createNativeOverlayApi();
+    vi.stubGlobal("fetch", pageHideApi.request);
+    const pageHideWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pageHideWindow as unknown as Window),
+    });
+    const firstView = renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+
+    act(() => pageHideWindow.dispatchPageHide());
+    await waitFor(() => {
+      const detachCall = pageHideApi.request.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(detachCall?.[1]).toMatchObject({ keepalive: true });
+    });
+    firstView.unmount();
+
+    const unmountApi = createNativeOverlayApi();
+    vi.stubGlobal("fetch", unmountApi.request);
+    const unmountWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(unmountWindow as unknown as Window),
+    });
+    const secondView = renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+
+    secondView.unmount();
+    await waitFor(() => {
+      const detachCall = unmountApi.request.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(detachCall?.[1]).toMatchObject({ keepalive: true });
+    });
+    expect(unmountWindow.close).toHaveBeenCalledTimes(1);
   });
 });

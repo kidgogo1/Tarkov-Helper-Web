@@ -11,6 +11,66 @@
   height: 16px;
 }
 
+.map-minimap-native-controls {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid rgb(110 183 255 / 26%);
+  border-radius: 5px;
+  background: rgb(16 23 26 / 72%);
+  padding: 2px;
+}
+
+.map-minimap-native-button {
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+  color: #c7d2d8;
+  padding: 0 7px;
+}
+
+.map-minimap-native-button > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.map-minimap-native-button[aria-pressed="true"] {
+  border-color: rgb(110 183 255 / 45%);
+  background: rgb(35 126 181 / 20%);
+  color: #b9dcf8;
+}
+
+.map-minimap-native-button:disabled {
+  opacity: 0.42;
+}
+
+.map-minimap-native-status {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  width: max-content;
+  max-width: min(380px, 72vw);
+  overflow: hidden;
+  border: 1px solid rgb(110 183 255 / 32%);
+  border-radius: 4px;
+  background: rgb(13 18 20 / 96%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 34%);
+  color: #b9dcf8;
+  padding: 5px 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-minimap-native-status.error {
+  border-color: rgb(255 113 113 / 40%);
+  color: #ffc0bd;
+}
+
 .map-minimap-pip-root {
   display: flex;
   width: 100vw;

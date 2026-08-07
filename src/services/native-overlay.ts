@@ -57,6 +57,7 @@ const SESSION_PATH = "/api/v1/native-overlay/session";
 const CLAIM_PATH = "/api/v1/native-overlay/claims";
 const MINIMAP_PATH = "/api/v1/native-overlay/minimap";
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
+const UTC_ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/;
 const ALLOWED_ERROR_CODES = new Set([
   "AMBIGUOUS_WINDOW",
   "CLAIM_NOT_FOUND",
@@ -171,6 +172,7 @@ function parseClaim(value: unknown): NativeOverlayClaim | null {
     value.protocolVersion !== NATIVE_OVERLAY_PROTOCOL_VERSION ||
     !isOpaqueId(value.claimId) ||
     !isBoundedString(value.expiresAt, 64) ||
+    !UTC_ISO_TIMESTAMP_PATTERN.test(value.expiresAt) ||
     !Number.isFinite(Date.parse(value.expiresAt))
   ) {
     return null;

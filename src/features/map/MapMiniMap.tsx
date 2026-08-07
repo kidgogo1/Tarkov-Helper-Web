@@ -10,8 +10,10 @@ import {
 import { createPortal } from "react-dom";
 import {
   LocateFixed,
+  MousePointer2,
   Minus,
   Navigation,
+  Pin,
   Plus,
   RotateCcw,
   Scan,
@@ -24,6 +26,17 @@ import {
   getMapDirectionAngle,
 } from "../../domain/map";
 import type { MapConfig, MapFloor } from "../../types/data";
+import {
+  NativeOverlayApiError,
+  attachNativeMiniMap,
+  beginNativeOverlayClaim,
+  detachNativeMiniMap,
+  fetchNativeOverlaySession,
+  updateNativeMiniMap,
+  type NativeOverlayAttachment,
+  type NativeOverlayMode,
+  type NativeOverlaySession,
+} from "../../services/native-overlay";
 import "../../styles/minimap.css";
 
 const MINI_MAP_SIZE = 300;
@@ -90,8 +103,12 @@ function copyPageStyles(targetDocument: Document): void {
   }
 }
 
-function preparePictureInPictureDocument(pipWindow: Window): HTMLElement {
+function preparePictureInPictureDocument(
+  pipWindow: Window,
+  windowTitle?: string,
+): HTMLElement {
   const pipDocument = pipWindow.document;
+  if (windowTitle) pipDocument.title = windowTitle;
   pipDocument.documentElement.lang = document.documentElement.lang || "ko";
   pipDocument.documentElement.style.width = "100%";
   pipDocument.documentElement.style.height = "100%";
@@ -133,6 +150,7 @@ function clampMapTranslation(
 }
 
 interface MiniMapSurfaceProps extends MapMiniMapProps {
+  nativeOverlayMode?: NativeOverlayMode;
   onClose: () => void;
   presentation: MiniMapPresentation;
   viewport: MiniMapViewport;
@@ -152,6 +170,7 @@ function MiniMapSurface({
   selectedFloor,
   player,
   playerMarkerSize,
+  nativeOverlayMode,
   onClose,
   presentation,
   viewport,
@@ -309,6 +328,7 @@ function MiniMapSurface({
     <section
       aria-label={`${config.displayName} 미니맵`}
       className={`map-minimap map-minimap--${presentation}`}
+      data-native-overlay={nativeOverlayMode ?? undefined}
       role="dialog"
       style={rootStyle}
     >
@@ -453,10 +473,81 @@ function MiniMapSurface({
       </details>
 
       <p className="map-minimap-browser-note">
-        고정 뷰: 가운데 버튼 드래그 · 클릭 투과와 전역 단축키는 브라우저에서 지원하지 않습니다.
+        {nativeOverlayMode
+          ? "오버레이 위치와 클릭 통과는 메인 지도에서 언제든 해제할 수 있습니다."
+          : "고정 뷰: 가운데 버튼 드래그 · 클릭 투과와 전역 단축키는 브라우저에서 지원하지 않습니다."}
       </p>
     </section>
   );
+}
+
+interface NativeOverlayNotice {
+  kind: "status" | "error";
+  text: string;
+}
+
+function nativeOverlayModeNotice(mode: NativeOverlayMode): NativeOverlayNotice {
+  switch (mode) {
+    case "UNLOCKED":
+      return {
+        kind: "status",
+        text: "위치 잠금 해제됨 · 창을 이동하거나 크기를 조절하세요",
+      };
+    case "LOCKED":
+      return {
+        kind: "status",
+        text: "오버레이 고정됨 · 클릭 통과 꺼짐",
+      };
+    case "CLICK_THROUGH":
+      return {
+        kind: "status",
+        text: "클릭 통과 켜짐 · 메인 지도에서 언제든 끌 수 있습니다",
+      };
+  }
+}
+
+function nativeOverlayErrorNotice(error: unknown): NativeOverlayNotice {
+  if (error instanceof NativeOverlayApiError) {
+    switch (error.code) {
+      case "AMBIGUOUS_WINDOW":
+      case "WINDOW_NOT_FOUND":
+        return {
+          kind: "error",
+          text: "미니맵 창을 정확히 찾지 못했습니다. 창을 닫고 다시 열어 주세요.",
+        };
+      case "CLAIM_NOT_FOUND":
+        return {
+          kind: "error",
+          text: "오버레이 연결 시간이 만료되었습니다. 미니맵을 닫고 다시 열어 주세요.",
+        };
+      case "FORBIDDEN":
+        return {
+          kind: "error",
+          text: "실행기 인증이 만료되었습니다. Tarkov Helper를 다시 실행해 주세요.",
+        };
+      case "OVERLAY_ALREADY_ATTACHED":
+        return {
+          kind: "error",
+          text: "이미 연결된 미니맵 창이 있습니다. 기존 창을 닫고 다시 시도해 주세요.",
+        };
+      case "OVERLAY_NOT_FOUND":
+        return {
+          kind: "error",
+          text: "오버레이 연결이 종료되었습니다. 미니맵을 다시 열어 주세요.",
+        };
+      case "INVALID_JSON":
+      case "INVALID_REQUEST":
+      case "INVALID_RESPONSE":
+        return {
+          kind: "error",
+          text: "실행기 응답을 확인할 수 없어 일반 미니맵 창으로 유지합니다.",
+        };
+    }
+  }
+  return {
+    kind: "error",
+    text: "Windows 오버레이에 연결하지 못했습니다. 일반 미니맵 창은 계속 사용할 수 있습니다.",
+  };
 }
 
 export function MapMiniMap(props: MapMiniMapProps) {
@@ -465,29 +556,115 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const [fallbackOpen, setFallbackOpen] = useState(false);
   const [fallbackNotice, setFallbackNotice] = useState("");
   const [isOpening, setIsOpening] = useState(false);
+  const [nativeSession, setNativeSession] =
+    useState<NativeOverlaySession | null>(null);
+  const [nativeOverlay, setNativeOverlay] =
+    useState<NativeOverlayAttachment | null>(null);
+  const [nativeNotice, setNativeNotice] =
+    useState<NativeOverlayNotice | null>(null);
+  const [nativeBusy, setNativeBusy] = useState(false);
   const pipWindowRef = useRef<Window | null>(null);
   const mountedRef = useRef(true);
+  const closingRef = useRef(false);
+  const nativeSessionRef = useRef<NativeOverlaySession | null>(null);
+  const nativeOverlayRef = useRef<NativeOverlayAttachment | null>(null);
+  const sessionDetectionRef = useRef<Promise<NativeOverlaySession | null> | null>(null);
+  const nativeSessionCheckedRef = useRef(false);
   const isOpen = Boolean(pictureInPicture || fallbackOpen);
   const activePipWindow = pictureInPicture?.window;
 
-  const closeMiniMap = useCallback(() => {
-    const pipWindow = pipWindowRef.current;
-    pipWindowRef.current = null;
-    setPictureInPicture(null);
-    setFallbackOpen(false);
-    setFallbackNotice("");
-    if (pipWindow) pipWindow.close();
+  const rememberNativeOverlay = useCallback((next: NativeOverlayAttachment | null) => {
+    nativeOverlayRef.current = next;
+    if (mountedRef.current) setNativeOverlay(next);
   }, []);
+
+  const resolveNativeSession = useCallback(async () => {
+    if (nativeSessionRef.current) return nativeSessionRef.current;
+    if (sessionDetectionRef.current) return sessionDetectionRef.current;
+    if (nativeSessionCheckedRef.current) return null;
+
+    const detection = fetchNativeOverlaySession();
+    sessionDetectionRef.current = detection;
+    try {
+      const session = await detection;
+      if (session && mountedRef.current) {
+        nativeSessionRef.current = session;
+        setNativeSession(session);
+      }
+      return session;
+    } finally {
+      nativeSessionCheckedRef.current = true;
+      if (sessionDetectionRef.current === detection) {
+        sessionDetectionRef.current = null;
+      }
+    }
+  }, []);
+
+  const detachCurrentNativeOverlay = useCallback(async (keepalive: boolean) => {
+    const session = nativeSessionRef.current;
+    const overlay = nativeOverlayRef.current;
+    if (!session || !overlay) return;
+
+    nativeOverlayRef.current = null;
+    if (mountedRef.current) setNativeOverlay(null);
+    try {
+      await detachNativeMiniMap(
+        session,
+        overlay.overlayId,
+        keepalive ? { keepalive: true } : {},
+      );
+    } catch {
+      // The browser window may already be gone. The launcher also restores
+      // attached windows during shutdown, so cleanup remains best-effort.
+    }
+  }, []);
+
+  const closeMiniMap = useCallback(async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    const pipWindow = pipWindowRef.current;
+    await detachCurrentNativeOverlay(false);
+    pipWindowRef.current = null;
+    if (mountedRef.current) {
+      setPictureInPicture(null);
+      setFallbackOpen(false);
+      setFallbackNotice("");
+      setNativeNotice(null);
+    }
+    if (pipWindow) pipWindow.close();
+    closingRef.current = false;
+  }, [detachCurrentNativeOverlay]);
 
   useEffect(() => {
     mountedRef.current = true;
+    const handlePageHide = () => {
+      void detachCurrentNativeOverlay(true);
+    };
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
+      window.removeEventListener("pagehide", handlePageHide);
       mountedRef.current = false;
+      const session = nativeSessionRef.current;
+      const overlay = nativeOverlayRef.current;
+      nativeOverlayRef.current = null;
+      nativeSessionRef.current = null;
+      nativeSessionCheckedRef.current = false;
+      if (session && overlay) {
+        void detachNativeMiniMap(
+          session,
+          overlay.overlayId,
+          { keepalive: true },
+        ).catch(() => undefined);
+      }
       const pipWindow = pipWindowRef.current;
       pipWindowRef.current = null;
       if (pipWindow) pipWindow.close();
     };
-  }, []);
+  }, [detachCurrentNativeOverlay]);
+
+  useEffect(() => {
+    void resolveNativeSession();
+  }, [resolveNativeSession]);
 
   useEffect(() => {
     if (!activePipWindow) return;
@@ -496,6 +673,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
       if (pipWindowRef.current === activePipWindow) {
         pipWindowRef.current = null;
       }
+      void detachCurrentNativeOverlay(true);
       setPictureInPicture((current) =>
         current?.window === activePipWindow ? null : current,
       );
@@ -520,11 +698,40 @@ export function MapMiniMap(props: MapMiniMapProps) {
       activePipWindow.removeEventListener("pagehide", handlePageHide);
       activePipWindow.removeEventListener("resize", handleResize);
     };
-  }, [activePipWindow]);
+  }, [activePipWindow, detachCurrentNativeOverlay]);
+
+  const updateNativeMode = useCallback(async (mode: NativeOverlayMode) => {
+    const session = nativeSessionRef.current;
+    const overlay = nativeOverlayRef.current;
+    if (!session || !overlay || nativeBusy) return;
+
+    setNativeBusy(true);
+    try {
+      const next = await updateNativeMiniMap(
+        session,
+        overlay.overlayId,
+        mode,
+      );
+      if (nativeOverlayRef.current?.overlayId === overlay.overlayId) {
+        rememberNativeOverlay(next);
+        setNativeNotice(nativeOverlayModeNotice(next.mode));
+      }
+    } catch (error) {
+      if (
+        error instanceof NativeOverlayApiError &&
+        error.code === "OVERLAY_NOT_FOUND"
+      ) {
+        rememberNativeOverlay(null);
+      }
+      if (mountedRef.current) setNativeNotice(nativeOverlayErrorNotice(error));
+    } finally {
+      if (mountedRef.current) setNativeBusy(false);
+    }
+  }, [nativeBusy, rememberNativeOverlay]);
 
   const openMiniMap = async () => {
     if (isOpen) {
-      closeMiniMap();
+      await closeMiniMap();
       return;
     }
     if (isOpening) return;
@@ -532,12 +739,28 @@ export function MapMiniMap(props: MapMiniMapProps) {
     setIsOpening(true);
     const controller = getPictureInPictureController();
     if (controller) {
+      let session: NativeOverlaySession | null = null;
+      let claimId: string | null = null;
       try {
+        session = await resolveNativeSession();
+        if (session) {
+          setNativeNotice({ kind: "status", text: "Windows 오버레이 창 준비 중…" });
+          try {
+            const claim = await beginNativeOverlayClaim(session);
+            claimId = claim.claimId;
+          } catch (error) {
+            setNativeNotice(nativeOverlayErrorNotice(error));
+          }
+        }
+
         const pipWindow = await controller.requestWindow({
           width: MINI_MAP_SIZE,
           height: MINI_MAP_SIZE,
         });
-        const root = preparePictureInPictureDocument(pipWindow);
+        const root = preparePictureInPictureDocument(
+          pipWindow,
+          session?.windowTitle,
+        );
         if (!mountedRef.current) {
           pipWindow.close();
           return;
@@ -549,6 +772,38 @@ export function MapMiniMap(props: MapMiniMapProps) {
           viewport: pictureInPictureViewport(pipWindow),
         });
         setFallbackNotice("");
+
+        if (session && claimId) {
+          try {
+            const attached = await attachNativeMiniMap(session, claimId);
+            if (
+              !mountedRef.current ||
+              pipWindowRef.current !== pipWindow
+            ) {
+              await detachNativeMiniMap(
+                session,
+                attached.overlayId,
+                { keepalive: true },
+              ).catch(() => undefined);
+              return;
+            }
+            rememberNativeOverlay(attached);
+            const locked = await updateNativeMiniMap(
+              session,
+              attached.overlayId,
+              "LOCKED",
+              { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE },
+            );
+            if (nativeOverlayRef.current?.overlayId === attached.overlayId) {
+              rememberNativeOverlay(locked);
+              setNativeNotice(nativeOverlayModeNotice(locked.mode));
+            }
+          } catch (error) {
+            if (mountedRef.current) {
+              setNativeNotice(nativeOverlayErrorNotice(error));
+            }
+          }
+        }
         return;
       } catch {
         // A rejected PiP request falls through to the fully functional page UI.
@@ -565,18 +820,64 @@ export function MapMiniMap(props: MapMiniMapProps) {
     }
   };
 
+  const overlayLocked = nativeOverlay?.mode === "LOCKED" ||
+    nativeOverlay?.mode === "CLICK_THROUGH";
+  const clickThrough = nativeOverlay?.mode === "CLICK_THROUGH";
+  const nativeControlDisabled = !nativeOverlay || nativeBusy || isOpening;
+
   return (
     <>
       <button
         aria-expanded={isOpen}
         className="map-minimap-toggle"
         disabled={isOpening}
-        onClick={openMiniMap}
+        onClick={() => void openMiniMap()}
         type="button"
       >
         <Navigation aria-hidden="true" />
         {isOpening ? "미니맵 여는 중" : isOpen ? "미니맵 닫기" : "미니맵 열기"}
       </button>
+
+      {nativeSession ? (
+        <div
+          aria-label="미니맵 오버레이 제어"
+          className="map-minimap-native-controls"
+          role="group"
+        >
+          <button
+            aria-label={overlayLocked ? "오버레이 위치 잠금 해제" : "오버레이 위치 고정"}
+            aria-pressed={overlayLocked}
+            className="map-minimap-native-button"
+            disabled={nativeControlDisabled}
+            onClick={() => void updateNativeMode(overlayLocked ? "UNLOCKED" : "LOCKED")}
+            title={overlayLocked ? "위치와 크기 조정 허용" : "현재 위치에 항상 위로 고정"}
+            type="button"
+          >
+            <Pin aria-hidden="true" />
+            <span>{overlayLocked ? "위치 고정" : "이동 가능"}</span>
+          </button>
+          <button
+            aria-label={clickThrough ? "클릭 통과 끄기" : "클릭 통과 켜기"}
+            aria-pressed={clickThrough}
+            className="map-minimap-native-button"
+            disabled={nativeControlDisabled}
+            onClick={() => void updateNativeMode(clickThrough ? "LOCKED" : "CLICK_THROUGH")}
+            title={clickThrough ? "오버레이 입력 다시 받기" : "게임으로 마우스 클릭 통과"}
+            type="button"
+          >
+            <MousePointer2 aria-hidden="true" />
+            <span>클릭 통과</span>
+          </button>
+          {nativeNotice ? (
+            <span
+              className={`map-minimap-native-status ${nativeNotice.kind === "error" ? "error" : ""}`}
+              role={nativeNotice.kind === "error" ? "alert" : "status"}
+            >
+              {nativeNotice.text}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {fallbackOpen ? (
         <aside
@@ -590,7 +891,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
           ) : null}
           <MiniMapSurface
             {...props}
-            onClose={closeMiniMap}
+            onClose={() => void closeMiniMap()}
             presentation="fallback"
             viewport={{ width: MINI_MAP_SIZE, height: MINI_MAP_SIZE }}
           />
@@ -600,7 +901,8 @@ export function MapMiniMap(props: MapMiniMapProps) {
         ? createPortal(
             <MiniMapSurface
               {...props}
-              onClose={closeMiniMap}
+              nativeOverlayMode={nativeOverlay?.mode}
+              onClose={() => void closeMiniMap()}
               presentation="pip"
               viewport={pictureInPicture.viewport}
             />,

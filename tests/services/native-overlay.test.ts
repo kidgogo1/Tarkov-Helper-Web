@@ -101,6 +101,18 @@ describe("native overlay API boundary", () => {
     });
   });
 
+  it("rejects a non-ISO claim expiry even when Date.parse accepts it", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      claimId: "c".repeat(43),
+      expiresAt: "August 8, 2026 12:00:15 UTC",
+    }, 201));
+
+    await expect(beginNativeOverlayClaim(session, request)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
   it("attaches only by opaque claim and the launcher-provided title", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(attachedPayload, 201));
 
