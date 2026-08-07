@@ -1,0 +1,377 @@
+import { Search, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import { useAppStore } from "../../app/store";
+import {
+  completeQuest,
+  getQuestStatistics,
+  getQuestStatus,
+  recommendQuests,
+  resetQuest,
+  type RecommendationType,
+} from "../../domain/quests";
+import type { QuestData, TarkovData } from "../../types/data";
+import type { QuestStatus, SavedQuestStatus } from "../../types/state";
+import "../../styles/quests.css";
+import { QuestDetail } from "./QuestDetail";
+
+interface QuestsPageProps {
+  data: TarkovData;
+  onOpenMap: (mapKey?: string, questId?: string) => void;
+}
+
+const STATUS_LABELS: Record<QuestStatus, string> = {
+  active: "진행 가능",
+  locked: "잠김",
+  levelLocked: "레벨 제한",
+  unavailable: "이용 불가",
+  done: "완료",
+  failed: "실패",
+};
+
+const RECOMMENDATION_LABELS: Record<RecommendationType, string> = {
+  readyToComplete: "바로 완료 가능",
+  itemHandInOnly: "아이템 제출",
+  kappaPriority: "카파 우선",
+  unlocksMany: "후속 다수 해금",
+  easyQuest: "빠른 진행",
+};
+
+function questName(quest: QuestData): string {
+  return quest.nameKo || quest.name || quest.nameEn;
+}
+
+function normalize(value: string): string {
+  return value.trim().toLocaleLowerCase("ko-KR");
+}
+
+function questMaps(quest: QuestData): string[] {
+  return [
+    ...quest.locations,
+    ...quest.objectives
+      .map((objective) => objective.mapName)
+      .filter((mapName): mapName is string => Boolean(mapName)),
+  ];
+}
+
+export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
+  const {
+    profile,
+    setObjectiveProgress,
+    setQuestStatus,
+    updateProfile,
+  } = useAppStore();
+  const [query, setQuery] = useState("");
+  const [kappaOnly, setKappaOnly] = useState(false);
+  const [itemOnly, setItemOnly] = useState(false);
+  const [traderFilter, setTraderFilter] = useState("all");
+  const [mapFilter, setMapFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<QuestStatus | "all">("all");
+  const [selectedQuestId, setSelectedQuestId] = useState(
+    data.quests[0]?.id ?? "",
+  );
+
+  const statuses = useMemo(
+    () =>
+      new Map(
+        data.quests.map((quest) => [
+          quest.id,
+          getQuestStatus(quest, data.quests, profile),
+        ]),
+      ),
+    [data.quests, profile],
+  );
+  const statistics = useMemo(
+    () => getQuestStatistics(data.quests, profile),
+    [data.quests, profile],
+  );
+  const recommendations = useMemo(
+    () => recommendQuests(data.quests, profile, 5),
+    [data.quests, profile],
+  );
+  const traders = useMemo(
+    () =>
+      Array.from(new Set(data.quests.map((quest) => quest.trader))).sort(),
+    [data.quests],
+  );
+  const maps = useMemo(
+    () =>
+      Array.from(new Set(data.quests.flatMap(questMaps))).sort(),
+    [data.quests],
+  );
+
+  const filteredQuests = useMemo(() => {
+    const needle = normalize(query);
+    return data.quests.filter((quest) => {
+      const searchable = normalize(
+        [
+          questName(quest),
+          quest.nameEn,
+          quest.name,
+          quest.normalizedName,
+          quest.trader,
+          ...questMaps(quest),
+        ].join(" "),
+      );
+      return (
+        (!needle || searchable.includes(needle)) &&
+        (!kappaOnly || quest.kappaRequired) &&
+        (!itemOnly || quest.requiredItems.length > 0) &&
+        (traderFilter === "all" || quest.trader === traderFilter) &&
+        (mapFilter === "all" || questMaps(quest).includes(mapFilter)) &&
+        (statusFilter === "all" || statuses.get(quest.id) === statusFilter)
+      );
+    });
+  }, [
+    data.quests,
+    itemOnly,
+    kappaOnly,
+    mapFilter,
+    query,
+    statusFilter,
+    statuses,
+    traderFilter,
+  ]);
+
+  const selectedQuest =
+    data.quests.find((quest) => quest.id === selectedQuestId) ??
+    filteredQuests[0];
+
+  const applyQuestProgress = (
+    nextProgress: Record<string, SavedQuestStatus>,
+  ) => {
+    const keys = new Set([
+      ...Object.keys(profile.questProgress),
+      ...Object.keys(nextProgress),
+    ]);
+    keys.forEach((key) => {
+      const next = nextProgress[key] ?? null;
+      if (profile.questProgress[key] !== next) setQuestStatus(key, next);
+    });
+  };
+
+  const handleComplete = (quest: QuestData) => {
+    applyQuestProgress(
+      completeQuest(quest.id, data.quests, profile.questProgress),
+    );
+  };
+
+  const handleReset = (quest: QuestData) => {
+    applyQuestProgress(resetQuest(profile.questProgress, quest));
+    quest.objectives.forEach((objective) =>
+      setObjectiveProgress(objective.id, false),
+    );
+  };
+
+  return (
+    <section className="quests-page">
+      <header className="quests-page-header">
+        <div>
+          <p className="section-title">QUEST TRACKER</p>
+          <h1>퀘스트</h1>
+          <p>진행 조건, 아이템, 목표와 후속 임무를 한곳에서 관리합니다.</p>
+        </div>
+        <div aria-label="진영" className="faction-switch" role="group">
+          <button
+            aria-pressed={profile.faction === "usec"}
+            className={profile.faction === "usec" ? "active" : ""}
+            onClick={() => updateProfile({ faction: "usec" })}
+            type="button"
+          >
+            USEC
+          </button>
+          <button
+            aria-pressed={profile.faction === "bear"}
+            className={profile.faction === "bear" ? "active" : ""}
+            onClick={() => updateProfile({ faction: "bear" })}
+            type="button"
+          >
+            BEAR
+          </button>
+        </div>
+      </header>
+
+      <section aria-label="추천 퀘스트" className="quest-recommendations panel">
+        <div className="recommendation-heading">
+          <Sparkles aria-hidden="true" size={16} />
+          <div>
+            <h2>추천 퀘스트</h2>
+            <p>현재 진행도와 보유 아이템을 기준으로 선정했습니다.</p>
+          </div>
+        </div>
+        <div className="recommendation-strip">
+          {recommendations.map((recommendation) => (
+            <button
+              key={recommendation.quest.id}
+              onClick={() => setSelectedQuestId(recommendation.quest.id)}
+              type="button"
+            >
+              <span className="badge">
+                {RECOMMENDATION_LABELS[recommendation.type]}
+              </span>
+              <strong>{questName(recommendation.quest)}</strong>
+              <small>{recommendation.quest.trader}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section aria-label="전체 퀘스트 통계" className="quest-statistics">
+        {(
+          [
+            ["전체", statistics.total, "total"],
+            ["진행 가능", statistics.active, "active"],
+            ["잠김", statistics.locked + statistics.levelLocked, "locked"],
+            ["완료", statistics.done, "done"],
+            ["실패", statistics.failed, "failed"],
+            ["이용 불가", statistics.unavailable, "unavailable"],
+          ] as const
+        ).map(([label, value, tone]) => (
+          <div className={`panel stat-${tone}`} key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </section>
+
+      <div className="quest-workspace">
+        <aside className="quest-browser panel">
+          <div className="quest-filters">
+            <label className="quest-search">
+              <span className="sr-only">퀘스트 검색</span>
+              <Search aria-hidden="true" size={15} />
+              <input
+                aria-label="퀘스트 검색"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="퀘스트 이름 검색"
+                type="search"
+                value={query}
+              />
+            </label>
+            <div className="quest-select-filters">
+              <label>
+                <span>상인</span>
+                <select
+                  aria-label="상인"
+                  onChange={(event) => setTraderFilter(event.target.value)}
+                  value={traderFilter}
+                >
+                  <option value="all">전체 상인</option>
+                  {traders.map((trader) => (
+                    <option key={trader} value={trader}>{trader}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>지도</span>
+                <select
+                  aria-label="지도"
+                  onChange={(event) => setMapFilter(event.target.value)}
+                  value={mapFilter}
+                >
+                  <option value="all">전체 지도</option>
+                  {maps.map((map) => (
+                    <option key={map} value={map}>{map}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>상태</span>
+                <select
+                  aria-label="상태"
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as QuestStatus | "all")
+                  }
+                  value={statusFilter}
+                >
+                  <option value="all">전체 상태</option>
+                  {Object.entries(STATUS_LABELS).map(([status, label]) => (
+                    <option key={status} value={status}>{label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="quest-check-filters">
+              <label>
+                <input
+                  checked={kappaOnly}
+                  onChange={(event) => setKappaOnly(event.target.checked)}
+                  type="checkbox"
+                />
+                카파 필수
+              </label>
+              <label>
+                <input
+                  checked={itemOnly}
+                  onChange={(event) => setItemOnly(event.target.checked)}
+                  type="checkbox"
+                />
+                아이템 필요
+              </label>
+            </div>
+          </div>
+
+          <div className="quest-list-summary">
+            <strong>{filteredQuests.length}</strong>
+            <span> / {data.quests.length} 퀘스트</span>
+          </div>
+          <section aria-label="퀘스트 목록" className="quest-list-region">
+            {filteredQuests.length > 0 ? (
+              <ul className="quest-list">
+                {filteredQuests.map((quest) => {
+                  const status = statuses.get(quest.id) ?? "active";
+                  return (
+                    <li key={quest.id}>
+                      <button
+                        aria-current={selectedQuest?.id === quest.id ? "true" : undefined}
+                        className={selectedQuest?.id === quest.id ? "selected" : ""}
+                        onClick={() => setSelectedQuestId(quest.id)}
+                        type="button"
+                      >
+                        <span className="quest-list-main">
+                          <strong>{questName(quest)}</strong>
+                          {quest.nameEn && quest.nameEn !== questName(quest) ? (
+                            <small>{quest.nameEn}</small>
+                          ) : null}
+                        </span>
+                        <span className="quest-list-meta">
+                          <span>{quest.trader}</span>
+                          {quest.kappaRequired ? <span className="badge kappa">K</span> : null}
+                          <span className={`badge quest-status status-${status}`}>
+                            {STATUS_LABELS[status]}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="quest-list-empty" role="status">
+                <strong>조건에 맞는 퀘스트가 없습니다.</strong>
+                <span>검색어나 필터를 변경해 보세요.</span>
+              </div>
+            )}
+          </section>
+        </aside>
+
+        {selectedQuest ? (
+          <QuestDetail
+            data={data}
+            onComplete={handleComplete}
+            onObjectiveChange={setObjectiveProgress}
+            onOpenMap={onOpenMap}
+            onReset={handleReset}
+            profile={profile}
+            quest={selectedQuest}
+            status={statuses.get(selectedQuest.id) ?? "active"}
+          />
+        ) : (
+          <div className="quest-detail panel quest-detail-empty" role="status">
+            표시할 퀘스트가 없습니다.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
