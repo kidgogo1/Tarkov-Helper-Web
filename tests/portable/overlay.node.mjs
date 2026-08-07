@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,107 @@ import test from "node:test";
 
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const launcherPath = path.join(projectRoot, "portable", "launcher.ps1");
+const syntheticLockDirectory = path.join(
+  os.tmpdir(),
+  "tarkov-helper-native-overlay-synthetic.lock",
+);
+
+function isProcessAlive(processId) {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function acquireSyntheticBrowserLock(timeoutMs = 60_000) {
+  const ownerPath = path.join(syntheticLockDirectory, "owner.json");
+  const ownerToken = randomUUID();
+  const deadline = Date.now() + timeoutMs;
+  let invalidOwnerObservedAt = null;
+  let invalidOwnerKey = null;
+
+  while (Date.now() < deadline) {
+    let createdDirectory = false;
+    try {
+      await mkdir(syntheticLockDirectory);
+      createdDirectory = true;
+      await writeFile(
+        ownerPath,
+        JSON.stringify({ processId: process.pid, ownerToken }),
+        "utf8",
+      );
+      return async () => {
+        const releaseDeadline = Date.now() + 5_000;
+        let lastReleaseError = null;
+        while (Date.now() < releaseDeadline) {
+          try {
+            const owner = JSON.parse(await readFile(ownerPath, "utf8"));
+            if (owner.processId !== process.pid || owner.ownerToken !== ownerToken) return;
+            await rm(syntheticLockDirectory, { recursive: true, force: true });
+            return;
+          } catch (error) {
+            if (error?.code === "ENOENT") return;
+            lastReleaseError = error;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error("Failed to release the synthetic browser test lock.", {
+          cause: lastReleaseError,
+        });
+      };
+    } catch (error) {
+      if (createdDirectory) {
+        await rm(syntheticLockDirectory, { recursive: true, force: true }).catch(() => {});
+      }
+      if (error?.code !== "EEXIST") throw error;
+    }
+
+    let owner = null;
+    try {
+      owner = JSON.parse(await readFile(ownerPath, "utf8"));
+    } catch {
+      // The winner may still be writing owner.json. Allow a bounded grace period.
+    }
+    if (
+      Number.isInteger(owner?.processId) &&
+      owner.processId > 0 &&
+      isProcessAlive(owner.processId)
+    ) {
+      invalidOwnerObservedAt = null;
+      invalidOwnerKey = null;
+    } else {
+      const observedKey = `${owner?.processId ?? "invalid"}:${owner?.ownerToken ?? "invalid"}`;
+      if (invalidOwnerKey !== observedKey) {
+        invalidOwnerKey = observedKey;
+        invalidOwnerObservedAt = Date.now();
+      }
+      if (Date.now() - invalidOwnerObservedAt >= 2_000) {
+        let latestOwner = null;
+        try {
+          latestOwner = JSON.parse(await readFile(ownerPath, "utf8"));
+        } catch {
+          // A missing/partial owner remains stale only if no live owner appeared.
+        }
+        const latestKey = `${latestOwner?.processId ?? "invalid"}:${latestOwner?.ownerToken ?? "invalid"}`;
+        if (
+          latestKey === invalidOwnerKey &&
+          (!Number.isInteger(latestOwner?.processId) ||
+            latestOwner.processId <= 0 ||
+            !isProcessAlive(latestOwner.processId))
+        ) {
+          await rm(syntheticLockDirectory, { recursive: true, force: true });
+        }
+        invalidOwnerObservedAt = null;
+        invalidOwnerKey = null;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error("Timed out waiting for the synthetic browser test lock.");
+}
 
 function waitForUrl(child) {
   return new Promise((resolve, reject) => {
@@ -72,10 +174,29 @@ async function startServer(t) {
   );
 
   t.after(async () => {
-    if (child.exitCode === null) child.kill();
+    if (child.exitCode === null) {
+      child.kill();
+      await new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 2_000);
+        child.once("exit", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   });
-  return { child, temporaryRoot, ...(await waitForUrl(child)) };
+  const location = await waitForUrl(child);
+  await waitFor(async () => {
+    try {
+      const response = await fetch(new URL(".tarkov-helper-portable", location.url));
+      await response.arrayBuffer();
+      return response.status === 200;
+    } catch {
+      return false;
+    }
+  }, 5_000, "Timed out waiting for the portable overlay API.");
+  return { child, temporaryRoot, ...location };
 }
 
 function mutationHeaders(url, token) {
@@ -86,14 +207,24 @@ function mutationHeaders(url, token) {
   };
 }
 
-async function waitFor(check, timeoutMs = 10_000) {
+async function fetchAndDiscard(input, init) {
+  const response = await fetch(input, init);
+  await response.arrayBuffer();
+  return response;
+}
+
+async function waitFor(
+  check,
+  timeoutMs = 10_000,
+  timeoutMessage = "Timed out waiting for synthetic Win32 state.",
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await check();
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error("Timed out waiting for synthetic Win32 state.");
+  throw new Error(timeoutMessage);
 }
 
 async function compileSyntheticBrowser(temporaryRoot) {
@@ -135,6 +266,8 @@ public static class SyntheticBrowser {
     }
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect { public int left, top, right, bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct StyleStruct { public uint styleOld, styleNew; }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern ushort RegisterClass(ref WindowClass value);
@@ -152,8 +285,15 @@ public static class SyntheticBrowser {
     private static readonly List<IntPtr> PipWindows = new List<IntPtr>();
     private static IntPtr MainWindow;
     private static bool SabotageNextStyleChange;
+    private static bool RejectNextExStyleChange;
 
     private static IntPtr HandleMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam) {
+        if (message == 0x007C && RejectNextExStyleChange && wParam.ToInt64() == -20) {
+            RejectNextExStyleChange = false;
+            StyleStruct styles = (StyleStruct)Marshal.PtrToStructure(lParam, typeof(StyleStruct));
+            styles.styleNew = styles.styleOld;
+            Marshal.StructureToPtr(styles, lParam, false);
+        }
         if (message == 0x007D && SabotageNextStyleChange && window != MainWindow) {
             SabotageNextStyleChange = false;
             PipWindows.Remove(window);
@@ -182,6 +322,7 @@ public static class SyntheticBrowser {
         var json = new StringBuilder();
         json.Append("{\"pid\":").Append(System.Diagnostics.Process.GetCurrentProcess().Id);
         json.Append(",\"sabotage\":").Append(SabotageNextStyleChange ? "true" : "false");
+        json.Append(",\"rejectExStyle\":").Append(RejectNextExStyleChange ? "true" : "false");
         json.Append(",\"main\":").Append(WindowJson(MainWindow));
         json.Append(",\"pips\":[");
         for (int index = 0; index < PipWindows.Count; index++) {
@@ -225,6 +366,8 @@ public static class SyntheticBrowser {
                         PipWindows.Clear();
                     } else if (parts.Length >= 2 && parts[1] == "SABOTAGE") {
                         SabotageNextStyleChange = true;
+                    } else if (parts.Length >= 2 && parts[1] == "REJECT_EXSTYLE") {
+                        RejectNextExStyleChange = true;
                     } else if (parts.Length >= 2 && parts[1] == "EXIT") {
                         running = false;
                     }
@@ -287,20 +430,22 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
     maxHeight: 1000,
   });
 
-  const missingOrigin = await fetch(new URL("api/v1/native-overlay/claims", url), {
+  // Authentication probes stay bodyless: the server intentionally rejects them
+  // before parsing a payload, so there must be no unread request bytes at close.
+  const missingOrigin = await fetchAndDiscard(new URL("api/v1/native-overlay/claims", url), {
     method: "POST",
     headers: {
-      "content-type": "application/json",
       "x-tarkov-overlay": session.token,
     },
-    body: "{}",
   });
   assert.equal(missingOrigin.status, 403);
 
-  const wrongToken = await fetch(new URL("api/v1/native-overlay/claims", url), {
+  const wrongToken = await fetchAndDiscard(new URL("api/v1/native-overlay/claims", url), {
     method: "POST",
-    headers: mutationHeaders(url, "A".repeat(43)),
-    body: "{}",
+    headers: {
+      origin: new URL(url).origin,
+      "x-tarkov-overlay": "A".repeat(43),
+    },
   });
   assert.equal(wrongToken.status, 403);
 
@@ -324,7 +469,7 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
   assert.match(claim.claimId, /^[A-Za-z0-9_-]{40,}$/);
   assert.equal(Number.isNaN(Date.parse(claim.expiresAt)), false);
 
-  const invalidTitle = await fetch(new URL("api/v1/native-overlay/minimap", url), {
+  const invalidTitle = await fetchAndDiscard(new URL("api/v1/native-overlay/minimap", url), {
     method: "POST",
     headers: mutationHeaders(url, session.token),
     body: JSON.stringify({
@@ -334,7 +479,7 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
   });
   assert.equal(invalidTitle.status, 422);
 
-  const invalidBounds = await fetch(new URL("api/v1/native-overlay/minimap", url), {
+  const invalidBounds = await fetchAndDiscard(new URL("api/v1/native-overlay/minimap", url), {
     method: "PATCH",
     headers: mutationHeaders(url, session.token),
     body: JSON.stringify({
@@ -346,7 +491,7 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
   });
   assert.equal(invalidBounds.status, 422);
 
-  const invalidMode = await fetch(new URL("api/v1/native-overlay/minimap", url), {
+  const invalidMode = await fetchAndDiscard(new URL("api/v1/native-overlay/minimap", url), {
     method: "PATCH",
     headers: mutationHeaders(url, session.token),
     body: JSON.stringify({
@@ -356,7 +501,17 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
   });
   assert.equal(invalidMode.status, 422);
 
-  const fabricatedClaim = await fetch(new URL("api/v1/native-overlay/minimap", url), {
+  const lowercaseMode = await fetchAndDiscard(new URL("api/v1/native-overlay/minimap", url), {
+    method: "PATCH",
+    headers: mutationHeaders(url, session.token),
+    body: JSON.stringify({
+      overlayId: "Y".repeat(43),
+      mode: "locked",
+    }),
+  });
+  assert.equal(lowercaseMode.status, 422);
+
+  const fabricatedClaim = await fetchAndDiscard(new URL("api/v1/native-overlay/minimap", url), {
     method: "POST",
     headers: mutationHeaders(url, session.token),
     body: JSON.stringify({
@@ -373,22 +528,33 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   const executablePath = await compileSyntheticBrowser(syntheticRoot);
   const controlPath = path.join(syntheticRoot, "synthetic-control.txt");
   const statusPath = path.join(syntheticRoot, "synthetic-status.json");
-  const syntheticBrowser = spawn(executablePath, [controlPath, statusPath], {
-    stdio: "ignore",
-    windowsHide: true,
-  });
+  const releaseSyntheticBrowserLock = await acquireSyntheticBrowserLock();
+  let syntheticBrowser;
+  try {
+    syntheticBrowser = spawn(executablePath, [controlPath, statusPath], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  } catch (error) {
+    await releaseSyntheticBrowserLock();
+    throw error;
+  }
   t.after(async () => {
-    if (syntheticBrowser.exitCode === null) {
-      syntheticBrowser.kill();
-      await new Promise((resolve) => {
-        const timeout = setTimeout(resolve, 2_000);
-        syntheticBrowser.once("exit", () => {
-          clearTimeout(timeout);
-          resolve();
+    try {
+      if (syntheticBrowser.exitCode === null) {
+        syntheticBrowser.kill();
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 2_000);
+          syntheticBrowser.once("exit", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
         });
-      });
+      }
+      await rm(syntheticRoot, { recursive: true, force: true });
+    } finally {
+      await releaseSyntheticBrowserLock();
     }
-    await rm(syntheticRoot, { recursive: true, force: true });
   });
 
   let sequence = 0;
@@ -434,6 +600,23 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   assert.equal(complete.status, 201, `${JSON.stringify(complete.body)}\n${serverLog}`);
   assert.equal(complete.body.mode, "UNLOCKED");
 
+  await command("REJECT_EXSTYLE");
+  await statusWhere((status) => status.rejectExStyle === true);
+  const rejectedLock = await nativeRequest("PATCH", "api/v1/native-overlay/minimap", session.token, {
+    overlayId: complete.body.overlayId,
+    mode: "LOCKED",
+  });
+  assert.equal(rejectedLock.status, 500, JSON.stringify(rejectedLock.body));
+  const rolledBack = await statusWhere((status) =>
+    status.rejectExStyle === false &&
+    status.pips[0].style === original.style &&
+    status.pips[0].exStyle === original.exStyle &&
+    status.pips[0].width === original.width &&
+    status.pips[0].height === original.height,
+  );
+  assert.equal(rolledBack.pips[0].left, original.left);
+  assert.equal(rolledBack.pips[0].top, original.top);
+
   const locked = await nativeRequest("PATCH", "api/v1/native-overlay/minimap", session.token, {
     overlayId: complete.body.overlayId,
     mode: "LOCKED",
@@ -451,11 +634,34 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
     height: original.height,
   });
 
+  await command("REJECT_EXSTYLE");
+  await statusWhere((status) => status.rejectExStyle === true);
+  const rejectedResize = await nativeRequest("PATCH", "api/v1/native-overlay/minimap", session.token, {
+    overlayId: complete.body.overlayId,
+    mode: "CLICK_THROUGH",
+    width: 300,
+    height: 300,
+  });
+  assert.equal(rejectedResize.status, 500, JSON.stringify(rejectedResize.body));
+  await statusWhere((status) =>
+    status.rejectExStyle === false &&
+    (status.pips[0].style & 0x00cf0000) === 0 &&
+    (status.pips[0].exStyle & 0x08080028) === 0x08000008 &&
+    status.pips[0].width === original.width &&
+    status.pips[0].height === original.height,
+  );
+
   const clickThrough = await nativeRequest("PATCH", "api/v1/native-overlay/minimap", session.token, {
     overlayId: complete.body.overlayId,
     mode: "CLICK_THROUGH",
   });
   assert.equal(clickThrough.status, 200, JSON.stringify(clickThrough.body));
+  assert.deepEqual(clickThrough.body.bounds, {
+    left: original.left,
+    top: original.top,
+    width: original.width,
+    height: original.height,
+  });
   await statusWhere((status) =>
     (status.pips[0].exStyle & 0x08080028) === 0x08080028,
   );
@@ -480,14 +686,14 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   assert.deepEqual(unlocked.body.bounds, {
     left: original.left,
     top: original.top,
-    width: original.width,
-    height: original.height,
+    width: 360,
+    height: 360,
   });
   const restored = await statusWhere((status) =>
     status.pips[0].style === original.style &&
     status.pips[0].exStyle === original.exStyle &&
-    status.pips[0].width === original.width &&
-    status.pips[0].height === original.height,
+    status.pips[0].width === 360 &&
+    status.pips[0].height === 360,
   );
   assert.equal(restored.pips[0].left, original.left);
   assert.equal(restored.pips[0].top, original.top);
@@ -497,6 +703,12 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
     mode: "CLICK_THROUGH",
   });
   assert.equal(relockedForRestoreFailure.status, 200, JSON.stringify(relockedForRestoreFailure.body));
+  assert.deepEqual(relockedForRestoreFailure.body.bounds, {
+    left: original.left,
+    top: original.top,
+    width: 360,
+    height: 360,
+  });
   await command("SABOTAGE");
   await statusWhere((status) => status.sabotage === true);
   const failedDetach = await nativeRequest("DELETE", "api/v1/native-overlay/minimap", session.token, {

@@ -779,6 +779,7 @@ namespace TarkovHelper {
         private const uint FrameChanged = 0x0020;
         private const uint ShowWindow = 0x0040;
         private const uint NoActivate = 0x0010;
+        private const long WindowEdge = 0x00000100L;
 
         private static long ReadWindowLong(IntPtr window, int index) {
             if (IntPtr.Size == 8) return GetWindowLongPtr64(window, index).ToInt64();
@@ -798,6 +799,33 @@ namespace TarkovHelper {
             if (previous32 == 0 && Marshal.GetLastWin32Error() != 0) {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
+        }
+
+        private static bool MatchesWindowState(
+            IntPtr window,
+            long style,
+            long exStyle,
+            int left,
+            int top,
+            int width,
+            int height
+        ) {
+            Rect rect;
+            if (!GetWindowRect(window, out rect)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            // Windows may add or remove WS_EX_WINDOWEDGE when a frame style changes.
+            // Every other style bit, including all overlay input and z-order bits,
+            // remains part of the transactional postcondition.
+            long effectiveExStyleMask = ~WindowEdge;
+            return
+                ReadWindowLong(window, StyleIndex) == style &&
+                (ReadWindowLong(window, ExStyleIndex) & effectiveExStyleMask) ==
+                    (exStyle & effectiveExStyleMask) &&
+                rect.Left == left &&
+                rect.Top == top &&
+                rect.Right - rect.Left == width &&
+                rect.Bottom - rect.Top == height;
         }
 
         public static NativeWindowInfo[] EnumerateWindows() {
@@ -845,11 +873,60 @@ namespace TarkovHelper {
         ) {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
-            WriteWindowLong(window, StyleIndex, style);
-            WriteWindowLong(window, ExStyleIndex, exStyle);
-            var insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
-            if (!SetWindowPos(window, insertAfter, left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
+            long previousStyle = ReadWindowLong(window, StyleIndex);
+            long previousExStyle = ReadWindowLong(window, ExStyleIndex);
+            Rect previousRect;
+            if (!GetWindowRect(window, out previousRect)) {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            try {
+                WriteWindowLong(window, StyleIndex, style);
+                WriteWindowLong(window, ExStyleIndex, exStyle);
+                var insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
+                if (!SetWindowPos(window, insertAfter, left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                if (!MatchesWindowState(window, style, exStyle, left, top, width, height)) {
+                    throw new InvalidOperationException("The overlay window rejected its requested state.");
+                }
+            } catch (Exception applyError) {
+                if (!IsWindow(window)) throw;
+                try {
+                    WriteWindowLong(window, StyleIndex, previousStyle);
+                    WriteWindowLong(window, ExStyleIndex, previousExStyle);
+                    var previousInsertAfter = (previousExStyle & 0x00000008L) != 0
+                        ? new IntPtr(-1)
+                        : new IntPtr(-2);
+                    if (!SetWindowPos(
+                        window,
+                        previousInsertAfter,
+                        previousRect.Left,
+                        previousRect.Top,
+                        previousRect.Right - previousRect.Left,
+                        previousRect.Bottom - previousRect.Top,
+                        FrameChanged | ShowWindow | NoActivate
+                    )) {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+                    if (!MatchesWindowState(
+                        window,
+                        previousStyle,
+                        previousExStyle,
+                        previousRect.Left,
+                        previousRect.Top,
+                        previousRect.Right - previousRect.Left,
+                        previousRect.Bottom - previousRect.Top
+                    )) {
+                        throw new InvalidOperationException("The overlay window rejected rollback to its previous state.");
+                    }
+                } catch (Exception rollbackError) {
+                    throw new AggregateException(
+                        "The native overlay update and rollback both failed.",
+                        applyError,
+                        rollbackError
+                    );
+                }
+                throw;
             }
         }
     }
@@ -1034,6 +1111,9 @@ function Set-NativeOverlayMode {
         [Nullable[int]]$Height
     )
 
+    if (@("UNLOCKED", "LOCKED", "CLICK_THROUGH") -cnotcontains $Mode) {
+        throw [ArgumentException]::new("The native overlay mode is invalid.")
+    }
     if ($null -eq $script:nativeOverlayRecord -or $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
     }
@@ -1047,38 +1127,52 @@ function Set-NativeOverlayMode {
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
     }
 
-    if ($Mode -eq "UNLOCKED") {
-        [TarkovHelper.NativeOverlayBridge]::Apply(
-            $record.handle,
-            $record.originalStyle,
-            $record.originalExStyle,
-            $record.originalRect.left,
-            $record.originalRect.top,
-            $record.originalRect.width,
-            $record.originalRect.height,
-            (($record.originalExStyle -band [long]0x00000008) -ne 0)
-        )
-        $record.mode = "UNLOCKED"
-        return Get-NativeOverlayResponse
-    }
-
-    if ($record.mode -eq "UNLOCKED") {
-        $record.lockedRect = [pscustomobject]@{
+    if ($Mode -ceq "UNLOCKED") {
+        $unlockRect = [pscustomobject]@{
             left = [int]$current.rect.left
             top = [int]$current.rect.top
             width = [int]$current.rect.width
             height = [int]$current.rect.height
         }
+        [TarkovHelper.NativeOverlayBridge]::Apply(
+            $record.handle,
+            $record.originalStyle,
+            $record.originalExStyle,
+            $unlockRect.left,
+            $unlockRect.top,
+            $unlockRect.width,
+            $unlockRect.height,
+            (($record.originalExStyle -band [long]0x00000008) -ne 0)
+        )
+        $record.lockedRect = $unlockRect
+        $record.mode = "UNLOCKED"
+        return Get-NativeOverlayResponse
+    }
+
+    if ($record.mode -ceq "UNLOCKED") {
+        $nextLockedRect = [pscustomobject]@{
+            left = [int]$current.rect.left
+            top = [int]$current.rect.top
+            width = [int]$current.rect.width
+            height = [int]$current.rect.height
+        }
+    } else {
+        $nextLockedRect = [pscustomobject]@{
+            left = [int]$record.lockedRect.left
+            top = [int]$record.lockedRect.top
+            width = [int]$record.lockedRect.width
+            height = [int]$record.lockedRect.height
+        }
     }
     if ($null -ne $Width -and $null -ne $Height) {
-        $record.lockedRect.width = [int]$Width
-        $record.lockedRect.height = [int]$Height
+        $nextLockedRect.width = [int]$Width
+        $nextLockedRect.height = [int]$Height
     }
 
     $windowDecorationMask = [long]0x00CF0000
     $pinnedStyle = $record.originalStyle -band (-bnot $windowDecorationMask)
     $pinnedExStyle = $record.originalExStyle -bor [long]0x00000008 -bor [long]0x08000000
-    if ($Mode -eq "CLICK_THROUGH") {
+    if ($Mode -ceq "CLICK_THROUGH") {
         $pinnedExStyle = $pinnedExStyle -bor [long]0x00080000 -bor [long]0x00000020
     } else {
         $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00000020)
@@ -1087,12 +1181,13 @@ function Set-NativeOverlayMode {
         $record.handle,
         $pinnedStyle,
         $pinnedExStyle,
-        $record.lockedRect.left,
-        $record.lockedRect.top,
-        $record.lockedRect.width,
-        $record.lockedRect.height,
+        $nextLockedRect.left,
+        $nextLockedRect.top,
+        $nextLockedRect.width,
+        $nextLockedRect.height,
         $true
     )
+    $record.lockedRect = $nextLockedRect
     $record.mode = $Mode
     return Get-NativeOverlayResponse
 }
@@ -2032,14 +2127,14 @@ try {
                             $requestObject.overlayId -isnot [string] -or
                             $requestObject.overlayId -notmatch "^[A-Za-z0-9_-]{40,64}$" -or
                             $requestObject.mode -isnot [string] -or
-                            $requestObject.mode -notin @("UNLOCKED", "LOCKED", "CLICK_THROUGH") -or
+                            @("UNLOCKED", "LOCKED", "CLICK_THROUGH") -cnotcontains $requestObject.mode -or
                             $hasWidth -ne $hasHeight
                         ) {
                             throw [ArgumentException]::new("The overlay identifier, mode, or size is invalid.")
                         }
                         if ($hasWidth) {
                             if (
-                                $requestObject.mode -eq "UNLOCKED" -or
+                                $requestObject.mode -ceq "UNLOCKED" -or
                                 $requestObject.width -isnot [int] -or
                                 $requestObject.height -isnot [int] -or
                                 $requestObject.width -lt $nativeOverlayMinimumSize -or
