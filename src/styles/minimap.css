@@ -12,8 +12,12 @@
 }
 
 .map-minimap-pip-root {
-  width: 100%;
-  height: 100%;
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .map-minimap-fallback {
@@ -45,8 +49,9 @@
 
 .map-minimap {
   position: relative;
-  width: min(300px, 100vw);
-  height: min(300px, 100vh);
+  display: flex;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   border-radius: inherit;
   background: #0d0f0e;
@@ -56,10 +61,25 @@
   isolation: isolate;
 }
 
+.map-minimap--fallback {
+  width: 100%;
+  height: 100%;
+}
+
+.map-minimap--pip {
+  flex: 1 1 auto;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+}
+
 .map-minimap-stage {
-  position: absolute;
+  position: relative;
   z-index: 0;
-  inset: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background:
     linear-gradient(rgb(255 255 255 / 3%) 1px, transparent 1px),
@@ -157,6 +177,21 @@
   white-space: nowrap;
 }
 
+.map-minimap--pip .map-minimap-header {
+  top: 6px;
+  right: 6px;
+  left: 6px;
+  min-height: 32px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 6px;
+  background: rgb(10 12 11 / 82%);
+  padding: 3px 4px 3px 7px;
+}
+
+.map-minimap--pip .map-minimap-header strong {
+  font-size: 10px;
+}
+
 .map-minimap-actions {
   display: flex;
   flex: 0 0 auto;
@@ -192,6 +227,23 @@
 .map-minimap-icon-button > svg {
   width: 14px;
   height: 14px;
+}
+
+.map-minimap--pip .map-minimap-icon-button {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+}
+
+.map-minimap--pip .map-minimap-icon-button > svg {
+  width: 13px;
+  height: 13px;
+}
+
+.map-minimap--pip .map-minimap-zoom {
+  width: 28px;
+  font-size: 8px;
 }
 
 .map-minimap-zoom {
@@ -240,6 +292,11 @@
   margin: 0;
 }
 
+.map-minimap--pip .map-minimap-settings {
+  right: 6px;
+  bottom: 6px;
+}
+
 .map-minimap-browser-note {
   position: absolute;
   z-index: 4;
@@ -257,6 +314,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.map-minimap--pip .map-minimap-browser-note {
+  right: auto;
+  bottom: 6px;
+  left: 6px;
+  max-width: calc(100% - 172px);
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 4px;
+  background: rgb(10 12 11 / 68%);
+  padding: 3px 6px;
+  font-size: 7px;
 }
 
 @keyframes map-minimap-player-pulse {

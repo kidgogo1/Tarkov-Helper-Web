@@ -36,7 +36,15 @@ interface DocumentPictureInPictureController {
 interface PictureInPictureState {
   root: HTMLElement;
   window: Window;
+  viewport: MiniMapViewport;
 }
+
+interface MiniMapViewport {
+  width: number;
+  height: number;
+}
+
+type MiniMapPresentation = "fallback" | "pip";
 
 type MiniMapStyle = CSSProperties & Record<`--${string}`, string | number>;
 
@@ -104,14 +112,30 @@ function mapAssetUrl(fileName: string): string {
   return new URL(relativePath, window.location.href).href;
 }
 
-function clampMapTranslation(translation: number, scaledMapSize: number): number {
-  const minimum = MINI_MAP_SIZE * 0.25 - scaledMapSize;
-  const maximum = MINI_MAP_SIZE * 0.75;
+function pictureInPictureViewport(pipWindow: Window): MiniMapViewport {
+  const width = Number.isFinite(pipWindow.innerWidth) && pipWindow.innerWidth > 0
+    ? pipWindow.innerWidth
+    : MINI_MAP_SIZE;
+  const height = Number.isFinite(pipWindow.innerHeight) && pipWindow.innerHeight > 0
+    ? pipWindow.innerHeight
+    : MINI_MAP_SIZE;
+  return { width, height };
+}
+
+function clampMapTranslation(
+  translation: number,
+  scaledMapSize: number,
+  viewportSize: number,
+): number {
+  const minimum = viewportSize * 0.25 - scaledMapSize;
+  const maximum = viewportSize * 0.75;
   return Math.min(maximum, Math.max(minimum, translation));
 }
 
 interface MiniMapSurfaceProps extends MapMiniMapProps {
   onClose: () => void;
+  presentation: MiniMapPresentation;
+  viewport: MiniMapViewport;
 }
 
 interface PanGesture {
@@ -129,6 +153,8 @@ function MiniMapSurface({
   player,
   playerMarkerSize,
   onClose,
+  presentation,
+  viewport,
 }: MiniMapSurfaceProps) {
   const { settings, updateMapSettings } = useAppStore();
   const mapSettings = settings.map;
@@ -136,26 +162,33 @@ function MiniMapSurface({
   const panGestureRef = useRef<PanGesture | null>(null);
   const mapWidth = Math.max(1, config.imageWidth);
   const mapHeight = Math.max(1, config.imageHeight);
-  const fitScale = Math.min(MINI_MAP_SIZE / mapWidth, MINI_MAP_SIZE / mapHeight);
+  const viewportWidth = Math.max(1, viewport.width);
+  const viewportHeight = Math.max(1, viewport.height);
+  const fitScale = Math.min(
+    viewportWidth / mapWidth,
+    viewportHeight / mapHeight,
+  );
   const scale = fitScale * mapSettings.miniMapZoom;
   const tracking = mapSettings.miniMapViewMode === "playerTracking";
-  const centeredX = (MINI_MAP_SIZE - mapWidth * scale) / 2;
-  const centeredY = (MINI_MAP_SIZE - mapHeight * scale) / 2;
+  const centeredX = (viewportWidth - mapWidth * scale) / 2;
+  const centeredY = (viewportHeight - mapHeight * scale) / 2;
   const fixedX = clampMapTranslation(
     centeredX + mapSettings.miniMapOffsetX,
     mapWidth * scale,
+    viewportWidth,
   );
   const fixedY = clampMapTranslation(
     centeredY + mapSettings.miniMapOffsetY,
     mapHeight * scale,
+    viewportHeight,
   );
   const normalizedOffsetX = fixedX - centeredX;
   const normalizedOffsetY = fixedY - centeredY;
   const x = tracking && player
-    ? MINI_MAP_SIZE / 2 - player.screen.x * scale
+    ? viewportWidth / 2 - player.screen.x * scale
     : tracking ? centeredX : fixedX;
   const y = tracking && player
-    ? MINI_MAP_SIZE / 2 - player.screen.y * scale
+    ? viewportHeight / 2 - player.screen.y * scale
     : tracking ? centeredY : fixedY;
   const mapUrl = useMemo(
     () => mapAssetUrl(config.svgFileName),
@@ -275,7 +308,7 @@ function MiniMapSurface({
   return (
     <section
       aria-label={`${config.displayName} 미니맵`}
-      className="map-minimap"
+      className={`map-minimap map-minimap--${presentation}`}
       role="dialog"
       style={rootStyle}
     >
@@ -435,6 +468,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const pipWindowRef = useRef<Window | null>(null);
   const mountedRef = useRef(true);
   const isOpen = Boolean(pictureInPicture || fallbackOpen);
+  const activePipWindow = pictureInPicture?.window;
 
   const closeMiniMap = useCallback(() => {
     const pipWindow = pipWindowRef.current;
@@ -456,21 +490,37 @@ export function MapMiniMap(props: MapMiniMapProps) {
   }, []);
 
   useEffect(() => {
-    if (!pictureInPicture) return;
+    if (!activePipWindow) return;
 
     const handlePageHide = () => {
-      if (pipWindowRef.current === pictureInPicture.window) {
+      if (pipWindowRef.current === activePipWindow) {
         pipWindowRef.current = null;
       }
       setPictureInPicture((current) =>
-        current?.window === pictureInPicture.window ? null : current,
+        current?.window === activePipWindow ? null : current,
       );
     };
-    pictureInPicture.window.addEventListener("pagehide", handlePageHide);
-    return () => {
-      pictureInPicture.window.removeEventListener("pagehide", handlePageHide);
+    const handleResize = () => {
+      const viewport = pictureInPictureViewport(activePipWindow);
+      setPictureInPicture((current) => {
+        if (
+          current?.window !== activePipWindow ||
+          (current.viewport.width === viewport.width &&
+            current.viewport.height === viewport.height)
+        ) {
+          return current;
+        }
+        return { ...current, viewport };
+      });
     };
-  }, [pictureInPicture]);
+    activePipWindow.addEventListener("pagehide", handlePageHide);
+    activePipWindow.addEventListener("resize", handleResize);
+    handleResize();
+    return () => {
+      activePipWindow.removeEventListener("pagehide", handlePageHide);
+      activePipWindow.removeEventListener("resize", handleResize);
+    };
+  }, [activePipWindow]);
 
   const openMiniMap = async () => {
     if (isOpen) {
@@ -493,7 +543,11 @@ export function MapMiniMap(props: MapMiniMapProps) {
           return;
         }
         pipWindowRef.current = pipWindow;
-        setPictureInPicture({ root, window: pipWindow });
+        setPictureInPicture({
+          root,
+          window: pipWindow,
+          viewport: pictureInPictureViewport(pipWindow),
+        });
         setFallbackNotice("");
         return;
       } catch {
@@ -511,10 +565,6 @@ export function MapMiniMap(props: MapMiniMapProps) {
     }
   };
 
-  const surface = isOpen ? (
-    <MiniMapSurface {...props} onClose={closeMiniMap} />
-  ) : null;
-
   return (
     <>
       <button
@@ -528,7 +578,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         {isOpening ? "미니맵 여는 중" : isOpen ? "미니맵 닫기" : "미니맵 열기"}
       </button>
 
-      {fallbackOpen && surface ? (
+      {fallbackOpen ? (
         <aside
           className="map-minimap-fallback"
           data-testid="map-minimap-fallback"
@@ -538,11 +588,24 @@ export function MapMiniMap(props: MapMiniMapProps) {
               {fallbackNotice}
             </p>
           ) : null}
-          {surface}
+          <MiniMapSurface
+            {...props}
+            onClose={closeMiniMap}
+            presentation="fallback"
+            viewport={{ width: MINI_MAP_SIZE, height: MINI_MAP_SIZE }}
+          />
         </aside>
       ) : null}
-      {pictureInPicture && surface
-        ? createPortal(surface, pictureInPicture.root)
+      {pictureInPicture
+        ? createPortal(
+            <MiniMapSurface
+              {...props}
+              onClose={closeMiniMap}
+              presentation="pip"
+              viewport={pictureInPicture.viewport}
+            />,
+            pictureInPicture.root,
+          )
         : null}
     </>
   );

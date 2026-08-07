@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, type PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,28 +48,43 @@ interface FakePictureInPictureWindow {
   document: Document;
   close: ReturnType<typeof vi.fn>;
   dispatchPageHide: () => void;
+  dispatchResize: (width: number, height: number) => void;
 }
 
-function createPictureInPictureWindow(): FakePictureInPictureWindow {
+function createPictureInPictureWindow(
+  initialSize = { width: 300, height: 300 },
+): FakePictureInPictureWindow {
   const frame = document.createElement("iframe");
   document.body.append(frame);
   const pipDocument = frame.contentDocument;
   if (!pipDocument) throw new Error("PiP test document was not created");
-  const pageHideListeners = new Set<EventListener>();
-  return {
+  const listeners = new Map<string, Set<EventListener>>();
+  const pipWindow = {
     document: pipDocument,
+    innerWidth: initialSize.width,
+    innerHeight: initialSize.height,
     close: vi.fn(() => frame.remove()),
     dispatchPageHide: () => {
       const event = new Event("pagehide");
-      pageHideListeners.forEach((listener) => listener(event));
+      listeners.get("pagehide")?.forEach((listener) => listener(event));
+    },
+    dispatchResize: (width: number, height: number) => {
+      pipWindow.innerWidth = width;
+      pipWindow.innerHeight = height;
+      const event = new Event("resize");
+      listeners.get("resize")?.forEach((listener) => listener(event));
     },
     addEventListener: ((type: string, listener: EventListener) => {
-      if (type === "pagehide") pageHideListeners.add(listener);
+      const typeListeners = listeners.get(type) ?? new Set<EventListener>();
+      typeListeners.add(listener);
+      listeners.set(type, typeListeners);
     }) as Window["addEventListener"],
     removeEventListener: ((type: string, listener: EventListener) => {
-      if (type === "pagehide") pageHideListeners.delete(listener);
+      listeners.get(type)?.delete(listener);
     }) as Window["removeEventListener"],
-  } as FakePictureInPictureWindow & Pick<Window, "addEventListener" | "removeEventListener">;
+  };
+  return pipWindow as FakePictureInPictureWindow &
+    Pick<Window, "addEventListener" | "removeEventListener" | "innerWidth" | "innerHeight">;
 }
 
 function setPictureInPictureController(
@@ -91,8 +106,8 @@ describe("MapMiniMap", () => {
     setPictureInPictureController(undefined);
   });
 
-  it("opens a 300x300 Document Picture-in-Picture window from the user toggle and copies stylesheet links", async () => {
-    const pipWindow = createPictureInPictureWindow();
+  it("fills and tracks the resizable Picture-in-Picture viewport while copying stylesheet links", async () => {
+    const pipWindow = createPictureInPictureWindow({ width: 640, height: 360 });
     const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
     setPictureInPictureController({ requestWindow });
     const stylesheet = document.createElement("link");
@@ -104,7 +119,15 @@ describe("MapMiniMap", () => {
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
 
     await waitFor(() => expect(requestWindow).toHaveBeenCalledWith({ width: 300, height: 300 }));
-    expect(within(pipWindow.document.body).getByRole("dialog", { name: "Customs 미니맵" })).toBeInTheDocument();
+    const pipDialog = within(pipWindow.document.body).getByRole("dialog", { name: "Customs 미니맵" });
+    expect(pipDialog).toHaveClass("map-minimap--pip");
+    const pipWorld = within(pipWindow.document.body).getByTestId("map-minimap-world");
+    expect(pipWorld.style.transform).toBe("translate(275px, 90px) scale(0.45)");
+
+    act(() => pipWindow.dispatchResize(400, 400));
+    await waitFor(() => {
+      expect(pipWorld.style.transform).toBe("translate(160px, 120px) scale(0.4)");
+    });
     expect(pipWindow.document.head.querySelector('link[rel="stylesheet"]')).toHaveAttribute(
       "href",
       stylesheet.href,
@@ -153,6 +176,10 @@ describe("MapMiniMap", () => {
 
     expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
     expect(screen.getByText(/페이지 안 미니맵으로 열었습니다/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveClass("map-minimap--fallback");
+    expect(screen.getByTestId("map-minimap-world").style.transform).toBe(
+      "translate(120px, 90px) scale(0.3)",
+    );
   });
 
   it("follows position updates in tracking mode but keeps the map fixed in fixed mode", async () => {
