@@ -37,7 +37,8 @@ function Get-ScreenshotCandidates {
     $paths = New-Object 'Collections.Generic.List[string]'
     $knownPaths = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $gameFolders = @("Escape from Tarkov", "Escape From Tarkov", "escape from tarkov")
-    $documentFolders = @("Documents", "문서", "My Documents")
+    $koreanDocuments = ([string][char]0xBB38) + ([string][char]0xC11C)
+    $documentFolders = @("Documents", $koreanDocuments, "My Documents")
 
     function Add-Candidate {
         param([string]$Candidate)
@@ -262,6 +263,7 @@ function Send-Response {
         [Parameter(Mandatory = $true)]
         [string]$ContentType,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [byte[]]$Body,
         [switch]$HeadOnly,
         [string[]]$ExtraHeaders = @()
@@ -410,6 +412,263 @@ function Get-TrackerEventsPayload {
     }
 }
 
+function Initialize-StateDirectory {
+    try {
+        $normalized = [IO.Path]::GetFullPath($StateDirectory)
+        [IO.Directory]::CreateDirectory($normalized) | Out-Null
+        return $normalized
+    } catch {
+        throw [IO.IOException]::new("The local runtime directory could not be created.", $_.Exception)
+    }
+}
+
+function Write-PortableLog {
+    param([string]$Message)
+
+    try {
+        $directory = Initialize-StateDirectory
+        $logPath = Join-Path $directory "server.log"
+        if ([IO.File]::Exists($logPath) -and (Get-Item -LiteralPath $logPath).Length -gt 1048576) {
+            $previousLog = Join-Path $directory "server.previous.log"
+            if ([IO.File]::Exists($previousLog)) { Remove-Item -LiteralPath $previousLog -Force }
+            Move-Item -LiteralPath $logPath -Destination $previousLog
+        }
+        $line = "{0} {1}{2}" -f [DateTime]::UtcNow.ToString("o"), $Message, [Environment]::NewLine
+        [IO.File]::AppendAllText($logPath, $line, [Text.Encoding]::UTF8)
+    } catch {
+        # Logging must not prevent startup or shutdown.
+    }
+}
+
+function Get-RandomToken {
+    $bytes = New-Object byte[] 32
+    $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    } finally {
+        $generator.Dispose()
+    }
+    return [Convert]::ToBase64String($bytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
+}
+
+function Get-InstancePath {
+    return Join-Path (Initialize-StateDirectory) "instance.json"
+}
+
+function Read-PortableInstance {
+    try {
+        $instancePath = Get-InstancePath
+        if (-not [IO.File]::Exists($instancePath)) { return $null }
+        $instance = Get-Content -LiteralPath $instancePath -Raw | ConvertFrom-Json
+        if (
+            $null -eq $instance -or
+            $instance.protocolVersion -ne 1 -or
+            $instance.pid -isnot [int] -or
+            $instance.port -isnot [int] -or
+            $instance.port -lt 1 -or
+            $instance.port -gt 65535 -or
+            $instance.controlToken -isnot [string] -or
+            $instance.controlToken -notmatch "^[A-Za-z0-9_-]{40,}$"
+        ) {
+            return $null
+        }
+        return $instance
+    } catch {
+        return $null
+    }
+}
+
+function Write-PortableInstance {
+    param([Parameter(Mandatory = $true)][object]$Instance)
+
+    $instancePath = Get-InstancePath
+    $temporaryPath = "$instancePath.$PID.tmp"
+    $json = ConvertTo-Json -InputObject $Instance -Compress -Depth 5
+    $utf8WithoutBom = New-Object Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($temporaryPath, $json, $utf8WithoutBom)
+    Move-Item -LiteralPath $temporaryPath -Destination $instancePath -Force
+}
+
+function Remove-OwnedInstance {
+    param([int]$ProcessId, [string]$ControlToken)
+
+    try {
+        $instancePath = Get-InstancePath
+        $instance = Read-PortableInstance
+        if ($null -ne $instance -and $instance.pid -eq $ProcessId -and $instance.controlToken -eq $ControlToken) {
+            Remove-Item -LiteralPath $instancePath -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        # A stale state file is safer than deleting an unverified one.
+    }
+}
+
+function Get-StateMutexName {
+    param([string]$Purpose)
+
+    $normalized = [IO.Path]::GetFullPath($StateDirectory).ToUpperInvariant()
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalized))
+    } finally {
+        $hasher.Dispose()
+    }
+    $suffix = ([BitConverter]::ToString($hash, 0, 12)).Replace("-", "")
+    return "Local\TarkovHelperWeb$Purpose$suffix"
+}
+
+function Test-PortableInstance {
+    param([object]$Instance)
+
+    if ($null -eq $Instance) { return $false }
+    try {
+        $process = Get-Process -Id ([int]$Instance.pid) -ErrorAction Stop
+        if ($process.HasExited) { return $false }
+        $url = "http://127.0.0.1:$($Instance.port)/"
+        $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 `
+            -Headers @{ "X-Tarkov-Control" = [string]$Instance.controlToken } `
+            -Uri ($url.TrimEnd("/") + $healthPath)
+        return $response.StatusCode -eq 200 -and $response.Content.EndsWith(":authenticated", [StringComparison]::Ordinal)
+    } catch {
+        return $false
+    }
+}
+
+function Open-PortableBrowser {
+    param([string]$Url)
+
+    if ($NoBrowser) { return }
+    try {
+        [Diagnostics.Process]::Start($Url) | Out-Null
+    } catch {
+        Write-PortableLog "The default browser could not be opened."
+    }
+}
+
+function ConvertTo-ProcessArgument {
+    param([string]$Value)
+
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Start-PortableBroker {
+    $mutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Start"))
+    $hasMutex = $false
+    try {
+        try {
+            $hasMutex = $mutex.WaitOne(10000)
+        } catch [Threading.AbandonedMutexException] {
+            $hasMutex = $true
+        }
+        if (-not $hasMutex) {
+            [Console]::Error.WriteLine("Tarkov Helper startup is already in progress.")
+            return 2
+        }
+
+        $existing = Read-PortableInstance
+        if (Test-PortableInstance -Instance $existing) {
+            $existingUrl = "http://127.0.0.1:$($existing.port)/"
+            [Console]::Out.WriteLine("TARKOV_HELPER_URL=$existingUrl")
+            [Console]::Out.WriteLine("Tarkov Helper is already running.")
+            Open-PortableBrowser -Url $existingUrl
+            return 0
+        }
+
+        $instancePath = Get-InstancePath
+        if ([IO.File]::Exists($instancePath)) {
+            Remove-Item -LiteralPath $instancePath -Force -ErrorAction SilentlyContinue
+        }
+
+        $powershellPath = Join-Path $PSHOME "powershell.exe"
+        if (-not [IO.File]::Exists($powershellPath)) { $powershellPath = "powershell.exe" }
+        $serveArguments = @(
+            "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", $PSCommandPath,
+            "-Action", "Serve",
+            "-Root", $Root,
+            "-Port", [string]$Port,
+            "-NoBrowser",
+            "-StateDirectory", $StateDirectory
+        )
+        if (-not [string]::IsNullOrWhiteSpace($ScreenshotFolder)) {
+            $serveArguments += @("-ScreenshotFolder", $ScreenshotFolder)
+        }
+        $argumentLine = ($serveArguments | ForEach-Object { ConvertTo-ProcessArgument -Value ([string]$_) }) -join " "
+        $directory = Initialize-StateDirectory
+        $serveOut = Join-Path $directory "server.stdout.log"
+        $serveError = Join-Path $directory "server.stderr.log"
+        $child = Start-Process -FilePath $powershellPath -ArgumentList $argumentLine `
+            -WindowStyle Hidden -PassThru -RedirectStandardOutput $serveOut -RedirectStandardError $serveError
+
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 100
+            $instance = Read-PortableInstance
+            if ($null -ne $instance -and $instance.pid -eq $child.Id -and (Test-PortableInstance -Instance $instance)) {
+                $url = "http://127.0.0.1:$($instance.port)/"
+                [Console]::Out.WriteLine("TARKOV_HELPER_URL=$url")
+                [Console]::Out.WriteLine("Tarkov Helper started in the background.")
+                Open-PortableBrowser -Url $url
+                return 0
+            }
+            if ($child.HasExited) { break }
+        }
+
+        [Console]::Error.WriteLine("Tarkov Helper could not start. See server.log in the local runtime directory.")
+        Write-PortableLog "Background server startup failed."
+        return 2
+    } catch {
+        [Console]::Error.WriteLine("Tarkov Helper could not start.")
+        Write-PortableLog "Background server startup failed: $($_.Exception.GetType().Name)"
+        return 2
+    } finally {
+        if ($hasMutex) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
+
+function Stop-PortableBroker {
+    $instance = Read-PortableInstance
+    if ($null -eq $instance) { return 0 }
+
+    try {
+        $url = "http://127.0.0.1:$($instance.port)/"
+        $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Method Post `
+            -Headers @{
+                "Origin" = $url.TrimEnd("/")
+                "X-Tarkov-Control" = [string]$instance.controlToken
+            } `
+            -ContentType "application/json" -Body "{}" `
+            -Uri ($url.TrimEnd("/") + "/api/v1/control/shutdown")
+        if ($response.StatusCode -ne 204) { throw "Unexpected shutdown response." }
+
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if (-not [IO.File]::Exists((Get-InstancePath))) { return 0 }
+            Start-Sleep -Milliseconds 100
+        }
+        [Console]::Error.WriteLine("Tarkov Helper did not stop in time.")
+        return 2
+    } catch {
+        try {
+            Get-Process -Id ([int]$instance.pid) -ErrorAction Stop | Out-Null
+        } catch {
+            Remove-OwnedInstance -ProcessId ([int]$instance.pid) -ControlToken ([string]$instance.controlToken)
+            return 0
+        }
+        [Console]::Error.WriteLine("The recorded Tarkov Helper instance could not be authenticated and was not terminated: $($_.Exception.Message)")
+        return 2
+    }
+}
+
+if ($Action -eq "Start") {
+    exit (Start-PortableBroker)
+}
+if ($Action -eq "Stop") {
+    exit (Stop-PortableBroker)
+}
+
 try {
     $rootPath = [IO.Path]::GetFullPath($Root)
 } catch {
@@ -445,10 +704,13 @@ if ($null -eq $buildIdentity) {
     $buildIdentity = $identityHashes -join ":"
 }
 $healthResponse = "tarkov-helper-web-portable-v1:$buildIdentity"
+$controlToken = Get-RandomToken
 
 $rootPrefix = $rootPath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
 $handledRequests = 0
+$shutdownRequested = $false
+$ownsInstanceState = $false
 
 try {
     try {
@@ -489,6 +751,24 @@ try {
     $boundPort = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
     $url = "http://127.0.0.1:$boundPort/"
 
+    try {
+        $processStartTime = (Get-Process -Id $PID -ErrorAction Stop).StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+        Write-PortableInstance -Instance ([pscustomobject]@{
+            protocolVersion = 1
+            pid = $PID
+            processStartTimeUtc = $processStartTime
+            port = $boundPort
+            controlToken = $controlToken
+            startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+        })
+        $ownsInstanceState = $true
+        Write-PortableLog "Server started on loopback port $boundPort."
+    } catch {
+        [Console]::Error.WriteLine("The local runtime state could not be written.")
+        Write-PortableLog "Runtime state initialization failed."
+        exit 2
+    }
+
     [Console]::Out.WriteLine("TARKOV_HELPER_URL=$url")
     [Console]::Out.WriteLine("Tarkov Helper is running locally.")
     [Console]::Out.WriteLine("Keep this window open. Press Ctrl+C to stop.")
@@ -502,7 +782,7 @@ try {
         }
     }
 
-    while ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests) {
+    while (-not $shutdownRequested -and ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests)) {
         while (-not $listener.Pending()) {
             Update-ScreenshotWatcher
             Start-Sleep -Milliseconds 100
@@ -536,6 +816,8 @@ try {
             }
 
             $hostHeaders = @()
+            $originHeaders = @()
+            $controlHeaders = @()
             $malformedHeader = $false
             for ($index = 1; $index -lt $requestLines.Length; $index++) {
                 $headerLine = $requestLines[$index]
@@ -545,8 +827,16 @@ try {
                     $malformedHeader = $true
                     break
                 }
-                if ($headerLine.Substring(0, $separator).Trim().Equals("Host", [StringComparison]::OrdinalIgnoreCase)) {
-                    $hostHeaders += $headerLine.Substring($separator + 1).Trim()
+                $headerName = $headerLine.Substring(0, $separator).Trim()
+                $headerValue = $headerLine.Substring($separator + 1).Trim()
+                if ($headerName.Equals("Host", [StringComparison]::OrdinalIgnoreCase)) {
+                    $hostHeaders += $headerValue
+                }
+                if ($headerName.Equals("Origin", [StringComparison]::OrdinalIgnoreCase)) {
+                    $originHeaders += $headerValue
+                }
+                if ($headerName.Equals("X-Tarkov-Control", [StringComparison]::OrdinalIgnoreCase)) {
+                    $controlHeaders += $headerValue
                 }
             }
 
@@ -570,13 +860,31 @@ try {
             $method = $requestParts[0].ToUpperInvariant()
             $requestTarget = $requestParts[1]
             $headOnly = $method -eq "HEAD"
+            $requestPath = $requestTarget.Split("?", 2)[0]
+
+            if ($method -eq "POST" -and $requestPath -eq "/api/v1/control/shutdown") {
+                $expectedOrigin = "http://127.0.0.1:$boundPort"
+                if (
+                    $originHeaders.Count -ne 1 -or
+                    $originHeaders[0] -ne $expectedOrigin -or
+                    $controlHeaders.Count -ne 1 -or
+                    $controlHeaders[0] -cne $controlToken
+                ) {
+                    Send-TextResponse -Stream $stream -StatusCode 403 -Reason "Forbidden" -Message "Forbidden"
+                    continue
+                }
+
+                Send-Response -Stream $stream -StatusCode 204 -Reason "No Content" `
+                    -ContentType "application/json; charset=utf-8" -Body (New-Object byte[] 0)
+                $shutdownRequested = $true
+                continue
+            }
             if ($method -ne "GET" -and -not $headOnly) {
                 Send-TextResponse -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
                     -Message "Method Not Allowed" -ExtraHeaders @("Allow: GET, HEAD")
                 continue
             }
 
-            $requestPath = $requestTarget.Split("?", 2)[0]
             if ($requestPath -eq "/api/v1/local-tracker/status") {
                 Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -HeadOnly:$headOnly -Value ([pscustomobject]@{
                     protocolVersion = $trackerProtocolVersion
@@ -600,8 +908,13 @@ try {
                 continue
             }
             if ($requestPath -eq $healthPath) {
+                $healthBody = if ($controlHeaders.Count -eq 1 -and $controlHeaders[0] -ceq $controlToken) {
+                    "$healthResponse`:authenticated"
+                } else {
+                    $healthResponse
+                }
                 Send-TextResponse -Stream $stream -StatusCode 200 -Reason "OK" `
-                    -Message $healthResponse -HeadOnly:$headOnly
+                    -Message $healthBody -HeadOnly:$headOnly
                 continue
             }
 
@@ -663,5 +976,9 @@ try {
     }
 } finally {
     Stop-ScreenshotWatcher
+    if ($ownsInstanceState) {
+        Remove-OwnedInstance -ProcessId $PID -ControlToken $controlToken
+        Write-PortableLog "Server stopped."
+    }
     $listener.Stop()
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -90,6 +90,18 @@ async function waitForEvents(baseUrl, afterCursor, expectedCount, timeoutMs = 10
   throw new Error(`Timed out waiting for ${expectedCount} tracker events.`);
 }
 
+async function waitForCursor(baseUrl, expectedCursor, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await fetch(new URL("api/v1/local-tracker/status", baseUrl));
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    if (payload.latestCursor >= expectedCursor) return payload.latestCursor;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for tracker cursor ${expectedCursor}.`);
+}
+
 test("local tracker reports watcher state and emits debounced filename-only events", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-tracker-"));
   const appRoot = path.join(temporaryRoot, "app");
@@ -140,6 +152,44 @@ test("local tracker reports watcher state and emits debounced filename-only even
 
   const invalidCursor = await fetch(new URL("api/v1/local-tracker/events?afterCursor=-1&pageSize=10", baseUrl));
   assert.equal(invalidCursor.status, 400);
+
+  const instance = JSON.parse(await readFile(path.join(stateDirectory, "instance.json"), "utf8"));
+  const unauthenticatedShutdown = await fetch(new URL("api/v1/control/shutdown", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(unauthenticatedShutdown.status, 403);
+  assert.equal(unauthenticatedShutdown.headers.get("access-control-allow-origin"), null);
+  const crossOriginShutdown = await fetch(new URL("api/v1/control/shutdown", baseUrl), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://attacker.invalid",
+      "x-tarkov-control": instance.controlToken,
+    },
+    body: "{}",
+  });
+  assert.equal(crossOriginShutdown.status, 403);
+
+  await Promise.all(Array.from({ length: 105 }, (_, index) =>
+    writeFile(path.join(screenshotFolder, `cursor-${String(index).padStart(3, "0")}.png`), Buffer.from([index])),
+  ));
+  const latestCursor = await waitForCursor(baseUrl, 101);
+  const expiredResponse = await fetch(new URL("api/v1/local-tracker/events?afterCursor=0&pageSize=10", baseUrl));
+  assert.equal(expiredResponse.status, 200);
+  const expired = await expiredResponse.json();
+  assert.equal(expired.data.length, 10);
+  assert.equal(expired.pagination.afterCursor, 0);
+  assert.equal(expired.pagination.isResetRequired, true);
+  assert.equal(expired.pagination.hasMore, true);
+  assert.equal(expired.pagination.nextCursor, expired.data.at(-1).sequence);
+  assert.equal(expired.data[0].sequence > 1, true);
+
+  const futureCursor = await fetch(new URL(`api/v1/local-tracker/events?afterCursor=${latestCursor + 1}&pageSize=10`, baseUrl));
+  assert.equal(futureCursor.status, 400);
+  const oversizedPage = await fetch(new URL("api/v1/local-tracker/events?afterCursor=0&pageSize=101", baseUrl));
+  assert.equal(oversizedPage.status, 400);
 });
 
 test("local tracker reports NOT_FOUND for a missing configured folder", { skip: process.platform !== "win32" }, async (t) => {
