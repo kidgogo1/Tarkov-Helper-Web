@@ -40,6 +40,13 @@ $screenshotFingerprints = @{}
 $screenshotWatcherState = [pscustomobject]@{ state = "NOT_FOUND" }
 $screenshotNextDiscoveryUtc = [DateTime]::MinValue
 $screenshotNextReconciliationUtc = [DateTime]::MinValue
+$nativeOverlayProtocolVersion = 1
+$nativeOverlayWindowTitle = "Tarkov Helper Web"
+$nativeOverlayClaimLifetimeSeconds = 15
+$nativeOverlayMinimumSize = 240
+$nativeOverlayMaximumSize = 1000
+$nativeOverlayClaims = @{}
+$nativeOverlayRecord = $null
 
 function Get-ScreenshotCandidates {
     $paths = New-Object 'Collections.Generic.List[string]'
@@ -487,6 +494,95 @@ function Send-JsonResponse {
         -ContentType "application/json; charset=utf-8" -Body $body -HeadOnly:$HeadOnly
 }
 
+function Send-JsonError {
+    param(
+        [Parameter(Mandatory = $true)]
+        [IO.Stream]$Stream,
+        [Parameter(Mandatory = $true)]
+        [int]$StatusCode,
+        [Parameter(Mandatory = $true)]
+        [string]$Reason,
+        [Parameter(Mandatory = $true)]
+        [string]$Code,
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    Send-JsonResponse -Stream $Stream -StatusCode $StatusCode -Reason $Reason -Value ([pscustomobject]@{
+        error = [pscustomobject]@{
+            code = $Code
+            message = $Message
+        }
+    })
+}
+
+function Read-JsonRequestObject {
+    param(
+        [Parameter(Mandatory = $true)]
+        [IO.Stream]$Stream,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$ContentLengthHeaders,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$ContentTypeHeaders,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$TransferEncodingHeaders
+    )
+
+    $contentLength = 0
+    if (
+        $TransferEncodingHeaders.Count -ne 0 -or
+        $ContentLengthHeaders.Count -ne 1 -or
+        $ContentLengthHeaders[0] -notmatch "^\d{1,4}$" -or
+        -not [int]::TryParse([string]($ContentLengthHeaders[0]), [ref]$contentLength) -or
+        $contentLength -lt 2 -or
+        $contentLength -gt 8192 -or
+        $ContentTypeHeaders.Count -ne 1 -or
+        [string]($ContentTypeHeaders[0]) -notmatch "(?i)^application/json(?:\s*;\s*charset=utf-8)?$"
+    ) {
+        throw [IO.InvalidDataException]::new("A bounded application/json request body is required.")
+    }
+
+    $bytes = Read-RequestBody -Stream $Stream -Length $contentLength
+    try {
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $json = $strictUtf8.GetString($bytes)
+        $value = ConvertFrom-Json -InputObject $json -ErrorAction Stop
+    } catch {
+        throw [IO.InvalidDataException]::new("The JSON request body is malformed.", $_.Exception)
+    }
+    if ($null -eq $value -or $value -isnot [pscustomobject]) {
+        throw [IO.InvalidDataException]::new("The JSON request body must be an object.")
+    }
+    return $value
+}
+
+function Assert-JsonObjectShape {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Value,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$AllowedProperties,
+        [AllowEmptyCollection()]
+        [string[]]$RequiredProperties = @()
+    )
+
+    $properties = @($Value.PSObject.Properties | ForEach-Object { $_.Name })
+    foreach ($property in $properties) {
+        if ($AllowedProperties -notcontains $property) {
+            throw [ArgumentException]::new("The request contains an unsupported property.")
+        }
+    }
+    foreach ($property in $RequiredProperties) {
+        if ($properties -notcontains $property) {
+            throw [ArgumentException]::new("The request is missing a required property.")
+        }
+    }
+}
+
 function Get-QueryParameters {
     param([string]$RequestTarget)
 
@@ -602,6 +698,440 @@ function Get-RandomToken {
         $generator.Dispose()
     }
     return [Convert]::ToBase64String($bytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
+}
+
+function Initialize-NativeOverlayBridge {
+    if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
+        throw [PlatformNotSupportedException]::new("Native overlays are available only on Windows.")
+    }
+    if ($null -ne ("TarkovHelper.NativeOverlayBridge" -as [type])) { return }
+
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace TarkovHelper {
+    public sealed class NativeWindowInfo {
+        public long Handle { get; set; }
+        public int ProcessId { get; set; }
+        public string Title { get; set; }
+        public string ClassName { get; set; }
+        public long Style { get; set; }
+        public long ExStyle { get; set; }
+        public int Left { get; set; }
+        public int Top { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public bool IsVisible { get; set; }
+    }
+
+    public static class NativeOverlayBridge {
+        private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Rect {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximumCount);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr window, StringBuilder className, int maximumCount);
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr window);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetWindowRect(IntPtr window, out Rect rect);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong", SetLastError = true)]
+        private static extern int GetWindowLong32(IntPtr window, int index);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr window, int index);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong", SetLastError = true)]
+        private static extern int SetWindowLong32(IntPtr window, int index, int value);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr window, int index, IntPtr value);
+        [DllImport("kernel32.dll")]
+        private static extern void SetLastError(uint errorCode);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowPos(
+            IntPtr window,
+            IntPtr insertAfter,
+            int x,
+            int y,
+            int width,
+            int height,
+            uint flags
+        );
+
+        private const int StyleIndex = -16;
+        private const int ExStyleIndex = -20;
+        private const uint FrameChanged = 0x0020;
+        private const uint ShowWindow = 0x0040;
+        private const uint NoActivate = 0x0010;
+
+        private static long ReadWindowLong(IntPtr window, int index) {
+            if (IntPtr.Size == 8) return GetWindowLongPtr64(window, index).ToInt64();
+            return unchecked((uint)GetWindowLong32(window, index));
+        }
+
+        private static void WriteWindowLong(IntPtr window, int index, long value) {
+            SetLastError(0);
+            if (IntPtr.Size == 8) {
+                IntPtr previous = SetWindowLongPtr64(window, index, new IntPtr(value));
+                if (previous == IntPtr.Zero && Marshal.GetLastWin32Error() != 0) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                return;
+            }
+            int previous32 = SetWindowLong32(window, index, unchecked((int)value));
+            if (previous32 == 0 && Marshal.GetLastWin32Error() != 0) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+
+        public static NativeWindowInfo[] EnumerateWindows() {
+            var windows = new List<NativeWindowInfo>();
+            EnumWindows(delegate(IntPtr window, IntPtr parameter) {
+                var title = new StringBuilder(512);
+                var className = new StringBuilder(256);
+                uint processId;
+                Rect rect;
+                GetWindowText(window, title, title.Capacity);
+                GetClassName(window, className, className.Capacity);
+                GetWindowThreadProcessId(window, out processId);
+                if (!GetWindowRect(window, out rect)) return true;
+                windows.Add(new NativeWindowInfo {
+                    Handle = window.ToInt64(),
+                    ProcessId = unchecked((int)processId),
+                    Title = title.ToString(),
+                    ClassName = className.ToString(),
+                    Style = ReadWindowLong(window, StyleIndex),
+                    ExStyle = ReadWindowLong(window, ExStyleIndex),
+                    Left = rect.Left,
+                    Top = rect.Top,
+                    Width = rect.Right - rect.Left,
+                    Height = rect.Bottom - rect.Top,
+                    IsVisible = IsWindowVisible(window)
+                });
+                return true;
+            }, IntPtr.Zero);
+            return windows.ToArray();
+        }
+
+        public static bool IsWindowHandle(long handle) {
+            return IsWindow(new IntPtr(handle));
+        }
+
+        public static void Apply(
+            long handle,
+            long style,
+            long exStyle,
+            int left,
+            int top,
+            int width,
+            int height,
+            bool topmost
+        ) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            WriteWindowLong(window, StyleIndex, style);
+            WriteWindowLong(window, ExStyleIndex, exStyle);
+            var insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
+            if (!SetWindowPos(window, insertAfter, left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+    }
+}
+'@
+}
+
+function Get-NativeBrowserWindows {
+    Initialize-NativeOverlayBridge
+    $windows = New-Object 'Collections.Generic.List[object]'
+    foreach ($window in [TarkovHelper.NativeOverlayBridge]::EnumerateWindows()) {
+        if (-not $window.IsVisible -or $window.ClassName -cne "Chrome_WidgetWin_1") { continue }
+        try {
+            $process = Get-Process -Id $window.ProcessId -ErrorAction Stop
+            if ($process.ProcessName -notin @("msedge", "chrome")) { continue }
+            $startTimeUtc = $process.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+            $windows.Add([pscustomobject]@{
+                handle = [long]$window.Handle
+                processId = [int]$window.ProcessId
+                processStartTimeUtc = $startTimeUtc
+                processIdentity = "$([int]$window.ProcessId)|$startTimeUtc"
+                title = [string]$window.Title
+                className = [string]$window.ClassName
+                style = [long]$window.Style
+                exStyle = [long]$window.ExStyle
+                rect = [pscustomobject]@{
+                    left = [int]$window.Left
+                    top = [int]$window.Top
+                    width = [int]$window.Width
+                    height = [int]$window.Height
+                }
+            })
+        } catch {
+            # A browser can exit while its top-level windows are enumerated.
+        }
+    }
+    return $windows.ToArray()
+}
+
+function Remove-ExpiredNativeOverlayClaims {
+    $now = [DateTime]::UtcNow
+    foreach ($claimId in @($script:nativeOverlayClaims.Keys)) {
+        if ($script:nativeOverlayClaims[$claimId].expiresAtUtc -le $now) {
+            $script:nativeOverlayClaims.Remove($claimId)
+        }
+    }
+}
+
+function New-NativeOverlayClaim {
+    Remove-ExpiredNativeOverlayClaims
+    $windows = @(Get-NativeBrowserWindows)
+    $claimId = Get-RandomToken
+    $expiresAtUtc = [DateTime]::UtcNow.AddSeconds($nativeOverlayClaimLifetimeSeconds)
+    $script:nativeOverlayClaims[$claimId] = [pscustomobject]@{
+        claimId = $claimId
+        expiresAtUtc = $expiresAtUtc
+        handles = @($windows | ForEach-Object { [string]$_.handle })
+        processIdentities = @($windows | ForEach-Object { $_.processIdentity } | Select-Object -Unique)
+    }
+    return [pscustomobject]@{
+        protocolVersion = $nativeOverlayProtocolVersion
+        claimId = $claimId
+        expiresAt = $expiresAtUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    }
+}
+
+function Test-NativePictureInPictureWindow {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Window,
+        [Parameter(Mandatory = $true)][pscustomobject]$Claim
+    )
+
+    $styleVisible = [long]0x10000000
+    $styleCaption = [long]0x00C00000
+    $styleMinimizeBox = [long]0x00020000
+    $styleMaximizeBox = [long]0x00010000
+    $exStyleTopmost = [long]0x00000008
+    return (
+        $Claim.handles -notcontains [string]$Window.handle -and
+        $Claim.processIdentities -contains $Window.processIdentity -and
+        $Window.title -ceq $nativeOverlayWindowTitle -and
+        ($Window.style -band $styleVisible) -eq $styleVisible -and
+        ($Window.style -band $styleCaption) -eq $styleCaption -and
+        ($Window.style -band $styleMinimizeBox) -eq 0 -and
+        ($Window.style -band $styleMaximizeBox) -eq 0 -and
+        ($Window.exStyle -band $exStyleTopmost) -eq $exStyleTopmost
+    )
+}
+
+function Complete-NativeOverlayClaim {
+    param([Parameter(Mandatory = $true)][string]$ClaimId)
+
+    Remove-ExpiredNativeOverlayClaims
+    if (-not $script:nativeOverlayClaims.ContainsKey($ClaimId)) {
+        return [pscustomobject]@{ errorCode = "CLAIM_NOT_FOUND" }
+    }
+    if ($null -ne $script:nativeOverlayRecord) {
+        if ($null -ne (Get-CurrentNativeOverlayWindow)) {
+            return [pscustomobject]@{ errorCode = "OVERLAY_ALREADY_ATTACHED" }
+        }
+        if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
+            return [pscustomobject]@{ errorCode = "OVERLAY_ALREADY_ATTACHED" }
+        }
+        $script:nativeOverlayRecord = $null
+    }
+
+    $claim = $script:nativeOverlayClaims[$ClaimId]
+    $script:nativeOverlayClaims.Remove($ClaimId)
+    $browserWindows = @(Get-NativeBrowserWindows)
+    $matches = @(
+        $browserWindows |
+            Where-Object { Test-NativePictureInPictureWindow -Window $_ -Claim $claim }
+    )
+    Write-PortableLog "Native overlay claim inspected $($browserWindows.Count) browser windows and found $($matches.Count) eligible new windows."
+    if ($matches.Count -eq 0) {
+        return [pscustomobject]@{ errorCode = "WINDOW_NOT_FOUND" }
+    }
+    if ($matches.Count -ne 1) {
+        return [pscustomobject]@{ errorCode = "AMBIGUOUS_WINDOW" }
+    }
+
+    $window = $matches[0]
+    $overlayId = Get-RandomToken
+    $script:nativeOverlayRecord = [pscustomobject]@{
+        overlayId = $overlayId
+        handle = [long]$window.handle
+        processId = [int]$window.processId
+        processStartTimeUtc = [string]$window.processStartTimeUtc
+        windowTitle = [string]$window.title
+        originalStyle = [long]$window.style
+        originalExStyle = [long]$window.exStyle
+        originalRect = $window.rect
+        lockedRect = $window.rect
+        mode = "UNLOCKED"
+    }
+    return Get-NativeOverlayResponse
+}
+
+function Get-NativeOverlayResponse {
+    $record = $script:nativeOverlayRecord
+    $current = Get-CurrentNativeOverlayWindow
+    $bounds = if ($null -ne $current) {
+        $current.rect
+    } elseif ($record.mode -eq "UNLOCKED") {
+        $record.originalRect
+    } else {
+        $record.lockedRect
+    }
+    return [pscustomobject]@{
+        protocolVersion = $nativeOverlayProtocolVersion
+        overlayId = $record.overlayId
+        state = "ATTACHED"
+        mode = $record.mode
+        bounds = [pscustomobject]@{
+            left = [int]$bounds.left
+            top = [int]$bounds.top
+            width = [int]$bounds.width
+            height = [int]$bounds.height
+        }
+    }
+}
+
+function Get-CurrentNativeOverlayWindow {
+    if ($null -eq $script:nativeOverlayRecord) { return $null }
+    $record = $script:nativeOverlayRecord
+    return @(
+        Get-NativeBrowserWindows |
+            Where-Object {
+                $_.handle -eq $record.handle -and
+                $_.processId -eq $record.processId -and
+                $_.processStartTimeUtc -ceq $record.processStartTimeUtc -and
+                $_.title -ceq $record.windowTitle
+            }
+    ) | Select-Object -First 1
+}
+
+function Set-NativeOverlayMode {
+    param(
+        [Parameter(Mandatory = $true)][string]$OverlayId,
+        [Parameter(Mandatory = $true)][ValidateSet("UNLOCKED", "LOCKED", "CLICK_THROUGH")][string]$Mode,
+        [Nullable[int]]$Width,
+        [Nullable[int]]$Height
+    )
+
+    if ($null -eq $script:nativeOverlayRecord -or $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
+        return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
+    }
+    $record = $script:nativeOverlayRecord
+    $current = Get-CurrentNativeOverlayWindow
+    if ($null -eq $current) {
+        if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
+            throw [InvalidOperationException]::new("The overlay window identity could not be verified.")
+        }
+        $script:nativeOverlayRecord = $null
+        return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
+    }
+
+    if ($Mode -eq "UNLOCKED") {
+        [TarkovHelper.NativeOverlayBridge]::Apply(
+            $record.handle,
+            $record.originalStyle,
+            $record.originalExStyle,
+            $record.originalRect.left,
+            $record.originalRect.top,
+            $record.originalRect.width,
+            $record.originalRect.height,
+            (($record.originalExStyle -band [long]0x00000008) -ne 0)
+        )
+        $record.mode = "UNLOCKED"
+        return Get-NativeOverlayResponse
+    }
+
+    if ($record.mode -eq "UNLOCKED") {
+        $record.lockedRect = [pscustomobject]@{
+            left = [int]$current.rect.left
+            top = [int]$current.rect.top
+            width = [int]$current.rect.width
+            height = [int]$current.rect.height
+        }
+    }
+    if ($null -ne $Width -and $null -ne $Height) {
+        $record.lockedRect.width = [int]$Width
+        $record.lockedRect.height = [int]$Height
+    }
+
+    $windowDecorationMask = [long]0x00CF0000
+    $pinnedStyle = $record.originalStyle -band (-bnot $windowDecorationMask)
+    $pinnedExStyle = $record.originalExStyle -bor [long]0x00000008 -bor [long]0x08000000
+    if ($Mode -eq "CLICK_THROUGH") {
+        $pinnedExStyle = $pinnedExStyle -bor [long]0x00080000 -bor [long]0x00000020
+    } else {
+        $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00000020)
+    }
+    [TarkovHelper.NativeOverlayBridge]::Apply(
+        $record.handle,
+        $pinnedStyle,
+        $pinnedExStyle,
+        $record.lockedRect.left,
+        $record.lockedRect.top,
+        $record.lockedRect.width,
+        $record.lockedRect.height,
+        $true
+    )
+    $record.mode = $Mode
+    return Get-NativeOverlayResponse
+}
+
+function Remove-NativeOverlay {
+    param(
+        [string]$OverlayId,
+        [switch]$IgnoreIdentifier
+    )
+
+    if ($null -eq $script:nativeOverlayRecord) {
+        if ($IgnoreIdentifier) { return $true }
+        return $false
+    }
+    if (-not $IgnoreIdentifier -and $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
+        return $false
+    }
+
+    $record = $script:nativeOverlayRecord
+    $current = Get-CurrentNativeOverlayWindow
+    if ($null -ne $current) {
+        [TarkovHelper.NativeOverlayBridge]::Apply(
+            $record.handle,
+            $record.originalStyle,
+            $record.originalExStyle,
+            $record.originalRect.left,
+            $record.originalRect.top,
+            $record.originalRect.width,
+            $record.originalRect.height,
+            (($record.originalExStyle -band [long]0x00000008) -ne 0)
+        )
+        $script:nativeOverlayRecord = $null
+    } else {
+        if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
+            throw [InvalidOperationException]::new("The overlay window identity could not be verified.")
+        }
+        $script:nativeOverlayRecord = $null
+    }
+    return $true
 }
 
 function Get-InstancePath {
@@ -1131,6 +1661,7 @@ if (-not [IO.File]::Exists($indexPath)) {
 $buildIdentity = Get-AppBuildIdentity -AppRoot $rootPath
 $healthResponse = "tarkov-helper-web-portable-v1:$buildIdentity"
 $controlToken = Get-RandomToken
+$nativeOverlayToken = Get-RandomToken
 
 $serveMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Serve"))
 $hasServeMutex = $false
@@ -1277,6 +1808,7 @@ try {
             $hostHeaders = @()
             $originHeaders = @()
             $controlHeaders = @()
+            $overlayHeaders = @()
             $contentLengthHeaders = @()
             $contentTypeHeaders = @()
             $transferEncodingHeaders = @()
@@ -1299,6 +1831,9 @@ try {
                 }
                 if ($headerName.Equals("X-Tarkov-Control", [StringComparison]::OrdinalIgnoreCase)) {
                     $controlHeaders += $headerValue
+                }
+                if ($headerName.Equals("X-Tarkov-Overlay", [StringComparison]::OrdinalIgnoreCase)) {
+                    $overlayHeaders += $headerValue
                 }
                 if ($headerName.Equals("Content-Length", [StringComparison]::OrdinalIgnoreCase)) {
                     $contentLengthHeaders += $headerValue
@@ -1379,9 +1914,216 @@ try {
                 $shutdownRequested = $true
                 continue
             }
+
+            $isNativeOverlayMutation = (
+                $requestPath -eq "/api/v1/native-overlay/claims" -or
+                $requestPath -eq "/api/v1/native-overlay/minimap"
+            )
+            if ($isNativeOverlayMutation) {
+                $allowedNativeMethod = (
+                    ($requestPath -eq "/api/v1/native-overlay/claims" -and $method -eq "POST") -or
+                    ($requestPath -eq "/api/v1/native-overlay/minimap" -and $method -in @("POST", "PATCH", "DELETE"))
+                )
+                if (-not $allowedNativeMethod) {
+                    Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
+                        -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                    continue
+                }
+
+                $expectedOrigin = "http://127.0.0.1:$boundPort"
+                if (
+                    $originHeaders.Count -ne 1 -or
+                    $originHeaders[0] -ne $expectedOrigin -or
+                    $overlayHeaders.Count -ne 1 -or
+                    $overlayHeaders[0] -cne $nativeOverlayToken
+                ) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" `
+                        -Code "FORBIDDEN" -Message "The native overlay request could not be authenticated."
+                    continue
+                }
+
+                try {
+                    $requestObject = Read-JsonRequestObject -Stream $stream `
+                        -ContentLengthHeaders $contentLengthHeaders `
+                        -ContentTypeHeaders $contentTypeHeaders `
+                        -TransferEncodingHeaders $transferEncodingHeaders
+                } catch {
+                    Write-PortableLog "Rejected native overlay JSON request: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" `
+                        -Code "INVALID_JSON" -Message "A bounded JSON object is required."
+                    continue
+                }
+
+                if ($requestPath -eq "/api/v1/native-overlay/claims") {
+                    try {
+                        Assert-JsonObjectShape -Value $requestObject -AllowedProperties @()
+                        $claimResponse = New-NativeOverlayClaim
+                        Send-JsonResponse -Stream $stream -StatusCode 201 -Reason "Created" -Value $claimResponse
+                    } catch [ArgumentException] {
+                        Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
+                            -Code "INVALID_REQUEST" -Message $_.Exception.Message
+                    } catch {
+                        Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
+                            -Code "NATIVE_FAILURE" -Message "The native overlay bridge could not be initialized."
+                    }
+                    continue
+                }
+
+                if ($method -eq "POST") {
+                    try {
+                        Assert-JsonObjectShape -Value $requestObject `
+                            -AllowedProperties @("claimId", "windowTitle") `
+                            -RequiredProperties @("claimId", "windowTitle")
+                        if (
+                            $requestObject.claimId -isnot [string] -or
+                            $requestObject.claimId -notmatch "^[A-Za-z0-9_-]{40,64}$" -or
+                            $requestObject.windowTitle -isnot [string] -or
+                            $requestObject.windowTitle -cne $nativeOverlayWindowTitle
+                        ) {
+                            throw [ArgumentException]::new("The claim identifier or window title is invalid.")
+                        }
+                    } catch [ArgumentException] {
+                        Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
+                            -Code "INVALID_REQUEST" -Message $_.Exception.Message
+                        continue
+                    }
+
+                    try {
+                        $completeResponse = Complete-NativeOverlayClaim -ClaimId $requestObject.claimId
+                    } catch {
+                        Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
+                            -Code "NATIVE_FAILURE" -Message "The native overlay window could not be inspected."
+                        continue
+                    }
+                    switch ($completeResponse.errorCode) {
+                        "CLAIM_NOT_FOUND" {
+                            Send-JsonError -Stream $stream -StatusCode 404 -Reason "Not Found" `
+                                -Code "CLAIM_NOT_FOUND" -Message "The overlay claim is missing or expired."
+                            continue
+                        }
+                        "OVERLAY_ALREADY_ATTACHED" {
+                            Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" `
+                                -Code "OVERLAY_ALREADY_ATTACHED" -Message "A native overlay is already attached."
+                            continue
+                        }
+                        "WINDOW_NOT_FOUND" {
+                            Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" `
+                                -Code "WINDOW_NOT_FOUND" -Message "No new Document Picture-in-Picture window was found."
+                            continue
+                        }
+                        "AMBIGUOUS_WINDOW" {
+                            Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" `
+                                -Code "AMBIGUOUS_WINDOW" -Message "More than one new Picture-in-Picture window was found."
+                            continue
+                        }
+                    }
+                    Send-JsonResponse -Stream $stream -StatusCode 201 -Reason "Created" -Value $completeResponse
+                    continue
+                }
+
+                if ($method -eq "PATCH") {
+                    $hasWidth = @($requestObject.PSObject.Properties.Name) -contains "width"
+                    $hasHeight = @($requestObject.PSObject.Properties.Name) -contains "height"
+                    try {
+                        Assert-JsonObjectShape -Value $requestObject `
+                            -AllowedProperties @("overlayId", "mode", "width", "height") `
+                            -RequiredProperties @("overlayId", "mode")
+                        if (
+                            $requestObject.overlayId -isnot [string] -or
+                            $requestObject.overlayId -notmatch "^[A-Za-z0-9_-]{40,64}$" -or
+                            $requestObject.mode -isnot [string] -or
+                            $requestObject.mode -notin @("UNLOCKED", "LOCKED", "CLICK_THROUGH") -or
+                            $hasWidth -ne $hasHeight
+                        ) {
+                            throw [ArgumentException]::new("The overlay identifier, mode, or size is invalid.")
+                        }
+                        if ($hasWidth) {
+                            if (
+                                $requestObject.mode -eq "UNLOCKED" -or
+                                $requestObject.width -isnot [int] -or
+                                $requestObject.height -isnot [int] -or
+                                $requestObject.width -lt $nativeOverlayMinimumSize -or
+                                $requestObject.width -gt $nativeOverlayMaximumSize -or
+                                $requestObject.height -lt $nativeOverlayMinimumSize -or
+                                $requestObject.height -gt $nativeOverlayMaximumSize
+                            ) {
+                                throw [ArgumentException]::new("Overlay width and height must be bounded integers for a locked mode.")
+                            }
+                        }
+                    } catch [ArgumentException] {
+                        Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
+                            -Code "INVALID_REQUEST" -Message $_.Exception.Message
+                        continue
+                    }
+
+                    try {
+                        $width = if ($hasWidth) { [Nullable[int]]([int]$requestObject.width) } else { $null }
+                        $height = if ($hasHeight) { [Nullable[int]]([int]$requestObject.height) } else { $null }
+                        $updateResponse = Set-NativeOverlayMode -OverlayId $requestObject.overlayId `
+                            -Mode $requestObject.mode -Width $width -Height $height
+                    } catch {
+                        Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
+                            -Code "NATIVE_FAILURE" -Message "The native overlay could not be updated."
+                        continue
+                    }
+                    if ($updateResponse.errorCode -eq "OVERLAY_NOT_FOUND") {
+                        Send-JsonError -Stream $stream -StatusCode 404 -Reason "Not Found" `
+                            -Code "OVERLAY_NOT_FOUND" -Message "The native overlay is no longer attached."
+                        continue
+                    }
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value $updateResponse
+                    continue
+                }
+
+                try {
+                    Assert-JsonObjectShape -Value $requestObject `
+                        -AllowedProperties @("overlayId") -RequiredProperties @("overlayId")
+                    if (
+                        $requestObject.overlayId -isnot [string] -or
+                        $requestObject.overlayId -notmatch "^[A-Za-z0-9_-]{40,64}$"
+                    ) {
+                        throw [ArgumentException]::new("The overlay identifier is invalid.")
+                    }
+                } catch [ArgumentException] {
+                    Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
+                        -Code "INVALID_REQUEST" -Message $_.Exception.Message
+                    continue
+                }
+                try {
+                    $removed = Remove-NativeOverlay -OverlayId $requestObject.overlayId
+                } catch {
+                    Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
+                        -Code "NATIVE_FAILURE" -Message "The native overlay could not be detached safely."
+                    continue
+                }
+                if (-not $removed) {
+                    Send-JsonError -Stream $stream -StatusCode 404 -Reason "Not Found" `
+                        -Code "OVERLAY_NOT_FOUND" -Message "The native overlay is no longer attached."
+                    continue
+                }
+                Send-Response -Stream $stream -StatusCode 204 -Reason "No Content" `
+                    -ContentType "application/json; charset=utf-8" -Body (New-Object byte[] 0)
+                continue
+            }
             if ($method -ne "GET" -and -not $headOnly) {
                 Send-TextResponse -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
                     -Message "Method Not Allowed" -ExtraHeaders @("Allow: GET, HEAD")
+                continue
+            }
+
+            if ($requestPath -eq "/api/v1/native-overlay/session") {
+                Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -HeadOnly:$headOnly -Value ([pscustomobject]@{
+                    protocolVersion = $nativeOverlayProtocolVersion
+                    capability = "WINDOWS_DOCUMENT_PIP"
+                    token = $nativeOverlayToken
+                    windowTitle = $nativeOverlayWindowTitle
+                    sizeLimits = [pscustomobject]@{
+                        minWidth = $nativeOverlayMinimumSize
+                        minHeight = $nativeOverlayMinimumSize
+                        maxWidth = $nativeOverlayMaximumSize
+                        maxHeight = $nativeOverlayMaximumSize
+                    }
+                })
                 continue
             }
 
@@ -1475,6 +2217,11 @@ try {
         }
     }
 } finally {
+    try {
+        $null = Remove-NativeOverlay -IgnoreIdentifier
+    } catch {
+        Write-PortableLog "Native overlay restoration failed during shutdown."
+    }
     Stop-ScreenshotWatcher
     $listener.Stop()
     if ($ownsInstanceState) {

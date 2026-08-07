@@ -13,7 +13,7 @@
     "data:export": "python scripts/export_data.py",
     "release:direct": "pnpm build && node scripts/create-direct-release.mjs",
     "test": "vitest",
-    "test:portable": "pnpm build && node --test tests/portable/launcher.node.mjs tests/portable/lifecycle.node.mjs tests/portable/package.node.mjs tests/portable/tracker.node.mjs",
+    "test:portable": "pnpm build && node --test tests/portable/launcher.node.mjs tests/portable/lifecycle.node.mjs tests/portable/overlay.node.mjs tests/portable/package.node.mjs tests/portable/tracker.node.mjs",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "preview": "vite preview",

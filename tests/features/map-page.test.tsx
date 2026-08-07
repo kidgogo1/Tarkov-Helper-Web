@@ -561,6 +561,9 @@ describe("MapPage", () => {
     let eventRequestCount = 0;
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
+      if (url.endsWith("/api/v1/native-overlay/session")) {
+        return trackerResponse({ error: "Not found" }, 404);
+      }
       if (url.endsWith("/api/v1/local-tracker/status")) {
         return trackerResponse({
           protocolVersion: 1,
@@ -651,11 +654,14 @@ describe("MapPage", () => {
   });
 
   it("shows folder-not-found and watcher-error states while keeping manual selection", async () => {
-    const notFound = vi.fn<typeof fetch>().mockResolvedValue(trackerResponse({
-      protocolVersion: 1,
-      screenshotWatcher: { state: "NOT_FOUND" },
-      latestCursor: 0,
-    }));
+    const notFound = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input).endsWith("/api/v1/native-overlay/session")
+        ? trackerResponse({ error: "Not found" }, 404)
+        : trackerResponse({
+            protocolVersion: 1,
+            screenshotWatcher: { state: "NOT_FOUND" },
+            latestCursor: 0,
+          }));
     vi.stubGlobal("fetch", notFound);
     const first = renderPage({ focusQuestId: "quest-customs" });
 
@@ -663,11 +669,14 @@ describe("MapPage", () => {
     expect(screen.getByLabelText("스크린샷 파일 선택")).toBeInTheDocument();
     first.unmount();
 
-    const failed = vi.fn<typeof fetch>().mockResolvedValue(trackerResponse({
-      protocolVersion: 1,
-      screenshotWatcher: { state: "ERROR", message: "스크린샷 폴더 접근이 거부되었습니다." },
-      latestCursor: 0,
-    }));
+    const failed = vi.fn<typeof fetch>().mockImplementation(async (input) =>
+      String(input).endsWith("/api/v1/native-overlay/session")
+        ? trackerResponse({ error: "Not found" }, 404)
+        : trackerResponse({
+            protocolVersion: 1,
+            screenshotWatcher: { state: "ERROR", message: "스크린샷 폴더 접근이 거부되었습니다." },
+            latestCursor: 0,
+          }));
     vi.stubGlobal("fetch", failed);
     renderPage({ focusQuestId: "quest-customs" });
 
