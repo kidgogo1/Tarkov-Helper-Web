@@ -324,7 +324,7 @@ export async function attachNativeMiniMap(
   }, request);
   if (response.status !== 201) throw await commandError(response);
   const attachment = parseAttachment(await readJson(response));
-  if (!attachment) {
+  if (!attachment || attachment.mode !== "UNLOCKED") {
     throw new NativeOverlayApiError("INVALID_RESPONSE", response.status);
   }
   return attachment;
@@ -370,7 +370,11 @@ export async function updateNativeMiniMap(
   }, request);
   if (response.status !== 200) throw await commandError(response);
   const attachment = parseAttachment(await readJson(response));
-  if (!attachment) {
+  if (
+    !attachment ||
+    attachment.overlayId !== overlayId ||
+    attachment.mode !== mode
+  ) {
     throw new NativeOverlayApiError("INVALID_RESPONSE", response.status);
   }
   return attachment;

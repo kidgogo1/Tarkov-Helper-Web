@@ -131,6 +131,17 @@ describe("native overlay API boundary", () => {
     expect(JSON.parse(request.mock.calls[0]?.[1]?.body as string)).not.toHaveProperty("pid");
   });
 
+  it("rejects an attachment that does not begin in the contract's unlocked mode", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      ...attachedPayload,
+      mode: "CLICK_THROUGH",
+    }, 201));
+
+    await expect(attachNativeMiniMap(session, "c".repeat(43), request)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
   it("updates only the opaque overlay ID and an allowed mode", async () => {
     const locked = { ...attachedPayload, mode: "LOCKED" } as const;
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(locked));
@@ -169,6 +180,27 @@ describe("native overlay API boundary", () => {
       width: 300,
       height: 300,
     });
+  });
+
+  it.each([
+    {
+      ...attachedPayload,
+      overlayId: "x".repeat(43),
+      mode: "LOCKED" as const,
+    },
+    {
+      ...attachedPayload,
+      mode: "CLICK_THROUGH" as const,
+    },
+  ])("rejects a PATCH response for a different overlay or mode", async (payload) => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload));
+    await expect(updateNativeMiniMap(
+      session,
+      "o".repeat(43),
+      "LOCKED",
+      {},
+      request,
+    )).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it.each([
