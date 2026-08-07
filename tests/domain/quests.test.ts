@@ -7,6 +7,7 @@ import {
   completeQuest,
   getQuestStatistics,
   getQuestStatus,
+  groupQuestRequirementsForDisplay,
   isEditionRequirementMet,
   isScavKarmaRequirementMet,
   recommendQuests,
@@ -118,6 +119,13 @@ describe("quest status", () => {
     ).toBe("unavailable");
     expect(
       getQuestStatus(
+        quest("unselected-faction", { faction: "bear" }),
+        [],
+        profile({ faction: null }),
+      ),
+    ).toBe("active");
+    expect(
+      getQuestStatus(
         quest("dsp", { requiredDecodeCount: 2 }),
         [],
         profile({ dspDecodeCount: 3 }),
@@ -225,6 +233,20 @@ describe("quest status", () => {
 });
 
 describe("quest progress transitions", () => {
+  it("shows singleton numbered groups as ordinary prerequisites and true choices as OR", () => {
+    const direct = { questId: "direct", requirementType: "complete", groupId: 0 };
+    const singleton = { questId: "singleton", requirementType: "complete", groupId: 2 };
+    const choiceA = { questId: "choice-a", requirementType: "complete", groupId: 1 };
+    const choiceB = { questId: "choice-b", requirementType: "complete", groupId: 1 };
+
+    expect(
+      groupQuestRequirementsForDisplay([direct, singleton, choiceA, choiceB]),
+    ).toEqual({
+      direct: [direct, singleton],
+      alternatives: [{ groupId: 1, requirements: [choiceA, choiceB] }],
+    });
+  });
+
   it("recursively completes ordinary prerequisites without looping on cycles", () => {
     const a = quest("a", {
       requirements: [
@@ -265,6 +287,23 @@ describe("quest progress transitions", () => {
         alternative: "done",
       }),
     ).toEqual({ alternative: "done", selected: "done" });
+  });
+
+  it("can apply a log-backed completion without inventing prerequisite progress", () => {
+    const prerequisite = quest("prerequisite");
+    const target = quest("target", {
+      requirements: [
+        { questId: "prerequisite", requirementType: "complete", groupId: 0 },
+      ],
+      alternativeQuestIds: ["alternative"],
+    });
+    const alternative = quest("alternative");
+
+    expect(
+      completeQuest("target", [prerequisite, target, alternative], {}, {
+        completePrerequisites: false,
+      }),
+    ).toEqual({ target: "done", alternative: "failed" });
   });
 
   it("resets ID/name migration keys and can reset all progress records", () => {

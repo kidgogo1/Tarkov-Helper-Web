@@ -9,42 +9,42 @@
 
 ## Phase 1: Foundation
 
-- [ ] Scaffold Vite/React/TypeScript, design tokens, app types, and persistence store.
+- [x] Scaffold Vite/React/TypeScript, design tokens, app types, and persistence store.
   - Acceptance: app shell starts and PVP/PVE state survives refresh independently.
   - Verify: store tests, type-check, build.
-- [ ] Export SQLite data, maps, marker icons, required-item icons, and hideout icons.
+- [x] Export SQLite data, maps, marker icons, required-item icons, and hideout icons.
   - Acceptance: generated JSON contains 488 quests, 26 stations, 12 maps, and the
     exact base-marker count discovered in the packaged database (454 in the reference commit).
   - Verify: exporter assertions and asset-count report.
 
 ## Checkpoint: Foundation
 
-- [ ] Tests pass and data-backed shell renders.
+- [x] Tests pass and data-backed shell renders.
 
 ## Phase 2: Core Feature Slices
 
-- [ ] Implement and test quest status/progress/recommendations, then the quest page.
-- [ ] Implement and test hideout progress, then the hideout page.
-- [ ] Implement and test inventory aggregation/FIR fulfillment, then items and Collector pages.
+- [x] Implement and test quest status/progress/recommendations, then the quest page.
+- [x] Implement and test hideout progress, then the hideout page.
+- [x] Implement and test inventory aggregation/FIR fulfillment, then items and Collector pages.
 
 Each slice must support profile switching and leave build/tests green.
 
 ## Checkpoint: Trackers
 
-- [ ] Quest → item → hideout state changes propagate end-to-end.
+- [x] Quest → item → hideout state changes propagate end-to-end.
 
 ## Phase 3: Map and Imports
 
-- [ ] Implement/test coordinate transforms, screenshot parser, and log parser.
-- [ ] Build SVG viewer, floor filtering, pan/zoom/fullscreen/fixed view, trail, and marker toggles.
-- [ ] Add quest-objective interaction and persistent custom-marker CRUD.
-- [ ] Add log/screenshot file import and preview/apply flow.
+- [x] Implement/test coordinate transforms, screenshot parser, and log parser.
+- [x] Build SVG viewer, floor filtering, pan/zoom/fullscreen/fixed view, trail, and marker toggles.
+- [x] Add quest-objective interaction and persistent custom-marker CRUD.
+- [x] Add log/screenshot file import and preview/apply flow.
 
 ## Phase 4: Polish and Verification
 
-- [ ] Complete responsive/mobile layouts, drawers, empty/error/loading states, keyboard focus, and reduced-motion behavior.
-- [ ] Run unit/type/lint/build checks and critical Playwright flows.
-- [ ] Review correctness, readability, architecture, security, and performance; resolve required findings.
+- [x] Complete responsive/mobile layouts, drawers, empty/error/loading states, keyboard focus, and reduced-motion behavior.
+- [x] Run unit/type/lint/build checks and critical Playwright flows.
+- [x] Review correctness, readability, architecture, security, and performance; resolve required findings.
 
 ## Risks and Mitigations
 

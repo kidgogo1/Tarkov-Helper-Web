@@ -1,5 +1,11 @@
 import { ExternalLink, MapPin, RotateCcw } from "lucide-react";
 
+import { ProgressBar } from "../../components/ProgressBar";
+import {
+  groupQuestRequirementsForDisplay,
+  isScavKarmaRequirementMet,
+  type QuestStatusResolver,
+} from "../../domain/quests";
 import type { QuestData, QuestRequirement, TarkovData } from "../../types/data";
 import type { ProfileState, QuestStatus } from "../../types/state";
 
@@ -8,9 +14,12 @@ interface QuestDetailProps {
   profile: ProfileState;
   quest: QuestData;
   status: QuestStatus;
+  statusResolver: QuestStatusResolver;
   onComplete: (quest: QuestData) => void;
   onObjectiveChange: (objectiveId: string, completed: boolean) => void;
+  onOpenItem: (itemId: string) => void;
   onOpenMap: (mapKey?: string, questId?: string) => void;
+  onOpenQuest: (questId: string) => void;
   onReset: (quest: QuestData) => void;
 }
 
@@ -36,12 +45,29 @@ function requirementLabel(requirement: QuestRequirement): string {
   return "완료 필요";
 }
 
+function dogtagConditionLabel(
+  minimumLevel: number | undefined,
+  faction: string | undefined,
+): string | null {
+  if (minimumLevel === undefined && !faction) return null;
+  const details = ["인식표 조건"];
+  if (faction) details.push(faction.toLocaleUpperCase("en-US"));
+  if (minimumLevel !== undefined) details.push(`레벨 ${minimumLevel} 이상`);
+  return details.join(" · ");
+}
+
+function canCompleteQuest(status: QuestStatus): boolean {
+  return status === "active" || status === "locked" || status === "levelLocked";
+}
+
 function RelatedQuestList({
   data,
   ids,
+  onOpenQuest,
 }: {
   data: TarkovData;
   ids: readonly string[];
+  onOpenQuest: (questId: string) => void;
 }) {
   return (
     <ul className="quest-related-list">
@@ -49,7 +75,19 @@ function RelatedQuestList({
         const related = data.quests.find(
           (candidate) => candidate.id === id || candidate.normalizedName === id,
         );
-        return <li key={id}>{related ? questName(related) : id}</li>;
+        return (
+          <li key={id}>
+            {related ? (
+              <button
+                className="quest-related-link"
+                onClick={() => onOpenQuest(related.id)}
+                type="button"
+              >
+                {questName(related)}
+              </button>
+            ) : id}
+          </li>
+        );
       })}
     </ul>
   );
@@ -57,9 +95,11 @@ function RelatedQuestList({
 
 function PrerequisiteList({
   data,
+  onOpenQuest,
   requirements,
 }: {
   data: TarkovData;
+  onOpenQuest: (questId: string) => void;
   requirements: readonly QuestRequirement[];
 }) {
   return (
@@ -68,11 +108,22 @@ function PrerequisiteList({
         const related = data.quests.find(
           (candidate) =>
             candidate.id === requirement.questId ||
-            candidate.normalizedName === requirement.questId,
+            candidate.normalizedName === requirement.questId ||
+            candidate.bsgId === requirement.questId,
         );
         return (
           <li key={`${requirement.groupId}-${requirement.questId}`}>
-            <span>{related ? questName(related) : requirement.questId}</span>
+            {related ? (
+              <button
+                className="quest-related-link"
+                onClick={() => onOpenQuest(related.id)}
+                type="button"
+              >
+                {questName(related)}
+              </button>
+            ) : (
+              <span>{requirement.questId}</span>
+            )}
             <small>{requirementLabel(requirement)}</small>
           </li>
         );
@@ -103,22 +154,23 @@ export function QuestDetail({
   profile,
   quest,
   status,
+  statusResolver,
   onComplete,
   onObjectiveChange,
+  onOpenItem,
   onOpenMap,
+  onOpenQuest,
   onReset,
 }: QuestDetailProps) {
-  const directRequirements = quest.requirements.filter(
-    (requirement) => requirement.groupId === 0,
-  );
-  const alternativeGroups = Array.from(
-    new Set(
-      quest.requirements
-        .filter((requirement) => requirement.groupId > 0)
-        .map((requirement) => requirement.groupId),
-    ),
-  );
+  const requirementGroups = groupQuestRequirementsForDisplay(quest.requirements);
+  const directRequirements = requirementGroups.direct;
+  const alternativeGroups = requirementGroups.alternatives;
   const mapKey = resolveMapKey(data, quest);
+  const kappaQuests = data.quests.filter((candidate) => candidate.kappaRequired);
+  const completedKappaQuests = kappaQuests.filter(
+    (candidate) => statusResolver.getStatus(candidate) === "done",
+  ).length;
+  const scavKarmaMet = isScavKarmaRequirementMet(quest, profile);
 
   return (
     <article className="quest-detail panel" aria-label="퀘스트 상세">
@@ -139,7 +191,7 @@ export function QuestDetail({
         <div className="quest-detail-actions">
           <button
             className="primary"
-            disabled={status === "done"}
+            disabled={!canCompleteQuest(status)}
             onClick={() => onComplete(quest)}
             type="button"
           >
@@ -156,7 +208,31 @@ export function QuestDetail({
         <span>요구 레벨 <strong>{quest.minLevel ?? 1}</strong></span>
         <span>지역 <strong>{quest.locations.join(", ") || "제한 없음"}</strong></span>
         <span>목표 <strong>{quest.objectives.length}</strong></span>
+        {quest.minScavKarma !== undefined ? (
+          <span className={scavKarmaMet ? "condition-met" : "condition-unmet"}>
+            스캐브 평판
+            <span className="quest-condition-values">
+              <strong>
+                요구 {quest.minScavKarma.toFixed(2)} {quest.minScavKarma < 0 ? "이하" : "이상"}
+              </strong>
+              <small>
+                현재 {profile.scavRep.toFixed(2)} · {scavKarmaMet ? "충족" : "미충족"}
+              </small>
+            </span>
+          </span>
+        ) : null}
       </div>
+
+      {quest.kappaRequired ? (
+        <div className="quest-kappa-progress">
+          <ProgressBar
+            label="카파 필수 퀘스트 진행"
+            max={kappaQuests.length}
+            tone="kappa"
+            value={completedKappaQuests}
+          />
+        </div>
+      ) : null}
 
       {quest.objectives.length > 0 ? (
         <section className="quest-detail-section">
@@ -164,21 +240,32 @@ export function QuestDetail({
           <ul className="quest-objectives">
             {[...quest.objectives]
               .sort((left, right) => left.sortOrder - right.sortOrder)
-              .map((objective) => (
-                <li key={objective.id}>
-                  <label>
-                    <input
-                      checked={Boolean(profile.objectiveProgress[objective.id])}
-                      onChange={(event) =>
-                        onObjectiveChange(objective.id, event.target.checked)
-                      }
-                      type="checkbox"
-                    />
-                    <span>{objective.description}</span>
-                  </label>
-                  {objective.mapName ? <small>{objective.mapName}</small> : null}
-                </li>
-              ))}
+              .map((objective) => {
+                const dogtagCondition = dogtagConditionLabel(
+                  objective.dogtagMinLevel,
+                  objective.dogtagFaction,
+                );
+                return (
+                  <li key={objective.id}>
+                    <label>
+                      <input
+                        checked={Boolean(profile.objectiveProgress[objective.id])}
+                        onChange={(event) =>
+                          onObjectiveChange(objective.id, event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span>{objective.description}</span>
+                    </label>
+                    <span className="quest-objective-meta">
+                      {objective.mapName ? <small>{objective.mapName}</small> : null}
+                      {dogtagCondition ? (
+                        <small className="quest-dogtag-meta">{dogtagCondition}</small>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })}
           </ul>
         </section>
       ) : null}
@@ -201,14 +288,25 @@ export function QuestDetail({
                 const item = data.items.find(
                   (candidate) => candidate.id === requirement.itemId,
                 );
+                const dogtagCondition = dogtagConditionLabel(
+                  requirement.dogtagMinLevel,
+                  requirement.dogtagFaction,
+                );
                 return (
                   <li className={fulfilled ? "fulfilled" : ""} key={requirement.id}>
-                    <div>
+                    <button
+                      className="quest-item-link"
+                      onClick={() => onOpenItem(requirement.itemId)}
+                      type="button"
+                    >
                       <strong>{item?.nameKo || requirement.itemName}</strong>
                       {item?.nameEn && item.nameEn !== item.nameKo ? (
                         <small>{item.nameEn}</small>
                       ) : null}
-                    </div>
+                      {dogtagCondition ? (
+                        <small className="quest-dogtag-meta">{dogtagCondition}</small>
+                      ) : null}
+                    </button>
                     <span>보유 {owned} / 필요 {requirement.count}</span>
                     <span className="item-fulfillment">
                       {fulfilled ? "충족" : `${requirement.count - owned}개 부족`}
@@ -224,21 +322,24 @@ export function QuestDetail({
       {directRequirements.length > 0 ? (
         <section className="quest-detail-section">
           <h3>선행 퀘스트</h3>
-          <PrerequisiteList data={data} requirements={directRequirements} />
+          <PrerequisiteList
+            data={data}
+            onOpenQuest={onOpenQuest}
+            requirements={directRequirements}
+          />
         </section>
       ) : null}
 
       {alternativeGroups.length > 0 ? (
         <section className="quest-detail-section">
           <h3>선택 선행 조건 (OR)</h3>
-          {alternativeGroups.map((groupId) => (
-            <div className="quest-or-group" key={groupId}>
-              <small>그룹 {groupId} 중 하나</small>
+          {alternativeGroups.map((group) => (
+            <div className="quest-or-group" key={group.groupId}>
+              <small>그룹 {group.groupId} 중 하나</small>
               <PrerequisiteList
                 data={data}
-                requirements={quest.requirements.filter(
-                  (requirement) => requirement.groupId === groupId,
-                )}
+                onOpenQuest={onOpenQuest}
+                requirements={group.requirements}
               />
             </div>
           ))}
@@ -249,13 +350,21 @@ export function QuestDetail({
         {quest.alternativeQuestIds.length > 0 ? (
           <section className="quest-detail-section">
             <h3>대안 퀘스트</h3>
-            <RelatedQuestList data={data} ids={quest.alternativeQuestIds} />
+            <RelatedQuestList
+              data={data}
+              ids={quest.alternativeQuestIds}
+              onOpenQuest={onOpenQuest}
+            />
           </section>
         ) : null}
         {quest.followUpQuestIds.length > 0 ? (
           <section className="quest-detail-section">
             <h3>후속 퀘스트</h3>
-            <RelatedQuestList data={data} ids={quest.followUpQuestIds} />
+            <RelatedQuestList
+              data={data}
+              ids={quest.followUpQuestIds}
+              onOpenQuest={onOpenQuest}
+            />
           </section>
         ) : null}
       </div>

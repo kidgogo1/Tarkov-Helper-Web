@@ -97,11 +97,16 @@ const testData: TarkovData = {
       alternativeQuestIds: ["q-alt"],
     }),
     quest("q-follow", { nameKo: "후속 임무", nameEn: "Follow up" }),
-    quest("q-easy-a", { nameKo: "쉬운 임무 A", nameEn: "Easy A" }),
+    quest("q-easy-a", {
+      nameKo: "쉬운 임무 A",
+      nameEn: "Easy A",
+      faction: "bear",
+    }),
     quest("q-easy-b", {
       nameKo: "쉬운 임무 B",
       nameEn: "Easy B",
       trader: "Skier",
+      faction: "usec",
       objectives: [
         {
           id: "objective-woods",
@@ -152,10 +157,23 @@ function StoreProbe() {
   return <output data-testid="profile-state">{JSON.stringify(profile)}</output>;
 }
 
-function renderPage(onOpenMap = vi.fn()) {
+function QuestFailureControl({ questId }: { questId: string }) {
+  const { setQuestStatus } = useAppStore();
+  return (
+    <button onClick={() => setQuestStatus(questId, "failed")} type="button">
+      외부에서 실패 처리
+    </button>
+  );
+}
+
+function renderPage(onOpenMap = vi.fn(), focusQuestId?: string) {
   render(
     <AppStoreProvider>
-      <QuestsPage data={testData} onOpenMap={onOpenMap} />
+      <QuestsPage
+        data={testData}
+        focusQuestId={focusQuestId}
+        onOpenMap={onOpenMap}
+      />
       <StoreProbe />
     </AppStoreProvider>,
   );
@@ -177,7 +195,7 @@ describe("QuestsPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "퀘스트" })).toBeInTheDocument();
     expect(
       within(screen.getByRole("article", { name: "퀘스트 상세" })).getByText(
-        "Operation Aquarius",
+        "Preparation",
       ),
     ).toBeInTheDocument();
 
@@ -189,6 +207,10 @@ describe("QuestsPage", () => {
     expect(within(statistics).getByText("7")).toBeInTheDocument();
 
     const list = screen.getByRole("region", { name: "퀘스트 목록" });
+    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("active");
+    fireEvent.change(screen.getByRole("combobox", { name: "상태" }), {
+      target: { value: "all" },
+    });
     fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
       target: { value: "물병자리" },
     });
@@ -225,11 +247,34 @@ describe("QuestsPage", () => {
     expect(within(list).getByRole("button", { name: /쉬운 임무 B/ })).toBeInTheDocument();
   });
 
+  it("clears active filters when a recommendation is opened", () => {
+    renderPage();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "상태" }), {
+      target: { value: "all" },
+    });
+    const search = screen.getByRole("searchbox", { name: "퀘스트 검색" });
+    fireEvent.change(search, { target: { value: "물병자리" } });
+    expect(screen.getByRole("heading", { name: "물병자리 작전" })).toBeInTheDocument();
+
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "추천 퀘스트" })).getByRole(
+        "button",
+        { name: /사전 작업/ },
+      ),
+    );
+
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("all");
+    expect(screen.getByRole("heading", { name: "사전 작업" })).toBeInTheDocument();
+  });
+
   it("connects quest details, inventory, progress, faction, wiki, and map actions", () => {
     const state = createDefaultState();
     state.profiles.pvp.inventory["item-salewa"] = { fir: 2, nonFir: 0 };
     window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
-    const onOpenMap = renderPage();
+    const onOpenMap = vi.fn();
+    renderPage(onOpenMap, "q-main");
 
     expect(screen.getByRole("heading", { name: "물병자리 작전" })).toBeInTheDocument();
     expect(screen.getByText("살레와 구급낭")).toBeInTheDocument();
@@ -244,6 +289,22 @@ describe("QuestsPage", () => {
     expect(readProfile().objectiveProgress["objective-water"]).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "퀘스트 완료" }));
+    const confirmation = screen.getByRole("dialog", {
+      name: "대안 퀘스트 실패 처리 확인",
+    });
+    expect(within(confirmation).getByText("대안 임무")).toBeInTheDocument();
+    expect(readProfile().questProgress["q-main"]).toBeUndefined();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "취소" }));
+    expect(readProfile().questProgress["q-main"]).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 완료" }));
+    fireEvent.click(
+      within(
+        screen.getByRole("dialog", { name: "대안 퀘스트 실패 처리 확인" }),
+      ).getByRole("button", {
+        name: "완료하고 대안 실패 처리",
+      }),
+    );
     expect(readProfile().questProgress).toMatchObject({
       "q-main": "done",
       "q-prep": "done",
@@ -258,14 +319,304 @@ describe("QuestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "완료 초기화" }));
     expect(readProfile().questProgress["q-main"]).toBeUndefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "BEAR" }));
-    expect(readProfile().faction).toBe("bear");
-
     expect(screen.getByRole("link", { name: "위키 열기" })).toHaveAttribute(
       "href",
       "https://example.test/wiki/operation-aquarius",
     );
     fireEvent.click(screen.getByRole("button", { name: "지도에서 보기" }));
     expect(onOpenMap).toHaveBeenCalledWith("customs", "q-main");
+
+    fireEvent.click(screen.getByRole("button", { name: "BEAR" }));
+    expect(readProfile().faction).toBe("bear");
+  });
+
+  it("starts with active quests and hides only the opposite faction after a faction is selected", () => {
+    renderPage();
+
+    const list = screen.getByRole("region", { name: "퀘스트 목록" });
+    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("active");
+    expect(within(list).queryByRole("button", { name: /물병자리 작전/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /쉬운 임무 A/ })).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /쉬운 임무 B/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "USEC" }));
+    expect(within(list).queryByRole("button", { name: /쉬운 임무 A/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /쉬운 임무 B/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "BEAR" }));
+    expect(within(list).getByRole("button", { name: /쉬운 임무 A/ })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: /쉬운 임무 B/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the first filtered quest instead of keeping a selection outside the result", () => {
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "사전 작업" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "물병자리 작전" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "결과 없음" },
+    });
+    expect(screen.queryByRole("article", { name: "퀘스트 상세" })).not.toBeInTheDocument();
+    expect(screen.getByText("표시할 퀘스트가 없습니다.")).toBeInTheDocument();
+  });
+
+  it("includes opposite-faction quests when filtering unavailable quests", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "USEC" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "상태" }), {
+      target: { value: "unavailable" },
+    });
+
+    expect(
+      within(screen.getByRole("region", { name: "퀘스트 목록" })).getByRole(
+        "button",
+        { name: /쉬운 임무 A/ },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["done", "failed"] as const)(
+    "does not warn again for an alternative quest that is already %s",
+    (terminalStatus) => {
+      const state = createDefaultState();
+      state.profiles.pvp.questProgress["q-alt"] = terminalStatus;
+      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+      renderPage(vi.fn(), "q-main");
+
+      fireEvent.click(screen.getByRole("button", { name: "퀘스트 완료" }));
+
+      expect(
+        screen.queryByRole("dialog", { name: "대안 퀘스트 실패 처리 확인" }),
+      ).not.toBeInTheDocument();
+      expect(readProfile().questProgress).toMatchObject({
+        "q-alt": terminalStatus,
+        "q-main": "done",
+      });
+    },
+  );
+
+  it("rechecks status before confirming a pending completion", () => {
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={testData}
+          focusQuestId="q-main"
+          onOpenMap={vi.fn()}
+        />
+        <QuestFailureControl questId="q-main" />
+        <StoreProbe />
+      </AppStoreProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 완료" }));
+    const confirmation = screen.getByRole("dialog", {
+      name: "대안 퀘스트 실패 처리 확인",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "외부에서 실패 처리" }));
+    fireEvent.click(
+      within(confirmation).getByRole("button", {
+        name: "완료하고 대안 실패 처리",
+      }),
+    );
+
+    expect(readProfile().questProgress["q-main"]).toBe("failed");
+  });
+
+  it("shows scav karma and dogtag conditions and preserves unavailable item handoff", () => {
+    const metadataQuest = quest("q-meta", {
+      nameKo: "인식표 검사",
+      minScavKarma: 2,
+      requiredEdition: "eod",
+      objectives: [
+        {
+          id: "objective-dogtag",
+          sortOrder: 0,
+          objectiveType: "handover",
+          description: "인식표 제출",
+          requiresFir: false,
+          locationPoints: [],
+          optionalPoints: [],
+          dogtagMinLevel: 15,
+          dogtagFaction: "usec",
+        },
+      ],
+      requiredItems: [
+        {
+          id: "requirement-dogtag",
+          itemId: "item-salewa",
+          itemName: "Salewa first aid kit",
+          count: 1,
+          requiresFir: false,
+          requirementType: "handover",
+          sortOrder: 0,
+          dogtagMinLevel: 20,
+          dogtagFaction: "bear",
+        },
+      ],
+    });
+    const onOpenItem = vi.fn();
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={{ ...testData, quests: [metadataQuest] }}
+          focusQuestId="q-meta"
+          onOpenItem={onOpenItem}
+          onOpenMap={vi.fn()}
+        />
+      </AppStoreProvider>,
+    );
+
+    expect(screen.getByText("요구 2.00 이상")).toBeInTheDocument();
+    expect(screen.getByText("현재 1.00 · 미충족")).toBeInTheDocument();
+    expect(screen.getByText("인식표 조건 · USEC · 레벨 15 이상")).toBeInTheDocument();
+    expect(screen.getByText("인식표 조건 · BEAR · 레벨 20 이상")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "퀘스트 완료" })).toBeDisabled();
+    const itemButton = screen.getByRole("button", { name: /살레와 구급낭/ });
+    expect(itemButton).toBeEnabled();
+    fireEvent.click(itemButton);
+    expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
+  });
+
+  it.each(["done", "failed"] as const)(
+    "%s quest preserves its item handoff",
+    (terminalStatus) => {
+      const state = createDefaultState();
+      state.profiles.pvp.questProgress["q-main"] = terminalStatus;
+      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+      const onOpenItem = vi.fn();
+      render(
+        <AppStoreProvider>
+          <QuestsPage
+            data={testData}
+            focusQuestId="q-main"
+            onOpenItem={onOpenItem}
+            onOpenMap={vi.fn()}
+          />
+          <StoreProbe />
+        </AppStoreProvider>,
+      );
+
+      const itemButton = screen.getByRole("button", { name: /살레와 구급낭/ });
+      expect(itemButton).toBeEnabled();
+      expect(screen.getByRole("button", { name: "퀘스트 완료" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "퀘스트 완료" }));
+      expect(readProfile().questProgress["q-main"]).toBe(terminalStatus);
+      fireEvent.click(itemButton);
+      expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
+    },
+  );
+
+  it("allows a level-locked quest to be completed", () => {
+    const levelLockedQuest = quest("q-level", {
+      nameKo: "고레벨 임무",
+      minLevel: 99,
+    });
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={{ ...testData, quests: [levelLockedQuest] }}
+          focusQuestId="q-level"
+          onOpenMap={vi.fn()}
+        />
+        <StoreProbe />
+      </AppStoreProvider>,
+    );
+
+    const completeButton = screen.getByRole("button", { name: "퀘스트 완료" });
+    expect(completeButton).toBeEnabled();
+    fireEvent.click(completeButton);
+    expect(readProfile().questProgress["q-level"]).toBe("done");
+  });
+
+  it("exposes related quests and required items as navigation actions", () => {
+    const onOpenQuest = vi.fn();
+    const onOpenItem = vi.fn();
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={testData}
+          focusQuestId="q-main"
+          onOpenItem={onOpenItem}
+          onOpenMap={vi.fn()}
+          onOpenQuest={onOpenQuest}
+        />
+      </AppStoreProvider>,
+    );
+
+    const detail = screen.getByRole("article", { name: "퀘스트 상세" });
+    fireEvent.click(within(detail).getByRole("button", { name: /사전 작업/ }));
+    expect(onOpenQuest).toHaveBeenLastCalledWith("q-prep");
+
+    const alternatives = within(detail).getByRole("heading", { name: "대안 퀘스트" })
+      .closest("section")!;
+    fireEvent.click(within(alternatives).getByRole("button", { name: /대안 임무/ }));
+    expect(onOpenQuest).toHaveBeenLastCalledWith("q-alt");
+
+    const followUps = within(detail).getByRole("heading", { name: "후속 퀘스트" })
+      .closest("section")!;
+    fireEvent.click(within(followUps).getByRole("button", { name: /후속 임무/ }));
+    expect(onOpenQuest).toHaveBeenLastCalledWith("q-follow");
+
+    fireEvent.click(within(detail).getByRole("button", { name: /살레와 구급낭/ }));
+    expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
+  });
+
+  it("resets filters and selects a quest handed off by the app", () => {
+    const onQuestFocusConsumed = vi.fn();
+    const view = render(
+      <AppStoreProvider>
+        <QuestsPage data={testData} onOpenMap={vi.fn()} />
+      </AppStoreProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "물병자리" },
+    });
+    const questList = screen.getByRole("region", { name: "퀘스트 목록" });
+    expect(within(questList).queryByRole("button", { name: /후속 임무/ })).not.toBeInTheDocument();
+
+    view.rerender(
+      <AppStoreProvider>
+        <QuestsPage
+          data={testData}
+          focusQuestId="q-follow"
+          onOpenMap={vi.fn()}
+          onQuestFocusConsumed={onQuestFocusConsumed}
+        />
+      </AppStoreProvider>,
+    );
+
+    expect(screen.getByRole("searchbox", { name: "퀘스트 검색" })).toHaveValue("");
+    expect(screen.getByRole("heading", { name: "후속 임무" })).toBeInTheDocument();
+    expect(within(questList).getByRole("button", { name: /후속 임무/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(onQuestFocusConsumed).toHaveBeenCalledOnce();
+  });
+
+  it("reveals a terminal quest handed off on the initial render", () => {
+    const state = createDefaultState();
+    state.profiles.pvp.questProgress["q-main"] = "done";
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={testData}
+          focusQuestId="q-main"
+          onOpenMap={vi.fn()}
+        />
+      </AppStoreProvider>,
+    );
+
+    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("all");
+    expect(
+      within(screen.getByRole("region", { name: "퀘스트 목록" })).getByRole(
+        "button",
+        { name: /물병자리 작전/ },
+      ),
+    ).toHaveAttribute("aria-current", "true");
   });
 });

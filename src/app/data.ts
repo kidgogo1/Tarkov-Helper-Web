@@ -38,6 +38,27 @@ function validateTarkovData(value: unknown): asserts value is TarkovData {
   if (!Array.isArray(data.traders) || !Array.isArray(data.mapFloorLocations)) {
     throw new Error("부가 번들 데이터 형식이 올바르지 않습니다.");
   }
+
+  const itemIds = new Set(
+    (data.items as unknown[]).flatMap((item) =>
+      typeof item === "object" && item !== null && typeof (item as { id?: unknown }).id === "string"
+        ? [(item as { id: string }).id]
+        : [],
+    ),
+  );
+  for (const quest of data.quests as unknown[]) {
+    if (typeof quest !== "object" || quest === null) continue;
+    const requiredItems = (quest as { requiredItems?: unknown }).requiredItems;
+    if (!Array.isArray(requiredItems)) continue;
+    const invalidReference = requiredItems.some((requirement) => {
+      if (typeof requirement !== "object" || requirement === null) return true;
+      const itemId = (requirement as { itemId?: unknown }).itemId;
+      return typeof itemId !== "string" || !itemId || !itemIds.has(itemId);
+    });
+    if (invalidReference) {
+      throw new Error("퀘스트 필수 아이템 참조가 번들 아이템 데이터와 일치하지 않습니다.");
+    }
+  }
 }
 
 export async function loadTarkovData(signal?: AbortSignal): Promise<TarkovData> {
@@ -50,4 +71,3 @@ export async function loadTarkovData(signal?: AbortSignal): Promise<TarkovData> 
   validateTarkovData(payload);
   return payload;
 }
-

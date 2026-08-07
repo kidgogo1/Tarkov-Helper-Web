@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 import { IconButton } from "./IconButton";
 
@@ -23,18 +23,26 @@ export function Dialog({
   wide = false,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
+    if (open && !dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    if (!open && dialog.open) {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    }
   }, [open]);
 
   return (
     <dialog
-      aria-describedby={description ? `${title}-description` : undefined}
-      aria-labelledby={`${title}-title`}
+      aria-describedby={description ? descriptionId : undefined}
+      aria-labelledby={titleId}
       className={wide ? "app-dialog wide" : "app-dialog"}
       onCancel={(event) => {
         event.preventDefault();
@@ -45,8 +53,8 @@ export function Dialog({
     >
       <header>
         <div>
-          <h2 id={`${title}-title`}>{title}</h2>
-          {description ? <p id={`${title}-description`}>{description}</p> : null}
+          <h2 id={titleId}>{title}</h2>
+          {description ? <p id={descriptionId}>{description}</p> : null}
         </div>
         <IconButton label="닫기" onClick={onClose}>
           <X aria-hidden="true" size={19} />
@@ -57,4 +65,3 @@ export function Dialog({
     </dialog>
   );
 }
-

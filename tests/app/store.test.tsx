@@ -32,7 +32,7 @@ describe("AppStoreProvider", () => {
       hasEodEdition: false,
       hasUnheardEdition: false,
       prestigeLevel: 0,
-      faction: "usec",
+      faction: null,
       questProgress: {},
       objectiveProgress: {},
       hideoutLevels: {},
@@ -42,6 +42,7 @@ describe("AppStoreProvider", () => {
     expect(state.profiles.pve).toEqual(state.profiles.pvp);
     expect(state.profiles.pve).not.toBe(state.profiles.pvp);
     expect(state.settings.map.showQuestMarkers).toBe(true);
+    expect(state.settings.map.hiddenMarkerTypes).toEqual([]);
   });
 
   it("clamps profile fields and isolates every mutation to the active profile", () => {
@@ -167,6 +168,7 @@ describe("AppStoreProvider", () => {
         lastMapKey: "woods",
         fixedView: true,
         markerSize: 31,
+        hiddenMarkerTypes: ["BossSpawn"],
       });
       first.result.current.setInventory("pvp-item", { fir: 1, nonFir: 0 });
       first.result.current.setActiveProfile("pve");
@@ -183,7 +185,12 @@ describe("AppStoreProvider", () => {
         settings: {
           fontFamily: "mono",
           fontSize: 19,
-          map: { lastMapKey: "woods", fixedView: true, markerSize: 31 },
+          map: {
+            lastMapKey: "woods",
+            fixedView: true,
+            markerSize: 31,
+            hiddenMarkerTypes: ["BossSpawn"],
+          },
         },
         profiles: {
           pvp: { inventory: { "pvp-item": { fir: 1, nonFir: 0 } } },
@@ -205,8 +212,60 @@ describe("AppStoreProvider", () => {
     expect(restored.result.current.settings).toMatchObject({
       fontFamily: "mono",
       fontSize: 19,
-      map: { lastMapKey: "woods", fixedView: true, markerSize: 31 },
+      map: {
+        lastMapKey: "woods",
+        fixedView: true,
+        markerSize: 31,
+        hiddenMarkerTypes: ["BossSpawn"],
+      },
     });
+  });
+
+  it("sanitizes, deduplicates, and shares hidden marker types across profiles", () => {
+    const defaults = createDefaultState();
+    window.localStorage.setItem(
+      APP_STATE_STORAGE_KEY,
+      JSON.stringify({
+        ...defaults,
+        settings: {
+          ...defaults.settings,
+          map: {
+            ...defaults.settings.map,
+            hiddenMarkerTypes: [
+              " BossSpawn ",
+              "",
+              "BossSpawn",
+              42,
+              "ScavSpawn",
+              "x".repeat(81),
+            ],
+          },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    expect(result.current.settings.map.hiddenMarkerTypes).toEqual([
+      "BossSpawn",
+      "ScavSpawn",
+    ]);
+
+    act(() => {
+      result.current.setActiveProfile("pve");
+      result.current.updateMapSettings({
+        hiddenMarkerTypes: ["PmcSpawn", " PmcSpawn ", "CultistSpawn"],
+      });
+    });
+
+    expect(result.current.settings.map.hiddenMarkerTypes).toEqual([
+      "PmcSpawn",
+      "CultistSpawn",
+    ]);
+    expect(result.current.state.settings.map.hiddenMarkerTypes).toEqual([
+      "PmcSpawn",
+      "CultistSpawn",
+    ]);
   });
 
   it("falls back safely when persisted data has an unsupported version", () => {
@@ -218,6 +277,51 @@ describe("AppStoreProvider", () => {
     const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
 
     expect(result.current.state).toEqual(createDefaultState());
+  });
+
+  it("repairs partial same-version state with nested defaults", () => {
+    window.localStorage.setItem(
+      APP_STATE_STORAGE_KEY,
+      JSON.stringify({
+        version: APP_STATE_VERSION,
+        activeProfile: "pve",
+        profiles: { pvp: { level: 42 }, pve: {} },
+        settings: {},
+      }),
+    );
+
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    expect(result.current.activeProfile).toBe("pve");
+    expect(result.current.profile).toEqual(createDefaultState().profiles.pve);
+    expect(result.current.state.profiles.pvp.level).toBe(42);
+    expect(result.current.settings).toEqual(createDefaultState().settings);
+  });
+
+  it("clamps shared font and map display values to the desktop ranges", () => {
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    act(() => {
+      result.current.updateSettings({ fontSize: 99 });
+      result.current.updateMapSettings({
+        markerSize: -1,
+        playerMarkerSize: 80,
+        questNameSize: 4,
+        extractNameSize: 90,
+        customMarkerOpacity: -2,
+      });
+    });
+
+    expect(result.current.settings).toMatchObject({
+      fontSize: 28,
+      map: {
+        markerSize: 12,
+        playerMarkerSize: 32,
+        questNameSize: 12,
+        extractNameSize: 32,
+        customMarkerOpacity: 0,
+      },
+    });
   });
 
   it("requires consumers to be rendered inside the provider", () => {

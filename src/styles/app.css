@@ -1,0 +1,171 @@
+.startup-state {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.startup-state > svg {
+  color: var(--accent);
+}
+
+.startup-state h1,
+.startup-state p {
+  margin: 0;
+}
+
+.startup-state.error > svg {
+  color: var(--danger);
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.confirm-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.confirm-content > svg {
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+
+.confirm-content p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.log-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.log-preview-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.log-event-list {
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid var(--line);
+}
+
+.log-event {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px;
+}
+
+.log-event:last-child {
+  border-bottom: 0;
+}
+
+.log-event small {
+  color: var(--text-dim);
+}
+
+.log-event.unknown strong {
+  color: var(--text-muted);
+}
+
+.alternative-quest-groups {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.alternative-quest-groups > h3,
+.alternative-quest-groups > p {
+  margin: 0;
+}
+
+.alternative-quest-groups > p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.alternative-quest-groups fieldset {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.alternative-quest-groups legend {
+  padding: 0 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alternative-quest-groups label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  background: var(--surface-raised);
+}
+
+.alternative-quest-groups label > span:not(.badge) {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.alternative-quest-groups label small {
+  color: var(--text-muted);
+}
+
+.busy-overlay {
+  position: fixed;
+  z-index: 1000;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  padding: 10px 13px;
+  box-shadow: var(--shadow);
+  color: var(--accent-strong);
+}
+
+@media (max-width: 540px) {
+  .log-event {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .log-event small {
+    grid-column: 3;
+  }
+
+}

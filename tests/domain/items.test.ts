@@ -13,6 +13,7 @@ import {
   filterAndSortItems,
   formatCountDisplay,
   formatOwnedDisplay,
+  getAggregatedItemStatistics,
   getCollectorQuestChain,
   getParentCategory,
 } from "../../src/domain/items";
@@ -219,10 +220,43 @@ describe("item and hideout aggregation", () => {
       progressPercent: 100,
       isFulfilled: true,
     });
+    const mixedShort = evaluateItemFulfillment(6, 2, { fir: 2, nonFir: 0 });
+    expect(mixedShort).toMatchObject({
+      status: "partiallyFulfilled",
+      isFulfilled: false,
+    });
+    expect(mixedShort.progressPercent).toBeCloseTo(100 / 3);
     expect(evaluateItemFulfillment(3, 0, { fir: 1, nonFir: 2 })).toEqual({
       status: "fulfilled",
       progressPercent: 100,
       isFulfilled: true,
+    });
+  });
+
+  it("reports an FIR shortage even when general inventory covers the total count", () => {
+    const mixed = quest("mixed", {
+      requiredItems: [
+        itemRequirement("mixed-fir", "bolt", "Bolts", 2, true),
+        itemRequirement("mixed-general", "bolt", "Bolts", 4),
+      ],
+    });
+    const result = aggregateItemRequirements(
+      [mixed],
+      [],
+      [bolt],
+      profile({ inventory: { bolt: { fir: 0, nonFir: 6 } } }),
+    );
+
+    expect(result[0]).toMatchObject({
+      totalCount: 6,
+      totalFirCount: 2,
+      shortage: 2,
+      firShortage: 2,
+      isFulfilled: false,
+    });
+    expect(getAggregatedItemStatistics(result)).toMatchObject({
+      totalShortage: 2,
+      shortageItemCount: 1,
     });
   });
 });

@@ -38,6 +38,29 @@ function formatDuration(seconds: number): string {
     .join(" ");
 }
 
+function aggregateRemainingItems(
+  levels: readonly HideoutLevel[],
+): HideoutItemRequirement[] {
+  const totals = new Map<string, HideoutItemRequirement>();
+  for (const level of levels) {
+    for (const requirement of level.items) {
+      const key = `${requirement.itemId}:${requirement.foundInRaid ? "fir" : "general"}`;
+      const current = totals.get(key);
+      if (current) {
+        current.count += requirement.count;
+      } else {
+        totals.set(key, {
+          ...requirement,
+          id: `remaining-${key}`,
+        });
+      }
+    }
+  }
+  return [...totals.values()].sort(
+    (left, right) => left.sortOrder - right.sortOrder || left.itemName.localeCompare(right.itemName),
+  );
+}
+
 export function HideoutPage({ data }: HideoutPageProps) {
   const { profile, setHideoutLevel, setInventory } = useAppStore();
   const [searchText, setSearchText] = useState("");
@@ -180,7 +203,26 @@ export function HideoutPage({ data }: HideoutPageProps) {
                     </button>
                   </div>
                   <div className="requirements-scroll">
-                    {displayedLevels.map((level) => (
+                    {showAllRemaining ? (
+                      <>
+                        <RemainingItemsSummary
+                          data={data}
+                          levels={visibleLevels}
+                          profile={profile}
+                          setInventory={setInventory}
+                        />
+                        {visibleLevels.map((level) => (
+                          <LevelRequirements
+                            data={data}
+                            includeItems={false}
+                            key={level.id}
+                            level={level}
+                            profile={profile}
+                            setInventory={setInventory}
+                          />
+                        ))}
+                      </>
+                    ) : displayedLevels.map((level) => (
                       <LevelRequirements
                         data={data}
                         key={level.id}
@@ -213,9 +255,16 @@ interface LevelRequirementsProps {
   level: HideoutLevel;
   profile: ReturnType<typeof useAppStore>["profile"];
   setInventory: ReturnType<typeof useAppStore>["setInventory"];
+  includeItems?: boolean;
 }
 
-function LevelRequirements({ data, level, profile, setInventory }: LevelRequirementsProps) {
+function LevelRequirements({
+  data,
+  level,
+  profile,
+  setInventory,
+  includeItems = true,
+}: LevelRequirementsProps) {
   return (
     <section className="level-requirements">
       <header>
@@ -223,7 +272,7 @@ function LevelRequirements({ data, level, profile, setInventory }: LevelRequirem
         <span><Clock3 aria-hidden="true" size={14} /> {formatDuration(level.constructionTime)}</span>
       </header>
 
-      {level.items.length ? (
+      {includeItems && level.items.length ? (
         <div className="requirement-group">
           <h4><Package aria-hidden="true" size={15} /> 아이템</h4>
           {level.items.map((requirement) => (
@@ -282,6 +331,38 @@ function LevelRequirements({ data, level, profile, setInventory }: LevelRequirem
   );
 }
 
+function RemainingItemsSummary({
+  data,
+  levels,
+  profile,
+  setInventory,
+}: Omit<LevelRequirementsProps, "level" | "includeItems"> & {
+  levels: readonly HideoutLevel[];
+}) {
+  const requirements = aggregateRemainingItems(levels);
+  if (!requirements.length) return null;
+
+  return (
+    <section className="level-requirements remaining-items-summary">
+      <header>
+        <h3>남은 전체 합계</h3>
+      </header>
+      <div className="requirement-group">
+        <h4><Package aria-hidden="true" size={15} /> 아이템</h4>
+        {requirements.map((requirement) => (
+          <HideoutItemRow
+            data={data}
+            key={requirement.id}
+            profile={profile}
+            requirement={requirement}
+            setInventory={setInventory}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 interface HideoutItemRowProps {
   data: TarkovData;
   requirement: HideoutItemRequirement;
@@ -331,4 +412,3 @@ function HideoutItemRow({ data, requirement, profile, setInventory }: HideoutIte
     </div>
   );
 }
-

@@ -1,4 +1,8 @@
-import type { QuestData, QuestItemRequirement } from "../types/data";
+import type {
+  QuestData,
+  QuestItemRequirement,
+  QuestRequirement,
+} from "../types/data";
 import type {
   InventoryAmount,
   ProfileState,
@@ -16,6 +20,44 @@ export interface QuestStatistics {
   failed: number;
   levelLocked: number;
   unavailable: number;
+}
+
+export interface QuestRequirementDisplayGroup {
+  groupId: number;
+  requirements: QuestRequirement[];
+}
+
+export function groupQuestRequirementsForDisplay(
+  requirements: readonly QuestRequirement[],
+): {
+  direct: QuestRequirement[];
+  alternatives: QuestRequirementDisplayGroup[];
+} {
+  const groupSizes = new Map<number, number>();
+  for (const requirement of requirements) {
+    if (requirement.groupId > 0) {
+      groupSizes.set(requirement.groupId, (groupSizes.get(requirement.groupId) ?? 0) + 1);
+    }
+  }
+
+  const direct = requirements.filter(
+    (requirement) =>
+      requirement.groupId === 0 || (groupSizes.get(requirement.groupId) ?? 0) === 1,
+  );
+  const alternatives = new Map<number, QuestRequirement[]>();
+  for (const requirement of requirements) {
+    if (requirement.groupId <= 0 || (groupSizes.get(requirement.groupId) ?? 0) <= 1) continue;
+    const group = alternatives.get(requirement.groupId) ?? [];
+    group.push(requirement);
+    alternatives.set(requirement.groupId, group);
+  }
+  return {
+    direct,
+    alternatives: [...alternatives].map(([groupId, groupRequirements]) => ({
+      groupId,
+      requirements: groupRequirements,
+    })),
+  };
 }
 
 export type RecommendationType =
@@ -49,6 +91,16 @@ interface StatusContext {
   lookup: Map<string, QuestData>;
   profile: ProfileState;
   visiting: Set<string>;
+}
+
+/**
+ * A profile-bound quest status snapshot. Build one per data/profile revision and
+ * share it across every status consumer in that render or aggregation pass.
+ */
+export interface QuestStatusResolver {
+  getStatus(quest: QuestData): QuestStatus;
+  arePrerequisitesMet(quest: QuestData): boolean;
+  getStatuses(): ReadonlyMap<QuestData, QuestStatus>;
 }
 
 const ACTIVE_REQUIREMENT_TYPES = new Set(["active", "start", "accept"]);
@@ -164,7 +216,11 @@ export function isFactionRequirementMet(
   quest: QuestData,
   profile: Pick<ProfileState, "faction">,
 ): boolean {
-  return !quest.faction || normalizeKey(quest.faction) === normalizeKey(profile.faction);
+  return (
+    !quest.faction ||
+    !profile.faction ||
+    normalizeKey(quest.faction) === normalizeKey(profile.faction)
+  );
 }
 
 export function isDspRequirementMet(
@@ -276,17 +332,54 @@ function getQuestStatusWithContext(
   }
 }
 
+export function createQuestStatusResolver(
+  quests: readonly QuestData[],
+  profile: ProfileState,
+): QuestStatusResolver {
+  // Keep a stable local collection so callers can supply a readonly/proxied
+  // array without paying for another source scan on every status lookup.
+  const indexedQuests = [...quests];
+  const lookup = buildQuestLookup(indexedQuests);
+  const statuses = new Map<QuestData, QuestStatus>();
+
+  const getStatus = (quest: QuestData): QuestStatus => {
+    const cached = statuses.get(quest);
+    if (cached !== undefined) return cached;
+
+    // Each top-level calculation gets its own cycle guard. Recursive results are
+    // intentionally not cached because a cycle guard is root-relative.
+    const status = getQuestStatusWithContext(quest, {
+      lookup,
+      profile,
+      visiting: new Set(),
+    });
+    statuses.set(quest, status);
+    return status;
+  };
+
+  return {
+    getStatus,
+    arePrerequisitesMet(quest) {
+      return prerequisitesMetWithContext(quest, {
+        lookup,
+        profile,
+        visiting: new Set(),
+      });
+    },
+    getStatuses() {
+      for (const quest of indexedQuests) getStatus(quest);
+      return statuses;
+    },
+  };
+}
+
 export function getQuestStatus(
   quest: QuestData,
   quests: readonly QuestData[],
   profile: ProfileState,
 ): QuestStatus {
   const allQuests = quests.includes(quest) ? quests : [...quests, quest];
-  return getQuestStatusWithContext(quest, {
-    lookup: buildQuestLookup(allQuests),
-    profile,
-    visiting: new Set(),
-  });
+  return createQuestStatusResolver(allQuests, profile).getStatus(quest);
 }
 
 export function areQuestPrerequisitesMet(
@@ -295,11 +388,7 @@ export function areQuestPrerequisitesMet(
   profile: ProfileState,
 ): boolean {
   const allQuests = quests.includes(quest) ? quests : [...quests, quest];
-  return prerequisitesMetWithContext(quest, {
-    lookup: buildQuestLookup(allQuests),
-    profile,
-    visiting: new Set(),
-  });
+  return createQuestStatusResolver(allQuests, profile).arePrerequisitesMet(quest);
 }
 
 export interface CompleteQuestOptions {
@@ -396,6 +485,7 @@ export function resetAllQuestProgress(
 export function getQuestStatistics(
   quests: readonly QuestData[],
   profile: ProfileState,
+  statusResolver = createQuestStatusResolver(quests, profile),
 ): QuestStatistics {
   const statistics: QuestStatistics = {
     total: quests.length,
@@ -408,7 +498,7 @@ export function getQuestStatistics(
   };
 
   for (const quest of quests) {
-    statistics[getQuestStatus(quest, quests, profile)] += 1;
+    statistics[statusResolver.getStatus(quest)] += 1;
   }
   return statistics;
 }
@@ -568,9 +658,10 @@ export function recommendQuests(
   quests: readonly QuestData[],
   profile: ProfileState,
   maxResults = 5,
+  statusResolver = createQuestStatusResolver(quests, profile),
 ): QuestRecommendation[] {
   return quests
-    .filter((quest) => getQuestStatus(quest, quests, profile) === "active")
+    .filter((quest) => statusResolver.getStatus(quest) === "active")
     .map((quest) => analyzeRecommendation(quest, profile))
     .filter((recommendation): recommendation is QuestRecommendation =>
       Boolean(recommendation),

@@ -64,7 +64,7 @@ function createDefaultProfile(): ProfileState {
     hasEodEdition: false,
     hasUnheardEdition: false,
     prestigeLevel: 0,
-    faction: "usec",
+    faction: null,
     questProgress: {},
     objectiveProgress: {},
     hideoutLevels: {},
@@ -79,10 +79,14 @@ function createDefaultMapSettings(): MapDisplaySettings {
     fixedView: false,
     showQuestMarkers: true,
     showExtractMarkers: true,
+    showPmcExtracts: true,
+    showScavExtracts: true,
+    showTransits: true,
     showCompletedObjectives: true,
+    hiddenMarkerTypes: [],
     questMarkerStyle: "iconWithName",
     markerSize: 18,
-    questNameSize: 16,
+    questNameSize: 20,
     playerMarkerSize: 18,
     extractNameSize: 16,
     customMarkerOpacity: 1,
@@ -115,6 +119,54 @@ function clampInteger(value: number, minimum: number, maximum: number): number {
   return Math.round(clamp(value, minimum, maximum));
 }
 
+function sanitizeHiddenMarkerTypes(
+  value: unknown,
+  fallback: readonly string[],
+): string[] {
+  if (!Array.isArray(value)) return [...fallback];
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of value) {
+    if (typeof candidate !== "string") continue;
+    const markerType = candidate.trim();
+    if (!markerType || markerType.length > 80 || seen.has(markerType)) continue;
+    seen.add(markerType);
+    result.push(markerType);
+    if (result.length === 100) break;
+  }
+  return result;
+}
+
+function normalizeMapSettings(
+  current: MapDisplaySettings,
+  patch: Partial<MapDisplaySettings>,
+): MapDisplaySettings {
+  const next = { ...current, ...patch };
+  return {
+    ...next,
+    hiddenMarkerTypes: sanitizeHiddenMarkerTypes(
+      next.hiddenMarkerTypes,
+      current.hiddenMarkerTypes,
+    ),
+    markerSize: Number.isFinite(next.markerSize)
+      ? clampInteger(next.markerSize, 12, 32)
+      : current.markerSize,
+    playerMarkerSize: Number.isFinite(next.playerMarkerSize)
+      ? clampInteger(next.playerMarkerSize, 12, 32)
+      : current.playerMarkerSize,
+    questNameSize: Number.isFinite(next.questNameSize)
+      ? clamp(next.questNameSize, 12, 32)
+      : current.questNameSize,
+    extractNameSize: Number.isFinite(next.extractNameSize)
+      ? clamp(next.extractNameSize, 10, 32)
+      : current.extractNameSize,
+    customMarkerOpacity: Number.isFinite(next.customMarkerOpacity)
+      ? clamp(next.customMarkerOpacity, 0, 1)
+      : current.customMarkerOpacity,
+  };
+}
+
 function updateProfileFields(
   current: ProfileState,
   patch: ProfilePatch,
@@ -138,6 +190,167 @@ function updateProfileFields(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeProfile(value: unknown): ProfileState {
+  const defaults = createDefaultProfile();
+  if (!isRecord(value)) return defaults;
+
+  const fields: ProfilePatch = {};
+  for (const key of ["level", "scavRep", "dspDecodeCount", "prestigeLevel"] as const) {
+    if (typeof value[key] === "number") fields[key] = value[key];
+  }
+  if (typeof value.hasEodEdition === "boolean") fields.hasEodEdition = value.hasEodEdition;
+  if (typeof value.hasUnheardEdition === "boolean") {
+    fields.hasUnheardEdition = value.hasUnheardEdition;
+  }
+  if (value.faction === null || value.faction === "bear" || value.faction === "usec") {
+    fields.faction = value.faction;
+  }
+
+  const questProgress: Record<string, SavedQuestStatus> = {};
+  if (isRecord(value.questProgress)) {
+    for (const [id, status] of Object.entries(value.questProgress)) {
+      if (status === "done" || status === "failed") questProgress[id] = status;
+    }
+  }
+
+  const objectiveProgress: Record<string, boolean> = {};
+  if (isRecord(value.objectiveProgress)) {
+    for (const [id, completed] of Object.entries(value.objectiveProgress)) {
+      if (typeof completed === "boolean") objectiveProgress[id] = completed;
+    }
+  }
+
+  const hideoutLevels: Record<string, number> = {};
+  if (isRecord(value.hideoutLevels)) {
+    for (const [id, level] of Object.entries(value.hideoutLevels)) {
+      if (typeof level === "number" && Number.isFinite(level)) {
+        hideoutLevels[id] = Math.max(0, Math.round(level));
+      }
+    }
+  }
+
+  const inventory: Record<string, InventoryAmount> = {};
+  if (isRecord(value.inventory)) {
+    for (const [id, rawAmount] of Object.entries(value.inventory)) {
+      if (!isRecord(rawAmount)) continue;
+      const fir = typeof rawAmount.fir === "number" && Number.isFinite(rawAmount.fir)
+        ? Math.max(0, Math.round(rawAmount.fir))
+        : 0;
+      const nonFir = typeof rawAmount.nonFir === "number" && Number.isFinite(rawAmount.nonFir)
+        ? Math.max(0, Math.round(rawAmount.nonFir))
+        : 0;
+      inventory[id] = { fir, nonFir };
+    }
+  }
+
+  const customMarkers = Array.isArray(value.customMarkers)
+    ? value.customMarkers.flatMap((candidate): CustomMapMarker[] => {
+        if (!isRecord(candidate)) return [];
+        const stringFields = ["id", "mapKey", "name", "color", "createdAt"] as const;
+        const numberFields = ["x", "y", "z", "size", "opacity"] as const;
+        if (
+          !stringFields.every((key) => typeof candidate[key] === "string") ||
+          !numberFields.every(
+            (key) => typeof candidate[key] === "number" && Number.isFinite(candidate[key]),
+          )
+        ) {
+          return [];
+        }
+        return [{
+          id: candidate.id as string,
+          mapKey: candidate.mapKey as string,
+          name: candidate.name as string,
+          x: candidate.x as number,
+          y: candidate.y as number,
+          z: candidate.z as number,
+          ...(typeof candidate.floorId === "string" ? { floorId: candidate.floorId } : {}),
+          color: candidate.color as string,
+          size: clamp(candidate.size as number, 12, 64),
+          opacity: clamp(candidate.opacity as number, 0, 1),
+          createdAt: candidate.createdAt as string,
+        }];
+      })
+    : [];
+
+  return {
+    ...updateProfileFields(defaults, fields),
+    questProgress,
+    objectiveProgress,
+    hideoutLevels,
+    inventory,
+    customMarkers,
+  };
+}
+
+function sanitizeSettings(value: unknown): SharedSettings {
+  const defaults = createDefaultState().settings;
+  if (!isRecord(value)) return defaults;
+
+  const fontFamilies: SharedSettings["fontFamily"][] = [
+    "system",
+    "sans",
+    "serif",
+    "mono",
+    "uploaded",
+  ];
+  const fontFamily = fontFamilies.includes(value.fontFamily as SharedSettings["fontFamily"])
+    ? value.fontFamily as SharedSettings["fontFamily"]
+    : defaults.fontFamily;
+  const fontSize = typeof value.fontSize === "number" && Number.isFinite(value.fontSize)
+    ? clampInteger(value.fontSize, 10, 28)
+    : defaults.fontSize;
+
+  const rawMap = isRecord(value.map) ? value.map : {};
+  const mapPatch: Partial<MapDisplaySettings> = {};
+  for (const key of ["lastMapKey"] as const) {
+    if (typeof rawMap[key] === "string") mapPatch[key] = rawMap[key];
+  }
+  if (Array.isArray(rawMap.hiddenMarkerTypes)) {
+    mapPatch.hiddenMarkerTypes = sanitizeHiddenMarkerTypes(
+      rawMap.hiddenMarkerTypes,
+      defaults.map.hiddenMarkerTypes,
+    );
+  }
+  for (const key of [
+    "fixedView",
+    "showQuestMarkers",
+    "showExtractMarkers",
+    "showPmcExtracts",
+    "showScavExtracts",
+    "showTransits",
+    "showCompletedObjectives",
+  ] as const) {
+    if (typeof rawMap[key] === "boolean") mapPatch[key] = rawMap[key];
+  }
+  for (const key of [
+    "markerSize",
+    "questNameSize",
+    "playerMarkerSize",
+    "extractNameSize",
+    "customMarkerOpacity",
+  ] as const) {
+    if (typeof rawMap[key] === "number") mapPatch[key] = rawMap[key];
+  }
+  if (
+    rawMap.questMarkerStyle === "icon" ||
+    rawMap.questMarkerStyle === "circle" ||
+    rawMap.questMarkerStyle === "iconWithName" ||
+    rawMap.questMarkerStyle === "circleWithName"
+  ) {
+    mapPatch.questMarkerStyle = rawMap.questMarkerStyle;
+  }
+
+  return {
+    fontFamily,
+    fontSize,
+    map: normalizeMapSettings(defaults.map, mapPatch),
+  };
+}
+
 function readPersistedState(): PersistedAppState {
   if (typeof window === "undefined") return createDefaultState();
 
@@ -145,13 +358,20 @@ function readPersistedState(): PersistedAppState {
     const raw = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
     if (!raw) return createDefaultState();
 
-    const parsed = JSON.parse(raw) as Partial<PersistedAppState>;
-    if (parsed.version !== APP_STATE_VERSION) return createDefaultState();
-    if (!parsed.profiles?.pvp || !parsed.profiles.pve || !parsed.settings) {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed) || parsed.version !== APP_STATE_VERSION) {
       return createDefaultState();
     }
-
-    return parsed as PersistedAppState;
+    const profiles = isRecord(parsed.profiles) ? parsed.profiles : {};
+    return {
+      version: APP_STATE_VERSION,
+      activeProfile: parsed.activeProfile === "pve" ? "pve" : "pvp",
+      profiles: {
+        pvp: sanitizeProfile(profiles.pvp),
+        pve: sanitizeProfile(profiles.pve),
+      },
+      settings: sanitizeSettings(parsed.settings),
+    };
   } catch {
     return createDefaultState();
   }
@@ -296,8 +516,14 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       settings: {
         ...current.settings,
         ...patch,
+        fontSize:
+          patch.fontSize === undefined
+            ? current.settings.fontSize
+            : Number.isFinite(patch.fontSize)
+              ? clampInteger(patch.fontSize, 10, 28)
+              : current.settings.fontSize,
         map: patch.map
-          ? { ...current.settings.map, ...patch.map }
+          ? normalizeMapSettings(current.settings.map, patch.map)
           : current.settings.map,
       },
     }));
@@ -309,7 +535,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
         ...current,
         settings: {
           ...current.settings,
-          map: { ...current.settings.map, ...patch },
+          map: normalizeMapSettings(current.settings.map, patch),
         },
       }));
     },

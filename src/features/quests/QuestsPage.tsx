@@ -1,11 +1,13 @@
 import { Search, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppStore } from "../../app/store";
+import { Dialog } from "../../components/Dialog";
 import {
   completeQuest,
+  createQuestStatusResolver,
   getQuestStatistics,
-  getQuestStatus,
+  isFactionRequirementMet,
   recommendQuests,
   resetQuest,
   type RecommendationType,
@@ -17,7 +19,11 @@ import { QuestDetail } from "./QuestDetail";
 
 interface QuestsPageProps {
   data: TarkovData;
+  focusQuestId?: string;
+  onOpenItem?: (itemId: string) => void;
   onOpenMap: (mapKey?: string, questId?: string) => void;
+  onOpenQuest?: (questId: string) => void;
+  onQuestFocusConsumed?: () => void;
 }
 
 const STATUS_LABELS: Record<QuestStatus, string> = {
@@ -37,6 +43,16 @@ const RECOMMENDATION_LABELS: Record<RecommendationType, string> = {
   easyQuest: "빠른 진행",
 };
 
+const COMPLETABLE_STATUSES = new Set<QuestStatus>([
+  "active",
+  "locked",
+  "levelLocked",
+]);
+
+function canCompleteQuest(status: QuestStatus | undefined): boolean {
+  return status !== undefined && COMPLETABLE_STATUSES.has(status);
+}
+
 function questName(quest: QuestData): string {
   return quest.nameKo || quest.name || quest.nameEn;
 }
@@ -54,7 +70,25 @@ function questMaps(quest: QuestData): string[] {
   ];
 }
 
-export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
+function findQuest(quests: readonly QuestData[], questId: string | undefined) {
+  if (!questId) return undefined;
+  const normalizedId = normalize(questId);
+  return quests.find(
+    (quest) =>
+      normalize(quest.id) === normalizedId ||
+      normalize(quest.normalizedName) === normalizedId ||
+      normalize(quest.bsgId ?? "") === normalizedId,
+  );
+}
+
+export function QuestsPage({
+  data,
+  focusQuestId,
+  onOpenItem,
+  onOpenMap,
+  onOpenQuest,
+  onQuestFocusConsumed,
+}: QuestsPageProps) {
   const {
     profile,
     setObjectiveProgress,
@@ -66,28 +100,64 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
   const [itemOnly, setItemOnly] = useState(false);
   const [traderFilter, setTraderFilter] = useState("all");
   const [mapFilter, setMapFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<QuestStatus | "all">("all");
-  const [selectedQuestId, setSelectedQuestId] = useState(
-    data.quests[0]?.id ?? "",
+  const focusedQuest = findQuest(data.quests, focusQuestId);
+  const [statusFilter, setStatusFilter] = useState<QuestStatus | "all">(
+    focusedQuest ? "all" : "active",
   );
+  const [pendingCompletion, setPendingCompletion] = useState<{
+    quest: QuestData;
+    alternatives: QuestData[];
+  } | null>(null);
+  const [selectedQuestId, setSelectedQuestId] = useState(
+    focusedQuest?.id ?? data.quests[0]?.id ?? "",
+  );
+  const [handledQuestFocusId, setHandledQuestFocusId] = useState(focusQuestId);
+  const consumedQuestFocusRef = useRef<string | undefined>(undefined);
 
+  if (focusQuestId !== handledQuestFocusId) {
+    setHandledQuestFocusId(focusQuestId);
+    if (focusedQuest) {
+      setQuery("");
+      setKappaOnly(false);
+      setItemOnly(false);
+      setTraderFilter("all");
+      setMapFilter("all");
+      setStatusFilter("all");
+      setSelectedQuestId(focusedQuest.id);
+    }
+  }
+
+  useEffect(() => {
+    if (!focusQuestId) {
+      consumedQuestFocusRef.current = undefined;
+      return;
+    }
+    if (consumedQuestFocusRef.current === focusQuestId) return;
+    consumedQuestFocusRef.current = focusQuestId;
+    onQuestFocusConsumed?.();
+  }, [focusQuestId, onQuestFocusConsumed]);
+
+  const statusResolver = useMemo(
+    () => createQuestStatusResolver(data.quests, profile),
+    [data.quests, profile],
+  );
   const statuses = useMemo(
     () =>
       new Map(
         data.quests.map((quest) => [
           quest.id,
-          getQuestStatus(quest, data.quests, profile),
+          statusResolver.getStatus(quest),
         ]),
       ),
-    [data.quests, profile],
+    [data.quests, statusResolver],
   );
   const statistics = useMemo(
-    () => getQuestStatistics(data.quests, profile),
-    [data.quests, profile],
+    () => getQuestStatistics(data.quests, profile, statusResolver),
+    [data.quests, profile, statusResolver],
   );
   const recommendations = useMemo(
-    () => recommendQuests(data.quests, profile, 5),
-    [data.quests, profile],
+    () => recommendQuests(data.quests, profile, 5, statusResolver),
+    [data.quests, profile, statusResolver],
   );
   const traders = useMemo(
     () =>
@@ -119,6 +189,8 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
         (!itemOnly || quest.requiredItems.length > 0) &&
         (traderFilter === "all" || quest.trader === traderFilter) &&
         (mapFilter === "all" || questMaps(quest).includes(mapFilter)) &&
+        (statusFilter === "unavailable" ||
+          isFactionRequirementMet(quest, profile)) &&
         (statusFilter === "all" || statuses.get(quest.id) === statusFilter)
       );
     });
@@ -127,6 +199,7 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
     itemOnly,
     kappaOnly,
     mapFilter,
+    profile,
     query,
     statusFilter,
     statuses,
@@ -134,8 +207,13 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
   ]);
 
   const selectedQuest =
-    data.quests.find((quest) => quest.id === selectedQuestId) ??
+    filteredQuests.find((quest) => quest.id === selectedQuestId) ??
     filteredQuests[0];
+
+  const nextSelectedQuestId = selectedQuest?.id ?? "";
+  if (nextSelectedQuestId !== selectedQuestId) {
+    setSelectedQuestId(nextSelectedQuestId);
+  }
 
   const applyQuestProgress = (
     nextProgress: Record<string, SavedQuestStatus>,
@@ -150,10 +228,28 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
     });
   };
 
-  const handleComplete = (quest: QuestData) => {
+  const completeSelectedQuest = (quest: QuestData) => {
+    if (!canCompleteQuest(statuses.get(quest.id))) return;
     applyQuestProgress(
       completeQuest(quest.id, data.quests, profile.questProgress),
     );
+  };
+
+  const handleComplete = (quest: QuestData) => {
+    if (!canCompleteQuest(statuses.get(quest.id))) return;
+    const alternatives = quest.alternativeQuestIds
+      .map((alternativeId) => findQuest(data.quests, alternativeId))
+      .filter((alternative): alternative is QuestData => {
+        if (!alternative) return false;
+        const alternativeStatus = statuses.get(alternative.id);
+        return alternativeStatus !== "done" && alternativeStatus !== "failed";
+      });
+
+    if (alternatives.length > 0) {
+      setPendingCompletion({ quest, alternatives });
+      return;
+    }
+    completeSelectedQuest(quest);
   };
 
   const handleReset = (quest: QuestData) => {
@@ -161,6 +257,20 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
     quest.objectives.forEach((objective) =>
       setObjectiveProgress(objective.id, false),
     );
+  };
+
+  const handleOpenQuest = (questId: string) => {
+    if (onOpenQuest) {
+      onOpenQuest(questId);
+      return;
+    }
+    setQuery("");
+    setKappaOnly(false);
+    setItemOnly(false);
+    setTraderFilter("all");
+    setMapFilter("all");
+    setStatusFilter("all");
+    setSelectedQuestId(questId);
   };
 
   return (
@@ -203,7 +313,7 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
           {recommendations.map((recommendation) => (
             <button
               key={recommendation.quest.id}
-              onClick={() => setSelectedQuestId(recommendation.quest.id)}
+              onClick={() => handleOpenQuest(recommendation.quest.id)}
               type="button"
             >
               <span className="badge">
@@ -360,11 +470,14 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
             data={data}
             onComplete={handleComplete}
             onObjectiveChange={setObjectiveProgress}
+            onOpenItem={(itemId) => onOpenItem?.(itemId)}
             onOpenMap={onOpenMap}
+            onOpenQuest={handleOpenQuest}
             onReset={handleReset}
             profile={profile}
             quest={selectedQuest}
             status={statuses.get(selectedQuest.id) ?? "active"}
+            statusResolver={statusResolver}
           />
         ) : (
           <div className="quest-detail panel quest-detail-empty" role="status">
@@ -372,6 +485,37 @@ export function QuestsPage({ data, onOpenMap }: QuestsPageProps) {
           </div>
         )}
       </div>
+
+      <Dialog
+        description="이 퀘스트를 완료하면 아래 대안 퀘스트가 실패로 기록됩니다. 이 변경은 퀘스트별 초기화로 되돌릴 수 있습니다."
+        footer={
+          <>
+            <button onClick={() => setPendingCompletion(null)} type="button">
+              취소
+            </button>
+            <button
+              className="primary"
+              onClick={() => {
+                if (!pendingCompletion) return;
+                completeSelectedQuest(pendingCompletion.quest);
+                setPendingCompletion(null);
+              }}
+              type="button"
+            >
+              완료하고 대안 실패 처리
+            </button>
+          </>
+        }
+        onClose={() => setPendingCompletion(null)}
+        open={pendingCompletion !== null}
+        title="대안 퀘스트 실패 처리 확인"
+      >
+        <ul className="quest-completion-warning-list">
+          {pendingCompletion?.alternatives.map((alternative) => (
+            <li key={alternative.id}>{questName(alternative)}</li>
+          ))}
+        </ul>
+      </Dialog>
     </section>
   );
 }

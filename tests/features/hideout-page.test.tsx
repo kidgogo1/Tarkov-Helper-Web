@@ -54,7 +54,17 @@ const data: TarkovData = {
           id: "workbench-2",
           level: 2,
           constructionTime: 120,
-          items: [],
+          items: [
+            {
+              id: "bolt-req-level-2",
+              itemId: "bolts",
+              itemName: "Bolts",
+              itemNameKo: "볼트",
+              count: 3,
+              foundInRaid: false,
+              sortOrder: 0,
+            },
+          ],
           stations: [],
           traders: [],
           skills: [],
@@ -84,7 +94,20 @@ describe("HideoutPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "작업대 레벨 증가" }));
     expect(within(stationList).getByText("1 / 2")).toBeInTheDocument();
-    expect(screen.queryByText("볼트")).not.toBeInTheDocument();
+    expect(screen.getByText("0 / 3 보유")).toBeInTheDocument();
+  });
+
+  it("aggregates every remaining level by item", () => {
+    render(
+      <AppStoreProvider>
+        <HideoutPage data={data} />
+      </AppStoreProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "남은 전체" }));
+    expect(screen.getByRole("heading", { name: "남은 전체 합계" })).toBeInTheDocument();
+    expect(screen.getByText("0 / 5 보유")).toBeInTheDocument();
+    expect(screen.getAllByText("볼트")).toHaveLength(1);
   });
 
   it("edits the shared inventory from an item requirement", () => {

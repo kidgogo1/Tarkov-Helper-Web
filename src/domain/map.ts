@@ -1,4 +1,4 @@
-import type { MapConfig, MapFloorLocation } from "../types/data";
+import type { MapConfig, MapFloor, MapFloorLocation } from "../types/data";
 
 export interface ScreenPoint {
   x: number;
@@ -28,6 +28,83 @@ export interface QuestLogEvent {
   timestamp: Date;
   originalLine: string;
   sourceFile?: string;
+}
+
+export function getMapDirectionAngle(
+  angle: number,
+  mapKey: string,
+  configuredRotation?: number,
+): number {
+  const normalizedMapKey = mapKey.trim().toLocaleLowerCase("en-US");
+  const desktopRotation = normalizedMapKey === "factory"
+    ? 90
+    : normalizedMapKey === "labs"
+      ? -90
+      : 0;
+  const rotation = Number.isFinite(configuredRotation)
+    ? configuredRotation as number
+    : desktopRotation;
+  return angle + rotation;
+}
+
+export function collapseQuestLogEvents<
+  T extends Pick<QuestLogEvent, "questId" | "eventType" | "timestamp">,
+>(events: readonly T[]): T[] {
+  const finalByQuest = new Map<string, T>();
+  for (const event of [...events].sort(
+    (left, right) => left.timestamp.getTime() - right.timestamp.getTime(),
+  )) {
+    finalByQuest.set(event.questId, event);
+  }
+  return [...finalByQuest.values()].sort(
+    (left, right) => left.timestamp.getTime() - right.timestamp.getTime(),
+  );
+}
+
+export function applySvgFloorVisibility(
+  svgDocument: Document,
+  floors: readonly MapFloor[],
+  selectedFloorId: string | undefined,
+): void {
+  const svgRoot = svgDocument.documentElement;
+  if (svgRoot?.namespaceURI === "http://www.w3.org/2000/svg") {
+    const existingBackground = svgDocument.getElementById("tarkov-helper-map-background");
+    const canvasBackground =
+      existingBackground ??
+      svgDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
+    if (!existingBackground) {
+      canvasBackground.setAttribute("id", "tarkov-helper-map-background");
+    }
+    canvasBackground.setAttribute("width", "100%");
+    canvasBackground.setAttribute("height", "100%");
+    canvasBackground.setAttribute("fill", "#0d0f0e");
+    canvasBackground.setAttribute("pointer-events", "none");
+    if (canvasBackground.parentNode !== svgRoot || svgRoot.firstChild !== canvasBackground) {
+      svgRoot.insertBefore(canvasBackground, svgRoot.firstChild);
+    }
+  }
+
+  const defaultMapFloor = floors.find((floor) => floor.isDefault) ?? floors[0];
+  const selectedMapFloor =
+    floors.find((floor) => floor.layerId === selectedFloorId) ?? defaultMapFloor;
+  if (!selectedMapFloor) return;
+
+  for (const floor of floors) {
+    const layer = svgDocument.getElementById(floor.layerId);
+    if (!layer) continue;
+    const selected = floor.layerId === selectedMapFloor.layerId;
+    const background =
+      !selected &&
+      defaultMapFloor &&
+      floor.layerId === defaultMapFloor.layerId &&
+      selectedMapFloor.layerId !== defaultMapFloor.layerId;
+    layer.style.setProperty("display", selected || background ? "inline" : "none", "important");
+    layer.style.setProperty(
+      "opacity",
+      selected ? "1" : background ? (selectedMapFloor.order < 0 ? "0.15" : "0.3") : "1",
+      "important",
+    );
+  }
 }
 
 export const DEFAULT_SCREENSHOT_PATTERN =

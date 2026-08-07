@@ -22,7 +22,11 @@ export function QuantityStepper({
   const setClamped = (next: number) => onChange(Math.min(max, Math.max(min, next)));
 
   return (
-    <div className={`quantity-stepper${compact ? " compact" : ""}`} aria-label={label}>
+    <div
+      aria-label={label}
+      className={`quantity-stepper${compact ? " compact" : ""}`}
+      role="group"
+    >
       <IconButton label={`${label} 감소`} onClick={() => setClamped(value - 1)} disabled={value <= min}>
         <Minus aria-hidden="true" size={14} />
       </IconButton>
@@ -41,4 +45,3 @@ export function QuantityStepper({
     </div>
   );
 }
-

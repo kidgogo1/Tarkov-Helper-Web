@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { MapConfig, MapFloorLocation } from "../../src/types/data";
 import {
   applyAffineTransform,
+  applySvgFloorVisibility,
+  collapseQuestLogEvents,
   detectFloor,
   detectFloorByY,
   detectMapFromLogLine,
+  getMapDirectionAngle,
   invertAffineTransform,
   inverseMapPosition,
   parseQuestLogContent,
@@ -94,9 +97,29 @@ describe("screenshot coordinate parsing", () => {
     expect(parseScreenshotFilename("")).toBeNull();
     expect(parseScreenshotFilename("ordinary-screenshot.png")).toBeNull();
   });
+
+  it("applies the desktop direction correction for Factory and Labs", () => {
+    expect(getMapDirectionAngle(10, "Factory")).toBe(100);
+    expect(getMapDirectionAngle(10, "Labs")).toBe(-80);
+    expect(getMapDirectionAngle(10, "Customs")).toBe(10);
+    expect(getMapDirectionAngle(10, "Factory", 15)).toBe(25);
+  });
 });
 
 describe("game log parsing", () => {
+  it("keeps only the final event for each canonical quest", () => {
+    const events = [
+      { questId: "quest-a", eventType: "completed" as const, timestamp: new Date(30) },
+      { questId: "quest-b", eventType: "failed" as const, timestamp: new Date(20) },
+      { questId: "quest-a", eventType: "started" as const, timestamp: new Date(10) },
+    ];
+
+    expect(collapseQuestLogEvents(events)).toEqual([
+      events[1],
+      events[0],
+    ]);
+  });
+
   it("detects mapped map names from scene bundles and Location fields", () => {
     expect(
       detectMapFromLogLine(
@@ -194,5 +217,35 @@ describe("floor detection", () => {
 
   it("legacy Y-only detection ignores spatially bounded regions", () => {
     expect(detectFloorByY(floors, "Labs", 6)).toBe("ground");
+  });
+
+  it("shows the selected SVG layer over a dimmed default-floor background", () => {
+    const document = new DOMParser().parseFromString(
+      '<svg xmlns="http://www.w3.org/2000/svg"><g id="basement"/><g id="main"/><g id="level2"/></svg>',
+      "image/svg+xml",
+    );
+    const mapFloors = [
+      { layerId: "basement", displayName: "지하", order: -1, isDefault: false },
+      { layerId: "main", displayName: "1층", order: 0, isDefault: true },
+      { layerId: "level2", displayName: "2층", order: 1, isDefault: false },
+    ];
+
+    applySvgFloorVisibility(document, mapFloors, "basement");
+    const canvasBackground = document.getElementById("tarkov-helper-map-background");
+    expect(canvasBackground?.tagName).toBe("rect");
+    expect(canvasBackground?.getAttribute("width")).toBe("100%");
+    expect(canvasBackground?.getAttribute("height")).toBe("100%");
+    expect(canvasBackground?.getAttribute("fill")).toBe("#0d0f0e");
+    expect(document.documentElement.firstElementChild).toBe(canvasBackground);
+    expect(document.getElementById("basement")?.style.display).toBe("inline");
+    expect(document.getElementById("basement")?.style.opacity).toBe("1");
+    expect(document.getElementById("main")?.style.display).toBe("inline");
+    expect(document.getElementById("main")?.style.opacity).toBe("0.15");
+    expect(document.getElementById("level2")?.style.display).toBe("none");
+
+    applySvgFloorVisibility(document, mapFloors, "level2");
+    expect(document.querySelectorAll("#tarkov-helper-map-background")).toHaveLength(1);
+    expect(document.getElementById("main")?.style.opacity).toBe("0.3");
+    expect(document.getElementById("level2")?.style.display).toBe("inline");
   });
 });

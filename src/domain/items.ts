@@ -4,7 +4,10 @@ import type {
   QuestData,
 } from "../types/data";
 import type { InventoryAmount, ProfileState } from "../types/state";
-import { getQuestStatus } from "./quests";
+import {
+  createQuestStatusResolver,
+  type QuestStatusResolver,
+} from "./quests";
 
 export type ItemFulfillmentStatus =
   | "notStarted"
@@ -316,7 +319,11 @@ function finalizeAggregate(
     ownedFir: inventory.fir,
     ownedNonFir: inventory.nonFir,
     ownedTotal,
-    shortage: Math.max(0, totalCount - ownedTotal),
+    shortage: Math.max(
+      0,
+      totalCount - ownedTotal,
+      totalFirCount - inventory.fir,
+    ),
     firShortage: Math.max(0, totalFirCount - inventory.fir),
     fulfillmentStatus: fulfillment.status,
     progressPercent: fulfillment.progressPercent,
@@ -327,6 +334,24 @@ function finalizeAggregate(
     questSources: aggregate.questSources,
     hideoutSources: aggregate.hideoutSources,
   };
+}
+
+export function createItemReferenceRequirement(
+  item: ItemData,
+  profile: Pick<ProfileState, "inventory">,
+): AggregatedItemRequirement {
+  return finalizeAggregate(
+    {
+      item,
+      questCount: 0,
+      questFirCount: 0,
+      hideoutCount: 0,
+      hideoutFirCount: 0,
+      questSources: [],
+      hideoutSources: [],
+    },
+    profile,
+  );
 }
 
 function addQuestRequirements(
@@ -369,12 +394,19 @@ export function evaluateItemFulfillment(
   }
 
   if (totalFirCount > 0) {
-    if (inventory.fir >= totalFirCount) {
+    const firFulfilled = inventory.fir >= totalFirCount;
+    const totalFulfilled = ownedTotal >= totalCount;
+    if (firFulfilled && totalFulfilled) {
       return { status: "fulfilled", progressPercent: 100, isFulfilled: true };
     }
     return {
       status: ownedTotal > 0 ? "partiallyFulfilled" : "notStarted",
-      progressPercent: Math.min(100, (inventory.fir / totalFirCount) * 100),
+      progressPercent:
+        Math.min(
+          inventory.fir / totalFirCount,
+          ownedTotal / totalCount,
+          1,
+        ) * 100,
       isFulfilled: false,
     };
   }
@@ -394,11 +426,12 @@ export function aggregateItemRequirements(
   hideoutStations: readonly HideoutStation[],
   items: readonly ItemData[],
   profile: ProfileState,
+  statusResolver = createQuestStatusResolver(quests, profile),
 ): AggregatedItemRequirement[] {
   const itemLookup = buildItemLookup(items);
   const aggregates = new Map<string, MutableAggregate>();
   const includedQuests = quests.filter((quest) => {
-    const status = getQuestStatus(quest, quests, profile);
+    const status = statusResolver.getStatus(quest);
     return status !== "done" && status !== "failed" && status !== "unavailable";
   });
   addQuestRequirements(aggregates, includedQuests, itemLookup, false);
@@ -451,6 +484,7 @@ export function getCollectorQuestChain(
   profile: ProfileState,
   includePrerequisites: boolean,
   collectorName = "collector",
+  statusResolver: QuestStatusResolver = createQuestStatusResolver(quests, profile),
 ): QuestData[] {
   const lookup = buildQuestLookup(quests);
   const collector =
@@ -466,7 +500,7 @@ export function getCollectorQuestChain(
     if (!key || visited.has(key)) return;
     visited.add(key);
 
-    const status = getQuestStatus(quest, quests, profile);
+    const status = statusResolver.getStatus(quest);
     if (status !== "done" && status !== "failed" && status !== "unavailable") {
       result.push(quest);
     }
@@ -488,6 +522,7 @@ export function aggregateCollectorItems(
   profile: ProfileState,
   includePrerequisites: boolean,
   collectorName = "collector",
+  statusResolver: QuestStatusResolver = createQuestStatusResolver(quests, profile),
 ): AggregatedItemRequirement[] {
   const aggregates = new Map<string, MutableAggregate>();
   addQuestRequirements(
@@ -497,6 +532,7 @@ export function aggregateCollectorItems(
       profile,
       includePrerequisites,
       collectorName,
+      statusResolver,
     ),
     buildItemLookup(items),
     true,

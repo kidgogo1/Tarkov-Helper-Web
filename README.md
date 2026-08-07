@@ -6,11 +6,11 @@ PVP/PVE 분리·지도·커스텀 마커 변경을 브라우저에서 실행하�
 
 ## 포함 기능
 
-- 488개 퀘스트 검색·필터·상태 계산·추천·선행 자동 완료·대안 처리·목표 체크
+- 488개 퀘스트 검색·필터·상태 계산·추천·진행 중 입력·선행 자동 완료·대안 처리·목표 체크
 - 26개 은신처 시설 레벨과 다음/전체 요구 사항
 - 퀘스트와 은신처의 필요 아이템 통합, FIR/일반 보유량과 출처 추적
 - Collector 및 재귀 선행 퀘스트의 카파 아이템 추적
-- Terminal을 포함한 SVG 지도 12개, 팬·줌·층·퀘스트/탈출구/기본 마커
+- Terminal을 포함한 SVG 지도 12개, 팬·줌·층·퀘스트/탈출구/기본 마커와 키보드 조작
 - EFT 스크린샷 파일명의 위치·방향 파싱과 이동 경로
 - 프로필별 커스텀 지도 마커 추가·수정·삭제
 - 사용자가 선택한 EFT 로그 파일/폴더의 퀘스트 이벤트 미리보기·적용
@@ -19,7 +19,7 @@ PVP/PVE 분리·지도·커스텀 마커 변경을 브라우저에서 실행하�
 
 ## 실행
 
-Node.js 20 이상과 pnpm이 필요합니다.
+Node.js 22.22.2 이상과 pnpm 11.16.0이 필요합니다.
 
 ```bash
 pnpm install
@@ -35,6 +35,8 @@ pnpm build
 pnpm preview
 ```
 
+빌드는 상대 자산 경로를 사용하므로 도메인 루트뿐 아니라 `/tarkov-helper/` 같은 하위 경로에도 배포할 수 있습니다.
+
 ## 검증
 
 ```bash
@@ -44,6 +46,9 @@ pnpm lint
 pnpm build
 pnpm test:e2e
 ```
+
+Windows에서는 설치된 Edge 또는 Chrome을 자동으로 사용합니다. macOS/Linux에 Chromium이 없다면
+E2E 실행 전에 `pnpm exec playwright install chromium`을 한 번 실행하세요.
 
 ## 데이터
 
@@ -72,3 +77,4 @@ python scripts/export_data.py --source /path/to/SIGDrone-Tarkov-Helper --output 
 - 수정본: `SIGDrone/Tarkov-Helper` (`77ee7343ed0f98dc6aa8610519062c61120535f1`, `v1.5.7`)
 
 자세한 귀속 정보는 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)에 있습니다.
+이 웹 포트 자체의 라이선스는 [LICENSE](./LICENSE)를 확인하세요.

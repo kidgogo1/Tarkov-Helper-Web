@@ -35,7 +35,7 @@ export interface ProfileState {
   hasEodEdition: boolean;
   hasUnheardEdition: boolean;
   prestigeLevel: number;
-  faction: "bear" | "usec";
+  faction: "bear" | "usec" | null;
   questProgress: Record<string, SavedQuestStatus>;
   objectiveProgress: Record<string, boolean>;
   hideoutLevels: Record<string, number>;
@@ -48,7 +48,11 @@ export interface MapDisplaySettings {
   fixedView: boolean;
   showQuestMarkers: boolean;
   showExtractMarkers: boolean;
+  showPmcExtracts: boolean;
+  showScavExtracts: boolean;
+  showTransits: boolean;
   showCompletedObjectives: boolean;
+  hiddenMarkerTypes: string[];
   questMarkerStyle: "icon" | "circle" | "iconWithName" | "circleWithName";
   markerSize: number;
   questNameSize: number;

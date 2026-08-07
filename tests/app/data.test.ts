@@ -52,5 +52,25 @@ describe("loadTarkovData", () => {
 
     await expect(loadTarkovData()).rejects.toThrow("404");
   });
-});
 
+  it("rejects quest item requirements without a resolvable item ID", async () => {
+    const payload = {
+      meta: {
+        originalCommit: "original",
+        modifiedCommit: "modified",
+        exportedAt: "2026-08-07T00:00:00Z",
+        counts: { quests: 1, items: 1, hideoutStations: 0, maps: 0, mapMarkers: 0 },
+      },
+      quests: [{ requiredItems: [{ itemId: "" }] }],
+      items: [{ id: "known-item" }],
+      hideoutStations: [],
+      traders: [],
+      mapConfigs: [],
+      mapMarkers: [],
+      mapFloorLocations: [],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => payload }));
+
+    await expect(loadTarkovData()).rejects.toThrow("아이템 참조");
+  });
+});

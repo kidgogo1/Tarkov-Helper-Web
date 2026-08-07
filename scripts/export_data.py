@@ -44,6 +44,7 @@ EXPECTED_TABLE_COUNTS = {
 }
 EXPECTED_REFERENCED_ITEM_ICONS = 475
 EXPECTED_MAP_ICON_FILES = 25
+EXPECTED_EXPORTED_QUEST_REQUIRED_ITEMS = 623
 
 
 def parse_args() -> argparse.Namespace:
@@ -236,9 +237,11 @@ def export_quests(connection: sqlite3.Connection) -> list[dict[str, Any]]:
 
     required_items: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows(connection, "SELECT * FROM QuestRequiredItems ORDER BY QuestId, SortOrder, Id"):
+        if not row["ItemId"]:
+            continue
         item = without_none({
             "id": row["Id"],
-            "itemId": row["ItemId"] or "",
+            "itemId": row["ItemId"],
             "itemName": row["ItemName"],
             "count": row["Count"],
             "requiresFir": bool(row["RequiresFIR"]),
@@ -498,9 +501,14 @@ def validate_export(data: dict[str, Any], counts: dict[str, int]) -> None:
         ),
     }
     for table, nested_count in nested_counts.items():
-        if nested_count != counts[table]:
+        expected_nested_count = (
+            EXPECTED_EXPORTED_QUEST_REQUIRED_ITEMS
+            if table == "QuestRequiredItems"
+            else counts[table]
+        )
+        if nested_count != expected_nested_count:
             raise RuntimeError(
-                f"nested {table} count mismatch: expected {counts[table]}, exported {nested_count}"
+                f"nested {table} count mismatch: expected {expected_nested_count}, exported {nested_count}"
             )
 
     for quest in data["quests"]:
@@ -513,7 +521,7 @@ def validate_export(data: dict[str, Any], counts: dict[str, int]) -> None:
             raise RuntimeError(f"quest {quest['id']} references missing quests: {missing}")
         missing_items = [
             item["itemId"] for item in quest["requiredItems"]
-            if item["itemId"] and item["itemId"] not in item_ids
+            if not item["itemId"] or item["itemId"] not in item_ids
         ]
         if missing_items:
             raise RuntimeError(f"quest {quest['id']} references missing items: {missing_items}")
@@ -624,14 +632,19 @@ def copy_assets(
     item_icon_source = assets / "Icons"
     format_counts: dict[str, int] = defaultdict(int)
     item_icon_bytes = 0
+    item_icon_names: set[str] = set()
     for item_id in sorted(referenced_item_ids):
         if item_id not in item_by_id:
             raise RuntimeError(f"referenced item is absent from Items export: {item_id}")
         source = item_icon_source / f"{item_id}.png"
         suffix = image_suffix(source)
-        destination = items_output / f"{item_id}{suffix}"
+        icon_name = f"{hashlib.sha256(item_id.encode('utf-8')).hexdigest()}{suffix}"
+        if icon_name in item_icon_names:
+            raise RuntimeError(f"hashed item icon filename collision: {item_id}")
+        item_icon_names.add(icon_name)
+        destination = items_output / icon_name
         copy_verified(source, destination, copied)
-        item_by_id[item_id]["localIcon"] = f"/assets/items/{destination.name}"
+        item_by_id[item_id]["localIcon"] = f"assets/items/{destination.name}"
         format_counts[suffix.removeprefix(".")] += 1
         item_icon_bytes += destination.stat().st_size
 
@@ -640,14 +653,19 @@ def copy_assets(
         # Windows folds the repository's case-only Icons/icons directories together.
         hideout_icon_source = assets / "Icons" / "hideout"
     hideout_icon_bytes = 0
+    hideout_icon_names: set[str] = set()
     for station in data["hideoutStations"]:
         encoded_id = base64.b64encode(station["id"].encode("utf-8")).decode("ascii").rstrip("=")
         source = hideout_icon_source / f"{encoded_id}.png"
         if image_suffix(source) != ".png":
             raise ValueError(f"hideout icon is not PNG: {source}")
-        destination = hideout_output / f"{station['id']}.png"
+        icon_name = f"{hashlib.sha256(station['id'].encode('utf-8')).hexdigest()}.png"
+        if icon_name in hideout_icon_names:
+            raise RuntimeError(f"hashed hideout icon filename collision: {station['id']}")
+        hideout_icon_names.add(icon_name)
+        destination = hideout_output / icon_name
         copy_verified(source, destination, copied)
-        station["localIcon"] = f"/assets/hideout/{destination.name}"
+        station["localIcon"] = f"assets/hideout/{destination.name}"
         hideout_icon_bytes += destination.stat().st_size
 
     for _, destination in copied:

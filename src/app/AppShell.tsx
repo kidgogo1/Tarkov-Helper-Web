@@ -7,7 +7,8 @@ import {
   Settings,
   Trophy,
 } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import { useRef } from "react";
+import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 
 import { QuantityStepper } from "../components/QuantityStepper";
 import type { ProfileType } from "../types/data";
@@ -51,6 +52,36 @@ export function AppShell({
   onReset,
   onSettings,
 }: AppShellProps) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | undefined;
+
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextIndex = (index - 1 + TABS.length) % TABS.length;
+        break;
+      case "ArrowRight":
+      case "ArrowDown":
+        nextIndex = (index + 1) % TABS.length;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = TABS.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    const nextTab = TABS[nextIndex];
+    tabRefs.current[nextIndex]?.focus();
+    onTabChange(nextTab.id);
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -108,15 +139,22 @@ export function AppShell({
         </div>
 
         <nav aria-label="주요 화면" className="app-tabs" role="tablist">
-          {TABS.map((tab) => {
+          {TABS.map((tab, index) => {
             const Icon = tab.icon;
             return (
               <button
+                aria-controls={`app-panel-${tab.id}`}
                 aria-selected={activeTab === tab.id}
                 className={activeTab === tab.id ? "active" : ""}
+                id={`app-tab-${tab.id}`}
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
+                ref={(element) => {
+                  tabRefs.current[index] = element;
+                }}
                 role="tab"
+                tabIndex={activeTab === tab.id ? 0 : -1}
                 type="button"
               >
                 <Icon aria-hidden="true" size={17} />
@@ -127,8 +165,14 @@ export function AppShell({
         </nav>
       </header>
 
-      <main className="app-main">{children}</main>
+      <main
+        aria-labelledby={`app-tab-${activeTab}`}
+        className="app-main"
+        id={`app-panel-${activeTab}`}
+        role="tabpanel"
+      >
+        {children}
+      </main>
     </div>
   );
 }
-
