@@ -242,6 +242,10 @@ function pixelsToDips(value, dpi) {
   return scaleAwayFromZero((value * 96) / dpi);
 }
 
+function screenPointToDips(value, monitorOrigin, dpi) {
+  return monitorOrigin + pixelsToDips(value - monitorOrigin, dpi);
+}
+
 function dipsToPixels(value, dpi) {
   return scaleAwayFromZero((value * dpi) / 96);
 }
@@ -297,6 +301,13 @@ public static class SyntheticBrowser {
         public NativePoint maximumTrackSize;
     }
     [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo {
+        public int size;
+        public Rect monitor;
+        public Rect work;
+        public uint flags;
+    }
+    [StructLayout(LayoutKind.Sequential)]
     private struct StyleStruct { public uint styleOld, styleNew; }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string name);
@@ -313,6 +324,8 @@ public static class SyntheticBrowser {
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern bool MoveWindow(IntPtr window, int x, int y, int width, int height, bool repaint);
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+    [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo information);
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] private static extern int GetWindowRgn(IntPtr window, IntPtr region);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
@@ -447,6 +460,8 @@ public static class SyntheticBrowser {
     private static string WindowJson(IntPtr window) {
         Rect rect;
         GetWindowRect(window, out rect);
+        var monitor = new MonitorInfo { size = Marshal.SizeOf(typeof(MonitorInfo)) };
+        GetMonitorInfo(MonitorFromWindow(window, 2), ref monitor);
         Rect rendererRect;
         GetWindowRect(RenderWindows.ContainsKey(window) ? RenderWindows[window] : window, out rendererRect);
         IntPtr region = CreateRectRgn(0, 0, 0, 0);
@@ -456,6 +471,9 @@ public static class SyntheticBrowser {
         DeleteObject(region);
         return "{\"handle\":" + window.ToInt64() +
             ",\"dpi\":" + GetDpiForWindow(window) +
+            ",\"monitor\":{\"left\":" + monitor.monitor.left + ",\"top\":" + monitor.monitor.top +
+            ",\"width\":" + (monitor.monitor.right - monitor.monitor.left) +
+            ",\"height\":" + (monitor.monitor.bottom - monitor.monitor.top) + "}" +
             ",\"style\":" + unchecked((uint)GetWindowLong(window, -16)) +
             ",\"exStyle\":" + unchecked((uint)GetWindowLong(window, -20)) +
             ",\"left\":" + rect.left + ",\"top\":" + rect.top +
@@ -807,6 +825,26 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   assert.equal(complete.status, 201, `${JSON.stringify(complete.body)}\n${serverLog}`);
   assert.equal(complete.body.mode, "UNLOCKED");
   assert.equal(complete.body.globalHotkeysAvailable, true);
+  assert.deepEqual(complete.body.bounds, {
+    left: screenPointToDips(original.left, original.monitor.left, original.dpi),
+    top: screenPointToDips(original.top, original.monitor.top, original.dpi),
+    width: pixelsToDips(original.width, original.dpi),
+    height: pixelsToDips(original.height, original.dpi),
+  });
+  assert.equal(
+    complete.body.bounds.left - original.monitor.left,
+    pixelsToDips(original.left - original.monitor.left, original.dpi),
+  );
+  assert.equal(
+    complete.body.bounds.top - original.monitor.top,
+    pixelsToDips(original.top - original.monitor.top, original.dpi),
+  );
+  assert(complete.body.bounds.left < original.monitor.left, "Negative offscreen X must stay on the same side of the monitor origin");
+  assert(complete.body.bounds.top < original.monitor.top, "Negative offscreen Y must stay on the same side of the monitor origin");
+  if (original.dpi > 96) {
+    assert.notEqual(complete.body.bounds.left, original.left, "High-DPI absolute X must not remain an unscaled physical point");
+    assert.notEqual(complete.body.bounds.top, original.top, "High-DPI absolute Y must not remain an unscaled physical point");
+  }
 
   await command("REJECT_EXSTYLE");
   await statusWhere((status) => status.rejectExStyle === true);
@@ -837,8 +875,8 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   );
   assert.equal(lockedStatus.pips[0].exStyle & 0x00080020, 0);
   assert.deepEqual(locked.body.bounds, {
-    left: pixelsToDips(original.left, original.dpi),
-    top: pixelsToDips(original.top, original.dpi),
+    left: screenPointToDips(original.left, original.monitor.left, original.dpi),
+    top: screenPointToDips(original.top, original.monitor.top, original.dpi),
     width: pixelsToDips(original.content.width, original.dpi),
     height: pixelsToDips(original.content.height, original.dpi),
   });
@@ -961,8 +999,8 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   });
   assert.equal(unlocked.status, 200, JSON.stringify(unlocked.body));
   assert.deepEqual(unlocked.body.bounds, {
-    left: pixelsToDips(original.left, original.dpi),
-    top: pixelsToDips(original.top, original.dpi),
+    left: screenPointToDips(original.left, original.monitor.left, original.dpi),
+    top: screenPointToDips(original.top, original.monitor.top, original.dpi),
     width: pixelsToDips(original.width, original.dpi),
     height: pixelsToDips(original.height, original.dpi),
   });

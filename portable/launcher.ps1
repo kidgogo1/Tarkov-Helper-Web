@@ -766,10 +766,12 @@ namespace TarkovHelper {
             public int Bottom;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Point {
-            public int X;
-            public int Y;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct MonitorInfo {
+            public int Size;
+            public Rect Monitor;
+            public Rect Work;
+            public uint Flags;
         }
 
         [DllImport("user32.dll")]
@@ -825,7 +827,9 @@ namespace TarkovHelper {
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr window);
         [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool PhysicalToLogicalPointForPerMonitorDPI(IntPtr window, ref Point point);
+        private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo information);
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
         [DllImport("user32.dll", SetLastError = true)]
@@ -906,11 +910,26 @@ namespace TarkovHelper {
         public static NativePointInfo ScreenPointToDips(long handle, int x, int y) {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
-            var point = new Point { X = x, Y = y };
-            if (!PhysicalToLogicalPointForPerMonitorDPI(window, ref point)) {
+            IntPtr monitor = MonitorFromWindow(window, 2);
+            if (monitor == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            var information = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
+            if (!GetMonitorInfo(monitor, ref information)) {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
-            return new NativePointInfo { X = point.X, Y = point.Y };
+            uint dpi = ReadDpi(window);
+            // A mixed-DPI desktop has no single scale that can be applied to an
+            // absolute screen coordinate. Preserve the selected monitor origin
+            // (including negative origins), and scale only the monitor-local
+            // offset so left/top use the same DIP distance unit as width/height.
+            int logicalX = checked(information.Monitor.Left + (int)Math.Round(
+                (x - information.Monitor.Left) * 96.0 / dpi,
+                MidpointRounding.AwayFromZero
+            ));
+            int logicalY = checked(information.Monitor.Top + (int)Math.Round(
+                (y - information.Monitor.Top) * 96.0 / dpi,
+                MidpointRounding.AwayFromZero
+            ));
+            return new NativePointInfo { X = logicalX, Y = logicalY };
         }
 
         private static byte[] CaptureRegionData(IntPtr window) {
@@ -1451,16 +1470,11 @@ function Convert-NativeRectToDips {
         [int]$Rect.left,
         [int]$Rect.top
     )
-    $bottomRight = [TarkovHelper.NativeOverlayBridge]::ScreenPointToDips(
-        $Handle,
-        [int]($Rect.left + $Rect.width),
-        [int]($Rect.top + $Rect.height)
-    )
     return [pscustomobject]@{
         left = [int]$topLeft.X
         top = [int]$topLeft.Y
-        width = [int]($bottomRight.X - $topLeft.X)
-        height = [int]($bottomRight.Y - $topLeft.Y)
+        width = [TarkovHelper.NativeOverlayBridge]::PixelsToDips($Handle, [int]$Rect.width)
+        height = [TarkovHelper.NativeOverlayBridge]::PixelsToDips($Handle, [int]$Rect.height)
     }
 }
 
