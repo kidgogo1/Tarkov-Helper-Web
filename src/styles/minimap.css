@@ -1,0 +1,271 @@
+.map-minimap-toggle {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.map-minimap-toggle > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.map-minimap-pip-root {
+  width: 100%;
+  height: 100%;
+}
+
+.map-minimap-fallback {
+  position: fixed;
+  z-index: 1200;
+  top: 14px;
+  right: 14px;
+  width: min(300px, calc(100vw - 28px));
+  height: min(300px, calc(100vh - 28px));
+  border: 1px solid rgb(217 184 63 / 52%);
+  border-radius: 9px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 58%);
+}
+
+.map-minimap-fallback-notice {
+  position: absolute;
+  z-index: 8;
+  right: 6px;
+  bottom: -30px;
+  margin: 0;
+  border: 1px solid rgb(110 183 255 / 35%);
+  border-radius: 4px;
+  background: rgb(13 18 20 / 96%);
+  color: #b9dcf8;
+  padding: 5px 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.map-minimap {
+  position: relative;
+  width: min(300px, 100vw);
+  height: min(300px, 100vh);
+  overflow: hidden;
+  border-radius: inherit;
+  background: #0d0f0e;
+  color: #f3f4f1;
+  color-scheme: dark;
+  font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  isolation: isolate;
+}
+
+.map-minimap-stage {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(rgb(255 255 255 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
+    #0d0f0e;
+  background-size: 24px 24px;
+  touch-action: none;
+  user-select: none;
+}
+
+.map-minimap-stage[data-pannable="true"] {
+  cursor: grab;
+}
+
+.map-minimap-stage[data-pannable="true"]:active {
+  cursor: grabbing;
+}
+
+.map-minimap-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.map-minimap-map {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  max-width: none;
+  opacity: var(--mini-map-opacity, 0.8);
+  pointer-events: none;
+}
+
+.map-minimap-player {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  border: 2px solid #effaff;
+  border-radius: 50%;
+  background: #168dcc;
+  color: #fff;
+  box-sizing: border-box;
+  filter: drop-shadow(0 2px 4px #000);
+  transform: translate(-50%, -50%) scale(var(--mini-map-inverse-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.map-minimap-player > svg {
+  width: 72%;
+  height: 72%;
+  transform: rotate(var(--mini-map-player-angle, 0deg));
+  transform-origin: center;
+  stroke-width: 2.8;
+}
+
+.map-minimap-player-pulse {
+  position: absolute;
+  z-index: -1;
+  width: 150%;
+  height: 150%;
+  border: 2px solid rgb(99 203 255 / 65%);
+  border-radius: 50%;
+  animation: map-minimap-player-pulse 1.9s ease-out infinite;
+}
+
+.map-minimap-header {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  background: linear-gradient(180deg, rgb(10 12 11 / 96%), rgb(10 12 11 / 72%));
+  padding: 5px 6px 5px 9px;
+  box-sizing: border-box;
+  backdrop-filter: blur(5px);
+}
+
+.map-minimap-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #f3df91;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-minimap-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.map-minimap-icon-button {
+  display: grid;
+  width: 27px;
+  min-width: 27px;
+  height: 27px;
+  min-height: 27px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 5%);
+  color: #d9dbd7;
+  padding: 0;
+}
+
+.map-minimap-icon-button:hover,
+.map-minimap-icon-button:focus-visible {
+  border-color: #d9b83f;
+  background: rgb(217 184 63 / 15%);
+  color: #f3df91;
+}
+
+.map-minimap-icon-button:disabled {
+  opacity: 0.38;
+}
+
+.map-minimap-icon-button > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.map-minimap-zoom {
+  width: 31px;
+  color: #d9b83f;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: center;
+}
+
+.map-minimap-settings {
+  position: absolute;
+  z-index: 5;
+  right: 7px;
+  bottom: 29px;
+  width: 148px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 5px;
+  background: rgb(10 12 11 / 86%);
+  color: #d9dbd7;
+  padding: 4px 6px;
+  box-sizing: border-box;
+  font-size: 9px;
+  backdrop-filter: blur(5px);
+}
+
+.map-minimap-settings summary {
+  color: #f3df91;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.map-minimap-settings[open] {
+  display: grid;
+  gap: 5px;
+}
+
+.map-minimap-settings label {
+  display: grid;
+  gap: 2px;
+}
+
+.map-minimap-settings input {
+  width: 100%;
+  margin: 0;
+}
+
+.map-minimap-browser-note {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  margin: 0;
+  background: rgb(10 12 11 / 78%);
+  color: #9da39d;
+  padding: 5px 7px;
+  font-size: 8px;
+  line-height: 1.35;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@keyframes map-minimap-player-pulse {
+  0% { opacity: 0.9; transform: scale(0.65); }
+  75%, 100% { opacity: 0; transform: scale(1.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-minimap-player-pulse {
+    animation: none;
+  }
+}

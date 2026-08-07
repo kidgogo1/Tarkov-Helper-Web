@@ -28,6 +28,7 @@ import {
 
 import { useAppStore } from "../../app/store";
 import { Dialog } from "../../components/Dialog";
+import { MapMiniMap } from "./MapMiniMap";
 import {
   applySvgFloorVisibility,
   detectFloor,
@@ -40,6 +41,11 @@ import {
   type ScreenshotPosition,
 } from "../../domain/map";
 import { createQuestStatusResolver } from "../../domain/quests";
+import {
+  fetchLocalTrackerEvents,
+  fetchLocalTrackerStatus,
+  type ScreenshotWatcherStatus,
+} from "../../services/local-tracker";
 import type {
   MapConfig,
   MapMarker,
@@ -69,6 +75,11 @@ interface PlayerMapPosition extends ScreenshotPosition {
   floorId?: string;
   sequence: number;
 }
+
+type LocalTrackerViewState =
+  | { state: "CHECKING" }
+  | ScreenshotWatcherStatus
+  | { state: "UNAVAILABLE" };
 
 interface QuestMapPoint {
   id: string;
@@ -114,6 +125,56 @@ const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 1.2;
 const KEYBOARD_PAN_STEP = 40;
+const LOCAL_TRACKER_POLL_INTERVAL_MS = 650;
+const LOCAL_TRACKER_STATUS_REFRESH_INTERVAL_MS = 4_000;
+
+function localTrackerStatusLabel(tracker: LocalTrackerViewState): string {
+  switch (tracker.state) {
+    case "CHECKING":
+      return "로컬 실행기 연결 확인 중";
+    case "WATCHING":
+      return "자동 위치 추적 중";
+    case "NOT_FOUND":
+      return "스크린샷 폴더를 찾지 못했습니다";
+    case "ERROR":
+      return "자동 위치 추적 오류";
+    case "UNAVAILABLE":
+      return "브라우저 수동 모드";
+  }
+}
+
+function localTrackerNote(tracker: LocalTrackerViewState): {
+  title: string;
+  description: string;
+} {
+  switch (tracker.state) {
+    case "WATCHING":
+      return {
+        title: "폴더 자동 감지",
+        description: `${tracker.folderPath}에서 새 EFT 스크린샷 파일을 자동 감지합니다. 필요하면 아래 파일 선택도 계속 사용할 수 있습니다.`,
+      };
+    case "NOT_FOUND":
+      return {
+        title: "폴더 확인 필요",
+        description: "Escape from Tarkov 스크린샷 폴더를 찾지 못했습니다. 폴더가 생성될 때까지 파일 선택을 사용할 수 있습니다.",
+      };
+    case "ERROR":
+      return {
+        title: "자동 감지 일시 중지",
+        description: "로컬 실행기의 폴더 감시를 시작하지 못했습니다. 파일 선택은 계속 사용할 수 있습니다.",
+      };
+    case "CHECKING":
+      return {
+        title: "로컬 연결 확인 중",
+        description: "브라우저는 게임 로그나 스크린샷 폴더를 백그라운드에서 감시할 수 없습니다. 로컬 실행기 연결을 확인하는 동안 파일 선택을 사용할 수 있습니다.",
+      };
+    case "UNAVAILABLE":
+      return {
+        title: "수동 파일 선택",
+        description: "브라우저는 게임 로그나 스크린샷 폴더를 백그라운드에서 감시할 수 없습니다. 자동 감지를 사용하려면 로컬 실행기로 열고, 웹에서는 파일을 직접 선택하세요.",
+      };
+  }
+}
 
 function bundledAsset(path: string): string {
   return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
@@ -601,6 +662,9 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   const [groupObjectivesByQuest, setGroupObjectivesByQuest] = useState(true);
   const [playerPositions, setPlayerPositions] = useState<PlayerMapPosition[]>([]);
   const [positionError, setPositionError] = useState("");
+  const [localTracker, setLocalTracker] = useState<LocalTrackerViewState>({
+    state: "CHECKING",
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState("");
   const [editor, setEditor] = useState<MarkerEditorState>();
@@ -615,6 +679,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   const deleteOpenerRef = useRef<HTMLElement | null>(null);
   const addMarkerButtonRef = useRef<HTMLButtonElement>(null);
   const playerSequenceRef = useRef(0);
+  const applyScreenshotFileNameRef = useRef<(fileName: string) => void>(() => undefined);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -1009,11 +1074,8 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     }
   };
 
-  const importScreenshot = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
-    const parsed = parseScreenshotFilename(file.name);
-    event.currentTarget.value = "";
+  const applyScreenshotFileName = useCallback((fileName: string) => {
+    const parsed = parseScreenshotFilename(fileName);
     if (!parsed || parsed.z === undefined) {
       setPositionError("EFT 스크린샷 파일 이름에서 위치를 읽지 못했습니다.");
       return;
@@ -1045,6 +1107,132 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     setPositionError("");
     if (floorId) setSelectedFloor(floorId);
     if (!mapSettings.fixedView) centerOnPoint(screen);
+  }, [centerOnPoint, config, data.mapFloorLocations, mapSettings.fixedView]);
+
+  useEffect(() => {
+    applyScreenshotFileNameRef.current = applyScreenshotFileName;
+  }, [applyScreenshotFileName]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    let cursor = 0;
+    let pollTimer: number | undefined;
+    let reconnectDelay = LOCAL_TRACKER_POLL_INTERVAL_MS;
+    let needsTrackerResync = false;
+    let cursorInitialized = false;
+    let nextStatusRefreshAt = 0;
+
+    const schedule = (callback: () => void, delay: number) => {
+      if (stopped) return;
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        pollTimer = undefined;
+        callback();
+      }, delay);
+    };
+
+    const schedulePoll = () => {
+      schedule(() => void pollEvents(), LOCAL_TRACKER_POLL_INTERVAL_MS);
+    };
+
+    const scheduleReconnect = () => {
+      const delay = reconnectDelay;
+      reconnectDelay = Math.min(reconnectDelay * 2, 10_000);
+      schedule(() => void connect(), delay);
+    };
+
+    const pollEvents = async () => {
+      const page = await fetchLocalTrackerEvents(cursor, controller.signal);
+      if (stopped) return;
+      if (!page) {
+        setLocalTracker({ state: "UNAVAILABLE" });
+        needsTrackerResync = true;
+        scheduleReconnect();
+        return;
+      }
+      reconnectDelay = LOCAL_TRACKER_POLL_INTERVAL_MS;
+
+      if (page.pagination.isResetRequired) {
+        // A bounded server buffer means part of the trail is unavailable.
+        // Drop the discontinuous local trail, but still apply the retained
+        // events so the newest known player position is not lost.
+        setPlayerPositions([]);
+      }
+
+      const pageSequences = new Set<number>();
+      for (const screenshotEvent of page.data) {
+        if (
+          screenshotEvent.sequence <= cursor ||
+          pageSequences.has(screenshotEvent.sequence)
+        ) {
+          continue;
+        }
+        pageSequences.add(screenshotEvent.sequence);
+        applyScreenshotFileNameRef.current(screenshotEvent.fileName);
+      }
+      cursor = Math.max(cursor, page.pagination.nextCursor);
+
+      if (Date.now() >= nextStatusRefreshAt) {
+        const status = await fetchLocalTrackerStatus(controller.signal);
+        if (stopped) return;
+        if (!status) {
+          setLocalTracker({ state: "UNAVAILABLE" });
+          needsTrackerResync = true;
+          scheduleReconnect();
+          return;
+        }
+
+        setLocalTracker(status.screenshotWatcher);
+        nextStatusRefreshAt = Date.now() + LOCAL_TRACKER_STATUS_REFRESH_INTERVAL_MS;
+        if (status.screenshotWatcher.state !== "WATCHING") {
+          scheduleReconnect();
+          return;
+        }
+      }
+      schedulePoll();
+    };
+
+    const connect = async () => {
+      const status = await fetchLocalTrackerStatus(controller.signal);
+      if (stopped) return;
+      if (!status) {
+        setLocalTracker({ state: "UNAVAILABLE" });
+        scheduleReconnect();
+        return;
+      }
+
+      setLocalTracker(status.screenshotWatcher);
+      if (!cursorInitialized || needsTrackerResync) {
+        cursor = Math.max(0, status.latestCursor - 1);
+        cursorInitialized = true;
+        if (needsTrackerResync) {
+          setPlayerPositions([]);
+          needsTrackerResync = false;
+        }
+      }
+      nextStatusRefreshAt = Date.now() + LOCAL_TRACKER_STATUS_REFRESH_INTERVAL_MS;
+      if (status.screenshotWatcher.state === "WATCHING") {
+        reconnectDelay = LOCAL_TRACKER_POLL_INTERVAL_MS;
+        schedulePoll();
+      } else {
+        scheduleReconnect();
+      }
+    };
+
+    void connect();
+    return () => {
+      stopped = true;
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+      controller.abort();
+    };
+  }, []);
+
+  const importScreenshot = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    event.currentTarget.value = "";
+    applyScreenshotFileName(file.name);
   };
 
   const clearPlayerTrail = () => {
@@ -1181,6 +1369,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   const latestPlayerPosition = playerPositions.at(-1);
   const trailPoints = playerPositions.map((position) => `${position.screen.x},${position.screen.y}`).join(" ");
   const markerScale = config.markerScale ?? 1;
+  const trackerNote = localTrackerNote(localTracker);
 
   const renderObjectiveItem = (entry: ObjectiveEntry, showQuestMeta: boolean) => {
     const { quest, objective } = entry;
@@ -1286,6 +1475,13 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
           <span aria-live="polite" className="map-zoom-value" data-testid="zoom-value">
             {Math.round(view.scale * 100)}%
           </span>
+          <MapMiniMap
+            config={config}
+            orderedFloors={orderedFloors}
+            player={latestPlayerPosition}
+            playerMarkerSize={mapSettings.playerMarkerSize}
+            selectedFloor={selectedFloor}
+          />
           <button aria-label="지도 보기 초기화" onClick={resetView} title="지도 보기 초기화" type="button">
             <RotateCcw aria-hidden="true" size={17} /> <span>초기화</span>
           </button>
@@ -1312,6 +1508,23 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
                 <h2>스크린샷 좌표</h2>
               </div>
               <Crosshair aria-hidden="true" size={19} />
+            </div>
+
+            <div
+              className="map-tracker-status"
+              data-state={localTracker.state.toLowerCase()}
+              role="status"
+            >
+              <span aria-hidden="true" className="map-tracker-status-dot" />
+              <div>
+                <strong>{localTrackerStatusLabel(localTracker)}</strong>
+                {localTracker.state === "WATCHING" ? (
+                  <span className="map-tracker-path" title={localTracker.folderPath}>
+                    {localTracker.folderPath}
+                  </span>
+                ) : null}
+                {localTracker.state === "ERROR" ? <span>{localTracker.message}</span> : null}
+              </div>
             </div>
 
             <label className="map-file-button button" htmlFor="map-screenshot-file">
@@ -1607,10 +1820,8 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
           </section>
 
           <section className="map-side-section map-browser-note">
-            <strong>브라우저 동작 안내</strong>
-            <p>
-              브라우저는 게임 로그나 스크린샷 폴더를 백그라운드에서 감시할 수 없습니다. 전역 단축키·투명 오버레이도 지원하지 않으며, 이 화면이 열린 동안 선택한 파일의 이름만 처리합니다.
-            </p>
+            <strong>{trackerNote.title}</strong>
+            <p>{trackerNote.description}</p>
           </section>
         </aside>
 

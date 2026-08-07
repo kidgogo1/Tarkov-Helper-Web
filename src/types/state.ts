@@ -59,6 +59,12 @@ export interface MapDisplaySettings {
   playerMarkerSize: number;
   extractNameSize: number;
   customMarkerOpacity: number;
+  miniMapViewMode: "fixed" | "playerTracking";
+  miniMapZoom: number;
+  miniMapOpacity: number;
+  miniMapPlayerMarkerScale: number;
+  miniMapOffsetX: number;
+  miniMapOffsetY: number;
 }
 
 export interface SharedSettings {

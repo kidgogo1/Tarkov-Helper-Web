@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   APP_STATE_STORAGE_KEY,
@@ -238,9 +238,21 @@ function settingsState() {
   return JSON.parse(screen.getByTestId("settings-state").textContent ?? "{}");
 }
 
+function trackerResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 describe("MapPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("offers all 12 packaged maps, renders their SVG, and consumes a quest focus", () => {
@@ -406,6 +418,348 @@ describe("MapPage", () => {
     expect(screen.getByText(/브라우저는 게임 로그나 스크린샷 폴더를 백그라운드에서 감시할 수 없습니다/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "플레이어 경로 지우기" }));
     expect(screen.queryByRole("button", { name: /플레이어 위치/ })).not.toBeInTheDocument();
+  });
+
+  it("automatically applies new screenshot events through the manual coordinate pipeline", async () => {
+    let eventRequestCount = 0;
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: {
+            state: "WATCHING",
+            folderPath: "C:\\Users\\Tester\\Documents\\Escape from Tarkov\\Screenshots",
+          },
+          latestCursor: 3,
+        });
+      }
+
+      eventRequestCount += 1;
+      if (eventRequestCount === 1) {
+        const event = {
+          type: "SCREENSHOT_CREATED",
+          sequence: 4,
+          fileName: "2026-08-07[10-20]_100, 7, 200_0, 0.7071068, 0, 0.7071068_16.74.png",
+          detectedAt: "2026-08-07T01:20:00.000Z",
+        };
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [event, event],
+          pagination: { afterCursor: 2, nextCursor: 4, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 4, nextCursor: 4, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByText("자동 위치 추적 중")).toBeInTheDocument();
+    expect(screen.getByText("C:\\Users\\Tester\\Documents\\Escape from Tarkov\\Screenshots"))
+      .toBeInTheDocument();
+    expect(screen.getByText(/새 EFT 스크린샷 파일을 자동 감지합니다/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", {
+        name: /플레이어 위치 X 100.*Y 7.*Z 200.*방향 270/,
+      }, { timeout: 2_000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Level 2" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByTestId("player-trail")).not.toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/local-tracker/events?afterCursor=2&pageSize=100",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("restores the latest screenshot already detected before the map tab mounted", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 9,
+        });
+      }
+      if (url.includes("afterCursor=8")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 9,
+            fileName: "2026-08-07[10-20]_88, 7, 144_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 8, nextCursor: 9, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 9, nextCursor: 9, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(
+      await screen.findByRole("button", { name: /플레이어 위치 X 88.*Z 144/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows folder-not-found and watcher-error states while keeping manual selection", async () => {
+    const notFound = vi.fn<typeof fetch>().mockResolvedValue(trackerResponse({
+      protocolVersion: 1,
+      screenshotWatcher: { state: "NOT_FOUND" },
+      latestCursor: 0,
+    }));
+    vi.stubGlobal("fetch", notFound);
+    const first = renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByText("스크린샷 폴더를 찾지 못했습니다")).toBeInTheDocument();
+    expect(screen.getByLabelText("스크린샷 파일 선택")).toBeInTheDocument();
+    first.unmount();
+
+    const failed = vi.fn<typeof fetch>().mockResolvedValue(trackerResponse({
+      protocolVersion: 1,
+      screenshotWatcher: { state: "ERROR", message: "스크린샷 폴더 접근이 거부되었습니다." },
+      latestCursor: 0,
+    }));
+    vi.stubGlobal("fetch", failed);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByText("자동 위치 추적 오류")).toBeInTheDocument();
+    expect(screen.getByText("스크린샷 폴더 접근이 거부되었습니다.")).toBeInTheDocument();
+    expect(screen.getByLabelText("스크린샷 파일 선택")).toBeInTheDocument();
+  });
+
+  it("falls back to browser-only instructions for an unavailable bridge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(trackerResponse({ error: "Not found" }, 404)),
+    );
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByText("브라우저 수동 모드")).toBeInTheDocument();
+    expect(screen.getByText(/브라우저는 게임 로그나 스크린샷 폴더를 백그라운드에서 감시할 수 없습니다/))
+      .toBeInTheDocument();
+  });
+
+  it("resets an expired cursor without dropping the newest retained position and aborts on unmount", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const requestedUrls: string[] = [];
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      capturedSignal = init?.signal ?? undefined;
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 0,
+        });
+      }
+      if (url.includes("afterCursor=0")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 2,
+            fileName: "2026-08-07[10-20]_99, 7, 99_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: {
+            afterCursor: 0,
+            nextCursor: 8,
+            hasMore: false,
+            isResetRequired: true,
+          },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 8, nextCursor: 8, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    const rendered = renderPage({ focusQuestId: "quest-customs" });
+    expect(await screen.findByText("자동 위치 추적 중")).toBeInTheDocument();
+    await waitFor(
+      () => expect(requestedUrls.some((url) => url.includes("afterCursor=8"))).toBe(true),
+      { timeout: 2_500 },
+    );
+    expect(screen.getByRole("button", { name: /플레이어 위치 X 99/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("player-trail")).not.toBeInTheDocument();
+
+    rendered.unmount();
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("reconnects after a transient event request failure and restores the latest position", async () => {
+    let statusCalls = 0;
+    let eventCalls = 0;
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        statusCalls += 1;
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: statusCalls === 1 ? 0 : 5,
+        });
+      }
+      eventCalls += 1;
+      if (eventCalls === 1) throw new TypeError("server restarted");
+      if (url.includes("afterCursor=4")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 5,
+            fileName: "2026-08-07[10-20]_77, 7, 133_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 4, nextCursor: 5, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 5, nextCursor: 5, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: /플레이어 위치 X 77.*Z 133/ },
+        { timeout: 5_000 },
+      ),
+    ).toBeInTheDocument();
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("refreshes watcher status within five seconds and resumes from the existing cursor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
+
+    let statusCalls = 0;
+    const statusCallTimes: number[] = [];
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        statusCalls += 1;
+        statusCallTimes.push(Date.now());
+        if (statusCalls === 1) {
+          return trackerResponse({
+            protocolVersion: 1,
+            screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots-A" },
+            latestCursor: 0,
+          });
+        }
+        if (statusCalls === 2) {
+          return trackerResponse({
+            protocolVersion: 1,
+            screenshotWatcher: { state: "NOT_FOUND" },
+            latestCursor: 1,
+          });
+        }
+        if (statusCalls === 3) {
+          return trackerResponse({
+            protocolVersion: 1,
+            screenshotWatcher: { state: "ERROR", message: "watcher failed" },
+            latestCursor: 1,
+          });
+        }
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots-B" },
+          latestCursor: 1,
+        });
+      }
+
+      const afterCursor = Number(new URL(url, "http://localhost").searchParams.get("afterCursor"));
+      if (afterCursor === 0) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 1,
+            fileName: "2026-08-08[09-00]_10, 1, 10_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-08T00:00:01.000Z",
+          }],
+          pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+        });
+      }
+      if (afterCursor === 1 && statusCalls >= 4) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 2,
+            fileName: "2026-08-08[09-01]_20, 1, 20_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-08T00:00:02.000Z",
+          }],
+          pagination: { afterCursor: 1, nextCursor: 2, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor, nextCursor: afterCursor, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    const rendered = renderPage({ focusQuestId: "quest-customs" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+    expect(screen.getByRole("button", { name: /X 10.*Z 10/ }))
+      .toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_300);
+    });
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
+    expect(statusCallTimes[1] - statusCallTimes[0]).toBeLessThanOrEqual(5_000);
+    expect(document.querySelector(".map-tracker-status"))
+      .toHaveAttribute("data-state", "not_found");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+    expect(document.querySelector(".map-tracker-status"))
+      .toHaveAttribute("data-state", "error");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_400);
+    });
+    expect(screen.getByText("C:\\Screenshots-B")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+    expect(screen.getByRole("button", { name: /X 20.*Z 20/ }))
+      .toBeInTheDocument();
+    const trailPoints = screen.getByTestId("player-trail")
+      .querySelector("polyline")
+      ?.getAttribute("points")
+      ?.split(" ") ?? [];
+    expect(trailPoints).toHaveLength(2);
+
+    rendered.unmount();
   });
 
   it("keeps only the most recent 50 player trail positions", () => {

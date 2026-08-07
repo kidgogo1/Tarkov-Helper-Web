@@ -90,6 +90,12 @@ function createDefaultMapSettings(): MapDisplaySettings {
     playerMarkerSize: 18,
     extractNameSize: 16,
     customMarkerOpacity: 1,
+    miniMapViewMode: "playerTracking",
+    miniMapZoom: 1,
+    miniMapOpacity: 0.8,
+    miniMapPlayerMarkerScale: 1,
+    miniMapOffsetX: 0,
+    miniMapOffsetY: 0,
   };
 }
 
@@ -164,6 +170,25 @@ function normalizeMapSettings(
     customMarkerOpacity: Number.isFinite(next.customMarkerOpacity)
       ? clamp(next.customMarkerOpacity, 0, 1)
       : current.customMarkerOpacity,
+    miniMapViewMode:
+      next.miniMapViewMode === "fixed" || next.miniMapViewMode === "playerTracking"
+        ? next.miniMapViewMode
+        : current.miniMapViewMode,
+    miniMapZoom: Number.isFinite(next.miniMapZoom)
+      ? clamp(next.miniMapZoom, 0.01, 4)
+      : current.miniMapZoom,
+    miniMapOpacity: Number.isFinite(next.miniMapOpacity)
+      ? clamp(next.miniMapOpacity, 0.1, 1)
+      : current.miniMapOpacity,
+    miniMapPlayerMarkerScale: Number.isFinite(next.miniMapPlayerMarkerScale)
+      ? clamp(next.miniMapPlayerMarkerScale, 0.5, 3)
+      : current.miniMapPlayerMarkerScale,
+    miniMapOffsetX: Number.isFinite(next.miniMapOffsetX)
+      ? clamp(next.miniMapOffsetX, -10_000, 10_000)
+      : current.miniMapOffsetX,
+    miniMapOffsetY: Number.isFinite(next.miniMapOffsetY)
+      ? clamp(next.miniMapOffsetY, -10_000, 10_000)
+      : current.miniMapOffsetY,
   };
 }
 
@@ -332,6 +357,11 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "playerMarkerSize",
     "extractNameSize",
     "customMarkerOpacity",
+    "miniMapZoom",
+    "miniMapOpacity",
+    "miniMapPlayerMarkerScale",
+    "miniMapOffsetX",
+    "miniMapOffsetY",
   ] as const) {
     if (typeof rawMap[key] === "number") mapPatch[key] = rawMap[key];
   }
@@ -342,6 +372,12 @@ function sanitizeSettings(value: unknown): SharedSettings {
     rawMap.questMarkerStyle === "circleWithName"
   ) {
     mapPatch.questMarkerStyle = rawMap.questMarkerStyle;
+  }
+  if (
+    rawMap.miniMapViewMode === "fixed" ||
+    rawMap.miniMapViewMode === "playerTracking"
+  ) {
+    mapPatch.miniMapViewMode = rawMap.miniMapViewMode;
   }
 
   return {

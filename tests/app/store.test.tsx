@@ -43,6 +43,14 @@ describe("AppStoreProvider", () => {
     expect(state.profiles.pve).not.toBe(state.profiles.pvp);
     expect(state.settings.map.showQuestMarkers).toBe(true);
     expect(state.settings.map.hiddenMarkerTypes).toEqual([]);
+    expect(state.settings.map).toMatchObject({
+      miniMapViewMode: "playerTracking",
+      miniMapZoom: 1,
+      miniMapOpacity: 0.8,
+      miniMapPlayerMarkerScale: 1,
+      miniMapOffsetX: 0,
+      miniMapOffsetY: 0,
+    });
   });
 
   it("clamps profile fields and isolates every mutation to the active profile", () => {
@@ -309,6 +317,11 @@ describe("AppStoreProvider", () => {
         questNameSize: 4,
         extractNameSize: 90,
         customMarkerOpacity: -2,
+        miniMapZoom: 99,
+        miniMapOpacity: -2,
+        miniMapPlayerMarkerScale: 0.1,
+        miniMapOffsetX: 50_000,
+        miniMapOffsetY: -50_000,
       });
     });
 
@@ -320,7 +333,47 @@ describe("AppStoreProvider", () => {
         questNameSize: 12,
         extractNameSize: 32,
         customMarkerOpacity: 0,
+        miniMapZoom: 4,
+        miniMapOpacity: 0.1,
+        miniMapPlayerMarkerScale: 0.5,
+        miniMapOffsetX: 10_000,
+        miniMapOffsetY: -10_000,
       },
+    });
+  });
+
+  it("migrates partial v1 map settings and sanitizes persisted minimap values", () => {
+    const defaults = createDefaultState();
+    window.localStorage.setItem(
+      APP_STATE_STORAGE_KEY,
+      JSON.stringify({
+        ...defaults,
+        settings: {
+          ...defaults.settings,
+          map: {
+            lastMapKey: "Customs",
+            miniMapViewMode: "invalid",
+            miniMapZoom: 0,
+            miniMapOpacity: 7,
+            miniMapPlayerMarkerScale: 9,
+            miniMapOffsetX: 20_000,
+            miniMapOffsetY: -20_000,
+          },
+        },
+      }),
+    );
+
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    expect(result.current.settings.map).toMatchObject({
+      lastMapKey: "Customs",
+      miniMapViewMode: "playerTracking",
+      miniMapZoom: 0.01,
+      miniMapOpacity: 1,
+      miniMapPlayerMarkerScale: 3,
+      miniMapOffsetX: 10_000,
+      miniMapOffsetY: -10_000,
+      showQuestMarkers: true,
     });
   });
 
