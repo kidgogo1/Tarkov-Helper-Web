@@ -47,6 +47,7 @@ $nativeOverlayMinimumSize = 240
 $nativeOverlayMaximumSize = 1000
 $nativeOverlayClaims = @{}
 $nativeOverlayRecord = $null
+$nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
 
 function Get-ScreenshotCandidates {
     $paths = New-Object 'Collections.Generic.List[string]'
@@ -704,7 +705,10 @@ function Initialize-NativeOverlayBridge {
     if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
         throw [PlatformNotSupportedException]::new("Native overlays are available only on Windows.")
     }
-    if ($null -ne ("TarkovHelper.NativeOverlayBridge" -as [type])) { return }
+    if ($null -ne ("TarkovHelper.NativeOverlayBridge" -as [type])) {
+        [TarkovHelper.NativeOverlayBridge]::EnablePerMonitorDpiAwareness()
+        return
+    }
 
     Add-Type -TypeDefinition @'
 using System;
@@ -728,8 +732,31 @@ namespace TarkovHelper {
         public bool IsVisible { get; set; }
     }
 
+    public sealed class NativeContentInfo {
+        public int Left { get; set; }
+        public int Top { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+    }
+
+    public sealed class NativePointInfo {
+        public int X { get; set; }
+        public int Y { get; set; }
+    }
+
+    public sealed class NativeHotKeyEvent {
+        public long Cursor { get; set; }
+        public string Action { get; set; }
+    }
+
+    public sealed class NativeHotKeyEventsPayload {
+        public long LatestCursor { get; set; }
+        public NativeHotKeyEvent[] Events { get; set; }
+    }
+
     public static class NativeOverlayBridge {
         private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+        private delegate bool EnumChildWindowsProc(IntPtr window, IntPtr parameter);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct Rect {
@@ -739,8 +766,16 @@ namespace TarkovHelper {
             public int Bottom;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Point {
+            public int X;
+            public int Y;
+        }
+
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr parent, EnumChildWindowsProc callback, IntPtr parameter);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximumCount);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -773,6 +808,48 @@ namespace TarkovHelper {
             int height,
             uint flags
         );
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetWindowRgn(IntPtr window, IntPtr region);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern uint GetRegionData(IntPtr region, uint length, byte[] data);
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern int GetRgnBox(IntPtr region, out Rect rect);
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern IntPtr ExtCreateRegion(IntPtr transform, uint length, byte[] data);
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr value);
+        [DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr window);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool PhysicalToLogicalPointForPerMonitorDPI(IntPtr window, ref Point point);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool RegisterHotKey(IntPtr window, int identifier, uint modifiers, uint virtualKey);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnregisterHotKey(IntPtr window, int identifier);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetMessage(out NativeMessage message, IntPtr window, uint minimum, uint maximum);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool PostThreadMessage(uint threadId, uint message, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeMessage {
+            public IntPtr Window;
+            public uint Message;
+            public IntPtr WParam;
+            public IntPtr LParam;
+            public uint Time;
+            public int X;
+            public int Y;
+            public uint Private;
+        }
 
         private const int StyleIndex = -16;
         private const int ExStyleIndex = -20;
@@ -780,10 +857,213 @@ namespace TarkovHelper {
         private const uint ShowWindow = 0x0040;
         private const uint NoActivate = 0x0010;
         private const long WindowEdge = 0x00000100L;
+        private const uint HotKeyMessage = 0x0312;
+        private const uint QuitMessage = 0x0012;
+        private const uint AltModifier = 0x0001;
+        private const uint ShiftModifier = 0x0004;
+        private const uint NoRepeatModifier = 0x4000;
+        private const int ZoomInOemIdentifier = 0x54A1;
+        private const int ZoomInNumpadIdentifier = 0x54A2;
+        private const int ZoomOutOemIdentifier = 0x54A3;
+        private const int ZoomOutNumpadIdentifier = 0x54A4;
+        private const int HotKeyEventLimit = 100;
+        private static readonly object HotKeySync = new object();
+        private static readonly List<NativeHotKeyEvent> HotKeyEvents = new List<NativeHotKeyEvent>();
+        private static readonly System.Threading.ManualResetEvent HotKeyReady = new System.Threading.ManualResetEvent(false);
+        private static System.Threading.Thread hotKeyThread;
+        private static volatile uint hotKeyThreadId;
+        private static volatile int hotKeyRegistrationCount;
+        private static long hotKeyCursor;
 
         private static long ReadWindowLong(IntPtr window, int index) {
             if (IntPtr.Size == 8) return GetWindowLongPtr64(window, index).ToInt64();
             return unchecked((uint)GetWindowLong32(window, index));
+        }
+
+        public static void EnablePerMonitorDpiAwareness() {
+            if (SetThreadDpiAwarenessContext(new IntPtr(-4)) == IntPtr.Zero) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+
+        private static uint ReadDpi(IntPtr window) {
+            uint dpi = GetDpiForWindow(window);
+            return dpi == 0 ? 96u : dpi;
+        }
+
+        public static int DipsToPixels(long handle, int value) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            return checked((int)Math.Round(value * ReadDpi(window) / 96.0, MidpointRounding.AwayFromZero));
+        }
+
+        public static int PixelsToDips(long handle, int value) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            return checked((int)Math.Round(value * 96.0 / ReadDpi(window), MidpointRounding.AwayFromZero));
+        }
+
+        public static NativePointInfo ScreenPointToDips(long handle, int x, int y) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            var point = new Point { X = x, Y = y };
+            if (!PhysicalToLogicalPointForPerMonitorDPI(window, ref point)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            return new NativePointInfo { X = point.X, Y = point.Y };
+        }
+
+        private static byte[] CaptureRegionData(IntPtr window) {
+            IntPtr region = CreateRectRgn(0, 0, 0, 0);
+            if (region == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                if (GetWindowRgn(window, region) == 0) return null;
+                uint length = GetRegionData(region, 0, null);
+                if (length == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+                var data = new byte[length];
+                if (GetRegionData(region, length, data) != length) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                return data;
+            } finally {
+                DeleteObject(region);
+            }
+        }
+
+        public static byte[] CaptureRegion(long handle) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            return CaptureRegionData(window);
+        }
+
+        private static IntPtr CreateRegion(byte[] data) {
+            if (data == null) return IntPtr.Zero;
+            IntPtr region = ExtCreateRegion(IntPtr.Zero, checked((uint)data.Length), data);
+            if (region == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            return region;
+        }
+
+        private static void AssignRegion(IntPtr window, byte[] data) {
+            IntPtr region = CreateRegion(data);
+            try {
+                if (SetWindowRgn(window, region, true) == 0) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                // SetWindowRgn owns a non-null region after a successful call.
+                region = IntPtr.Zero;
+            } finally {
+                if (region != IntPtr.Zero) DeleteObject(region);
+            }
+        }
+
+        private static void AssignRectRegion(IntPtr window, int left, int top, int width, int height) {
+            if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException("width");
+            IntPtr region = CreateRectRgn(left, top, checked(left + width), checked(top + height));
+            if (region == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                if (SetWindowRgn(window, region, true) == 0) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                region = IntPtr.Zero;
+            } finally {
+                if (region != IntPtr.Zero) DeleteObject(region);
+            }
+        }
+
+        private static bool RegionsEqual(byte[] left, byte[] right) {
+            if (left == null || right == null) return left == null && right == null;
+            if (left.Length != right.Length) return false;
+            for (int index = 0; index < left.Length; index++) {
+                if (left[index] != right[index]) return false;
+            }
+            return true;
+        }
+
+        private static bool MatchesRectRegion(IntPtr window, int left, int top, int width, int height) {
+            IntPtr region = CreateRectRgn(0, 0, 0, 0);
+            if (region == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                if (GetWindowRgn(window, region) != 2) return false;
+                Rect box;
+                if (GetRgnBox(region, out box) != 2) return false;
+                return box.Left == left && box.Top == top &&
+                    box.Right - box.Left == width && box.Bottom - box.Top == height;
+            } finally {
+                DeleteObject(region);
+            }
+        }
+
+        private static NativeContentInfo FindContent(IntPtr parent) {
+            uint parentProcessId;
+            GetWindowThreadProcessId(parent, out parentProcessId);
+            Rect parentRect;
+            if (!GetWindowRect(parent, out parentRect)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            var candidates = new List<Rect>();
+            EnumChildWindows(parent, delegate(IntPtr child, IntPtr parameter) {
+                if (!IsWindowVisible(child)) return true;
+                var className = new StringBuilder(256);
+                GetClassName(child, className, className.Capacity);
+                if (!String.Equals(className.ToString(), "Chrome_RenderWidgetHostHWND", StringComparison.Ordinal)) {
+                    return true;
+                }
+                uint childProcessId;
+                GetWindowThreadProcessId(child, out childProcessId);
+                Rect rect;
+                if (childProcessId != parentProcessId || !GetWindowRect(child, out rect)) return true;
+                if (
+                    rect.Left < parentRect.Left || rect.Top < parentRect.Top ||
+                    rect.Right > parentRect.Right || rect.Bottom > parentRect.Bottom ||
+                    rect.Right <= rect.Left || rect.Bottom <= rect.Top
+                ) return true;
+                candidates.Add(rect);
+                return true;
+            }, IntPtr.Zero);
+            if (candidates.Count == 0) return null;
+            candidates.Sort(delegate(Rect left, Rect right) {
+                long leftArea = (long)(left.Right - left.Left) * (left.Bottom - left.Top);
+                long rightArea = (long)(right.Right - right.Left) * (right.Bottom - right.Top);
+                return rightArea.CompareTo(leftArea);
+            });
+            long maximumArea = (long)(candidates[0].Right - candidates[0].Left) *
+                (candidates[0].Bottom - candidates[0].Top);
+            if (candidates.Count > 1) {
+                long secondArea = (long)(candidates[1].Right - candidates[1].Left) *
+                    (candidates[1].Bottom - candidates[1].Top);
+                if (maximumArea == secondArea) return null;
+            }
+            Rect selected = candidates[0];
+            return new NativeContentInfo {
+                Left = selected.Left,
+                Top = selected.Top,
+                Width = selected.Right - selected.Left,
+                Height = selected.Bottom - selected.Top
+            };
+        }
+
+        public static NativeContentInfo MeasureContent(long handle) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            NativeContentInfo first = FindContent(window);
+            if (first == null) return null;
+            System.Threading.Thread.Sleep(30);
+            NativeContentInfo second = FindContent(window);
+            if (second == null) return null;
+            if (
+                first.Left != second.Left || first.Top != second.Top ||
+                first.Width != second.Width || first.Height != second.Height
+            ) return null;
+            return second;
+        }
+
+        private static NativeContentInfo WaitForContent(long handle) {
+            for (int attempt = 0; attempt < 5; attempt++) {
+                NativeContentInfo content = MeasureContent(handle);
+                if (content != null) return content;
+                System.Threading.Thread.Sleep(30);
+            }
+            return null;
         }
 
         private static void WriteWindowLong(IntPtr window, int index, long value) {
@@ -798,6 +1078,116 @@ namespace TarkovHelper {
             int previous32 = SetWindowLong32(window, index, unchecked((int)value));
             if (previous32 == 0 && Marshal.GetLastWin32Error() != 0) {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+
+        private static void AddHotKeyEvent(string action) {
+            lock (HotKeySync) {
+                hotKeyCursor++;
+                HotKeyEvents.Add(new NativeHotKeyEvent { Cursor = hotKeyCursor, Action = action });
+                while (HotKeyEvents.Count > HotKeyEventLimit) HotKeyEvents.RemoveAt(0);
+            }
+        }
+
+        private static void HotKeyLoop() {
+            var registered = new List<int>();
+            hotKeyThreadId = GetCurrentThreadId();
+            try {
+                if (RegisterHotKey(IntPtr.Zero, ZoomInOemIdentifier, AltModifier | ShiftModifier | NoRepeatModifier, 0xBB)) registered.Add(ZoomInOemIdentifier);
+                if (RegisterHotKey(IntPtr.Zero, ZoomInNumpadIdentifier, AltModifier | NoRepeatModifier, 0x6B)) registered.Add(ZoomInNumpadIdentifier);
+                if (RegisterHotKey(IntPtr.Zero, ZoomOutOemIdentifier, AltModifier | NoRepeatModifier, 0xBD)) registered.Add(ZoomOutOemIdentifier);
+                if (RegisterHotKey(IntPtr.Zero, ZoomOutNumpadIdentifier, AltModifier | NoRepeatModifier, 0x6D)) registered.Add(ZoomOutNumpadIdentifier);
+                if (registered.Count != 4) {
+                    foreach (int identifier in registered) UnregisterHotKey(IntPtr.Zero, identifier);
+                    registered.Clear();
+                    hotKeyRegistrationCount = 0;
+                    HotKeyReady.Set();
+                    return;
+                }
+                hotKeyRegistrationCount = registered.Count;
+                HotKeyReady.Set();
+                NativeMessage message;
+                while (true) {
+                    int result = GetMessage(out message, IntPtr.Zero, 0, 0);
+                    if (result <= 0) break;
+                    if (message.Message != HotKeyMessage) continue;
+                    int identifier = message.WParam.ToInt32();
+                    if (identifier == ZoomInOemIdentifier || identifier == ZoomInNumpadIdentifier) {
+                        AddHotKeyEvent("ZOOM_IN");
+                    } else if (identifier == ZoomOutOemIdentifier || identifier == ZoomOutNumpadIdentifier) {
+                        AddHotKeyEvent("ZOOM_OUT");
+                    }
+                }
+            } finally {
+                foreach (int identifier in registered) UnregisterHotKey(IntPtr.Zero, identifier);
+                hotKeyRegistrationCount = 0;
+                hotKeyThreadId = 0;
+                HotKeyReady.Set();
+            }
+        }
+
+        public static int StartHotKeys() {
+            lock (HotKeySync) {
+                if (hotKeyThread != null && hotKeyThread.IsAlive) return hotKeyRegistrationCount;
+                HotKeyEvents.Clear();
+                hotKeyCursor = 0;
+                HotKeyReady.Reset();
+                hotKeyThread = new System.Threading.Thread(HotKeyLoop);
+                hotKeyThread.IsBackground = true;
+                hotKeyThread.Name = "TarkovHelperMiniMapHotKeys";
+                hotKeyThread.Start();
+            }
+            if (!HotKeyReady.WaitOne(3000)) {
+                StopHotKeys();
+                return 0;
+            }
+            return hotKeyRegistrationCount;
+        }
+
+        public static void StopHotKeys() {
+            System.Threading.Thread thread;
+            uint threadId;
+            lock (HotKeySync) {
+                thread = hotKeyThread;
+                threadId = hotKeyThreadId;
+            }
+            if (thread != null && thread.IsAlive && threadId == 0) {
+                HotKeyReady.WaitOne(1000);
+                threadId = hotKeyThreadId;
+                if (thread.IsAlive && threadId == 0) {
+                    throw new InvalidOperationException("The native hotkey thread did not initialize.");
+                }
+            }
+            if (thread != null && thread.IsAlive && threadId != 0) {
+                if (!PostThreadMessage(threadId, QuitMessage, IntPtr.Zero, IntPtr.Zero)) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                if (!thread.Join(3000)) {
+                    throw new InvalidOperationException("The native hotkey thread did not stop.");
+                }
+            }
+            lock (HotKeySync) {
+                hotKeyThread = null;
+                hotKeyThreadId = 0;
+                hotKeyRegistrationCount = 0;
+                HotKeyEvents.Clear();
+                hotKeyCursor = 0;
+            }
+        }
+
+        public static NativeHotKeyEventsPayload GetHotKeyEvents(long after) {
+            lock (HotKeySync) {
+                if (after < 0 || after > hotKeyCursor) throw new ArgumentOutOfRangeException("after");
+                var events = new List<NativeHotKeyEvent>();
+                foreach (NativeHotKeyEvent item in HotKeyEvents) {
+                    if (item.Cursor > after) {
+                        events.Add(new NativeHotKeyEvent { Cursor = item.Cursor, Action = item.Action });
+                    }
+                }
+                return new NativeHotKeyEventsPayload {
+                    LatestCursor = hotKeyCursor,
+                    Events = events.ToArray()
+                };
             }
         }
 
@@ -861,8 +1251,8 @@ namespace TarkovHelper {
             return IsWindow(new IntPtr(handle));
         }
 
-        public static void Apply(
-            long handle,
+        private static void SetPosition(
+            IntPtr window,
             long style,
             long exStyle,
             int left,
@@ -870,6 +1260,51 @@ namespace TarkovHelper {
             int width,
             int height,
             bool topmost
+        ) {
+            WriteWindowLong(window, StyleIndex, style);
+            WriteWindowLong(window, ExStyleIndex, exStyle);
+            var insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
+            if (!SetWindowPos(window, insertAfter, left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            if (!MatchesWindowState(window, style, exStyle, left, top, width, height)) {
+                throw new InvalidOperationException("The overlay window rejected its requested state.");
+            }
+        }
+
+        private static void RollBack(
+            IntPtr window,
+            long style,
+            long exStyle,
+            Rect rect,
+            byte[] regionData
+        ) {
+            SetPosition(
+                window,
+                style,
+                exStyle,
+                rect.Left,
+                rect.Top,
+                rect.Right - rect.Left,
+                rect.Bottom - rect.Top,
+                (exStyle & 0x00000008L) != 0
+            );
+            AssignRegion(window, regionData);
+            if (!RegionsEqual(CaptureRegionData(window), regionData)) {
+                throw new InvalidOperationException("The overlay window rejected rollback of its previous region.");
+            }
+        }
+
+        public static void ApplyOriginal(
+            long handle,
+            long style,
+            long exStyle,
+            int left,
+            int top,
+            int width,
+            int height,
+            bool topmost,
+            byte[] regionData
         ) {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
@@ -879,46 +1314,84 @@ namespace TarkovHelper {
             if (!GetWindowRect(window, out previousRect)) {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
+            byte[] previousRegionData = CaptureRegionData(window);
             try {
-                WriteWindowLong(window, StyleIndex, style);
-                WriteWindowLong(window, ExStyleIndex, exStyle);
-                var insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
-                if (!SetWindowPos(window, insertAfter, left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
-                    throw new Win32Exception(Marshal.GetLastWin32Error());
-                }
-                if (!MatchesWindowState(window, style, exStyle, left, top, width, height)) {
-                    throw new InvalidOperationException("The overlay window rejected its requested state.");
+                SetPosition(window, style, exStyle, left, top, width, height, topmost);
+                AssignRegion(window, regionData);
+                if (!RegionsEqual(CaptureRegionData(window), regionData)) {
+                    throw new InvalidOperationException("The overlay window rejected its requested region.");
                 }
             } catch (Exception applyError) {
                 if (!IsWindow(window)) throw;
                 try {
-                    WriteWindowLong(window, StyleIndex, previousStyle);
-                    WriteWindowLong(window, ExStyleIndex, previousExStyle);
-                    var previousInsertAfter = (previousExStyle & 0x00000008L) != 0
-                        ? new IntPtr(-1)
-                        : new IntPtr(-2);
-                    if (!SetWindowPos(
-                        window,
-                        previousInsertAfter,
-                        previousRect.Left,
-                        previousRect.Top,
-                        previousRect.Right - previousRect.Left,
-                        previousRect.Bottom - previousRect.Top,
-                        FrameChanged | ShowWindow | NoActivate
-                    )) {
-                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    RollBack(window, previousStyle, previousExStyle, previousRect, previousRegionData);
+                } catch (Exception rollbackError) {
+                    throw new AggregateException(
+                        "The native overlay update and rollback both failed.",
+                        applyError,
+                        rollbackError
+                    );
+                }
+                throw;
+            }
+        }
+
+        public static void ApplyCropped(
+            long handle,
+            long style,
+            long exStyle,
+            int visibleLeft,
+            int visibleTop,
+            int visibleWidth,
+            int visibleHeight
+        ) {
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            long previousStyle = ReadWindowLong(window, StyleIndex);
+            long previousExStyle = ReadWindowLong(window, ExStyleIndex);
+            Rect previousRect;
+            if (!GetWindowRect(window, out previousRect)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            byte[] previousRegionData = CaptureRegionData(window);
+            try {
+                NativeContentInfo content = WaitForContent(handle);
+                if (content == null) throw new InvalidOperationException("A unique stable browser content surface was not found.");
+                for (int attempt = 0; attempt < 5; attempt++) {
+                    Rect outer;
+                    if (!GetWindowRect(window, out outer)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    int outerWidth = outer.Right - outer.Left;
+                    int outerHeight = outer.Bottom - outer.Top;
+                    int nextLeft = checked(outer.Left + visibleLeft - content.Left);
+                    int nextTop = checked(outer.Top + visibleTop - content.Top);
+                    int nextWidth = checked(outerWidth + visibleWidth - content.Width);
+                    int nextHeight = checked(outerHeight + visibleHeight - content.Height);
+                    if (nextWidth <= 0 || nextHeight <= 0) {
+                        throw new InvalidOperationException("The browser content geometry is invalid.");
                     }
-                    if (!MatchesWindowState(
-                        window,
-                        previousStyle,
-                        previousExStyle,
-                        previousRect.Left,
-                        previousRect.Top,
-                        previousRect.Right - previousRect.Left,
-                        previousRect.Bottom - previousRect.Top
-                    )) {
-                        throw new InvalidOperationException("The overlay window rejected rollback to its previous state.");
+                    SetPosition(window, style, exStyle, nextLeft, nextTop, nextWidth, nextHeight, true);
+                    content = WaitForContent(handle);
+                    if (content == null) throw new InvalidOperationException("The browser content surface became ambiguous.");
+                    if (
+                        content.Left == visibleLeft && content.Top == visibleTop &&
+                        content.Width == visibleWidth && content.Height == visibleHeight
+                    ) break;
+                    if (attempt == 4) {
+                        throw new InvalidOperationException("The browser content surface did not converge to the requested bounds.");
                     }
+                }
+                Rect finalOuter;
+                if (!GetWindowRect(window, out finalOuter)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                int regionLeft = checked(visibleLeft - finalOuter.Left);
+                int regionTop = checked(visibleTop - finalOuter.Top);
+                AssignRectRegion(window, regionLeft, regionTop, visibleWidth, visibleHeight);
+                if (!MatchesRectRegion(window, regionLeft, regionTop, visibleWidth, visibleHeight)) {
+                    throw new InvalidOperationException("The overlay window rejected its cropped region.");
+                }
+            } catch (Exception applyError) {
+                if (!IsWindow(window)) throw;
+                try {
+                    RollBack(window, previousStyle, previousExStyle, previousRect, previousRegionData);
                 } catch (Exception rollbackError) {
                     throw new AggregateException(
                         "The native overlay update and rollback both failed.",
@@ -932,6 +1405,7 @@ namespace TarkovHelper {
     }
 }
 '@
+    [TarkovHelper.NativeOverlayBridge]::EnablePerMonitorDpiAwareness()
 }
 
 function Get-NativeBrowserWindows {
@@ -964,6 +1438,95 @@ function Get-NativeBrowserWindows {
         }
     }
     return $windows.ToArray()
+}
+
+function Convert-NativeRectToDips {
+    param(
+        [Parameter(Mandatory = $true)][long]$Handle,
+        [Parameter(Mandatory = $true)][pscustomobject]$Rect
+    )
+
+    $topLeft = [TarkovHelper.NativeOverlayBridge]::ScreenPointToDips(
+        $Handle,
+        [int]$Rect.left,
+        [int]$Rect.top
+    )
+    $bottomRight = [TarkovHelper.NativeOverlayBridge]::ScreenPointToDips(
+        $Handle,
+        [int]($Rect.left + $Rect.width),
+        [int]($Rect.top + $Rect.height)
+    )
+    return [pscustomobject]@{
+        left = [int]$topLeft.X
+        top = [int]$topLeft.Y
+        width = [int]($bottomRight.X - $topLeft.X)
+        height = [int]($bottomRight.Y - $topLeft.Y)
+    }
+}
+
+function Get-NativeOverlayEventsPayload {
+    param([Parameter(Mandatory = $true)][string]$RequestTarget)
+
+    $query = Get-QueryParameters -RequestTarget $RequestTarget
+    foreach ($name in $query.Keys) {
+        if ($name -cne "after") {
+            throw [ArgumentException]::new("Unknown query parameter.")
+        }
+    }
+    $after = [long]0
+    if ($query.ContainsKey("after")) {
+        if ($query["after"] -notmatch "^\d{1,16}$" -or -not [long]::TryParse($query["after"], [ref]$after)) {
+            throw [ArgumentException]::new("after must be a non-negative safe integer.")
+        }
+    }
+    if ($after -gt 9007199254740991) {
+        throw [ArgumentException]::new("after must be a non-negative safe integer.")
+    }
+    Initialize-NativeOverlayBridge
+    if ($null -ne $script:nativeOverlayRecord -and $null -eq (Get-CurrentNativeOverlayWindow)) {
+        if (-not [TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
+            [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+            $script:nativeOverlayRecord = $null
+            $after = [long]0
+        } else {
+            # Do not continue consuming global input when the claimed HWND identity
+            # can no longer be proven, but retain the record for fail-closed restore.
+            [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+            $after = [long]0
+        }
+    }
+    try {
+        $payload = [TarkovHelper.NativeOverlayBridge]::GetHotKeyEvents($after)
+    } catch [ArgumentOutOfRangeException] {
+        throw [ArgumentException]::new("after is ahead of the latest cursor.")
+    }
+    return [pscustomobject]@{
+        protocolVersion = $nativeOverlayProtocolVersion
+        latestCursor = [long]$payload.LatestCursor
+        events = @($payload.Events | ForEach-Object {
+            [pscustomobject]@{
+                cursor = [long]$_.Cursor
+                action = [string]$_.Action
+            }
+        })
+    }
+}
+
+function Update-NativeOverlayBridge {
+    if ($null -eq $script:nativeOverlayRecord) { return }
+    $now = [DateTime]::UtcNow
+    if ($now -lt $script:nativeOverlayNextReconciliationUtc) { return }
+    $script:nativeOverlayNextReconciliationUtc = $now.AddSeconds(1)
+    try {
+        if ($null -ne (Get-CurrentNativeOverlayWindow)) { return }
+        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+        if (-not [TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
+            $script:nativeOverlayRecord = $null
+        }
+    } catch {
+        # A failed reconciliation must not stop the local server. Mutating API
+        # calls will continue to fail closed until identity can be proven again.
+    }
 }
 
 function Remove-ExpiredNativeOverlayClaims {
@@ -1030,6 +1593,7 @@ function Complete-NativeOverlayClaim {
         if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
             return [pscustomobject]@{ errorCode = "OVERLAY_ALREADY_ATTACHED" }
         }
+        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
         $script:nativeOverlayRecord = $null
     }
 
@@ -1050,6 +1614,7 @@ function Complete-NativeOverlayClaim {
 
     $window = $matches[0]
     $overlayId = Get-RandomToken
+    $originalRegionData = [TarkovHelper.NativeOverlayBridge]::CaptureRegion([long]$window.handle)
     $script:nativeOverlayRecord = [pscustomobject]@{
         overlayId = $overlayId
         handle = [long]$window.handle
@@ -1058,28 +1623,38 @@ function Complete-NativeOverlayClaim {
         windowTitle = [string]$window.title
         originalStyle = [long]$window.style
         originalExStyle = [long]$window.exStyle
+        originalRegionData = $originalRegionData
         originalRect = $window.rect
-        lockedRect = $window.rect
+        normalStyle = [long]$window.style
+        normalExStyle = [long]$window.exStyle
+        normalRegionData = $originalRegionData
+        normalRect = $window.rect
+        lockedVisibleRect = $null
+        lockedBoundsDip = $null
+        globalHotkeysAvailable = $false
         mode = "UNLOCKED"
     }
+    $registeredHotKeys = [TarkovHelper.NativeOverlayBridge]::StartHotKeys()
+    $script:nativeOverlayRecord.globalHotkeysAvailable = $registeredHotKeys -eq 4
+    Write-PortableLog "Native overlay hotkey bridge registered $registeredHotKeys of 4 shortcuts."
     return Get-NativeOverlayResponse
 }
 
 function Get-NativeOverlayResponse {
     $record = $script:nativeOverlayRecord
     $current = Get-CurrentNativeOverlayWindow
-    $bounds = if ($null -ne $current) {
-        $current.rect
-    } elseif ($record.mode -eq "UNLOCKED") {
-        $record.originalRect
+    $bounds = if ($record.mode -eq "UNLOCKED") {
+        $physicalBounds = if ($null -ne $current) { $current.rect } else { $record.originalRect }
+        Convert-NativeRectToDips -Handle $record.handle -Rect $physicalBounds
     } else {
-        $record.lockedRect
+        $record.lockedBoundsDip
     }
     return [pscustomobject]@{
         protocolVersion = $nativeOverlayProtocolVersion
         overlayId = $record.overlayId
         state = "ATTACHED"
         mode = $record.mode
+        globalHotkeysAvailable = [bool]$record.globalHotkeysAvailable
         bounds = [pscustomobject]@{
             left = [int]$bounds.left
             top = [int]$bounds.top
@@ -1123,71 +1698,108 @@ function Set-NativeOverlayMode {
         if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
             throw [InvalidOperationException]::new("The overlay window identity could not be verified.")
         }
+        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
         $script:nativeOverlayRecord = $null
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
     }
 
     if ($Mode -ceq "UNLOCKED") {
-        $unlockRect = [pscustomobject]@{
-            left = [int]$current.rect.left
-            top = [int]$current.rect.top
-            width = [int]$current.rect.width
-            height = [int]$current.rect.height
-        }
-        [TarkovHelper.NativeOverlayBridge]::Apply(
+        [TarkovHelper.NativeOverlayBridge]::ApplyOriginal(
             $record.handle,
-            $record.originalStyle,
-            $record.originalExStyle,
-            $unlockRect.left,
-            $unlockRect.top,
-            $unlockRect.width,
-            $unlockRect.height,
-            (($record.originalExStyle -band [long]0x00000008) -ne 0)
+            $record.normalStyle,
+            $record.normalExStyle,
+            $record.normalRect.left,
+            $record.normalRect.top,
+            $record.normalRect.width,
+            $record.normalRect.height,
+            (($record.normalExStyle -band [long]0x00000008) -ne 0),
+            $record.normalRegionData
         )
-        $record.lockedRect = $unlockRect
         $record.mode = "UNLOCKED"
         return Get-NativeOverlayResponse
     }
 
     if ($record.mode -ceq "UNLOCKED") {
-        $nextLockedRect = [pscustomobject]@{
+        $content = [TarkovHelper.NativeOverlayBridge]::MeasureContent($record.handle)
+        if ($null -eq $content) {
+            throw [InvalidOperationException]::new("A unique stable browser content surface was not found.")
+        }
+        $record.normalStyle = [long]$current.style
+        $record.normalExStyle = [long]$current.exStyle
+        $record.normalRegionData = [TarkovHelper.NativeOverlayBridge]::CaptureRegion($record.handle)
+        $record.normalRect = [pscustomobject]@{
             left = [int]$current.rect.left
             top = [int]$current.rect.top
             width = [int]$current.rect.width
             height = [int]$current.rect.height
         }
+        $nextVisibleRect = [pscustomobject]@{
+            left = [int]$current.rect.left
+            top = [int]$current.rect.top
+            width = [int]$content.Width
+            height = [int]$content.Height
+        }
+        $visibleTopLeftDip = [TarkovHelper.NativeOverlayBridge]::ScreenPointToDips(
+            $record.handle,
+            $nextVisibleRect.left,
+            $nextVisibleRect.top
+        )
+        $nextBoundsDip = [pscustomobject]@{
+            left = [int]$visibleTopLeftDip.X
+            top = [int]$visibleTopLeftDip.Y
+            width = [TarkovHelper.NativeOverlayBridge]::PixelsToDips($record.handle, $nextVisibleRect.width)
+            height = [TarkovHelper.NativeOverlayBridge]::PixelsToDips($record.handle, $nextVisibleRect.height)
+        }
     } else {
-        $nextLockedRect = [pscustomobject]@{
-            left = [int]$record.lockedRect.left
-            top = [int]$record.lockedRect.top
-            width = [int]$record.lockedRect.width
-            height = [int]$record.lockedRect.height
+        $nextVisibleRect = [pscustomobject]@{
+            left = [int]$record.lockedVisibleRect.left
+            top = [int]$record.lockedVisibleRect.top
+            width = [int]$record.lockedVisibleRect.width
+            height = [int]$record.lockedVisibleRect.height
+        }
+        $nextBoundsDip = [pscustomobject]@{
+            left = [int]$record.lockedBoundsDip.left
+            top = [int]$record.lockedBoundsDip.top
+            width = [int]$record.lockedBoundsDip.width
+            height = [int]$record.lockedBoundsDip.height
         }
     }
     if ($null -ne $Width -and $null -ne $Height) {
-        $nextLockedRect.width = [int]$Width
-        $nextLockedRect.height = [int]$Height
+        $nextVisibleRect.width = [TarkovHelper.NativeOverlayBridge]::DipsToPixels($record.handle, [int]$Width)
+        $nextVisibleRect.height = [TarkovHelper.NativeOverlayBridge]::DipsToPixels($record.handle, [int]$Height)
+        $nextBoundsDip.width = [int]$Width
+        $nextBoundsDip.height = [int]$Height
     }
 
+    # Chromium enforces its large normal-window minimum while caption/thick-frame
+    # styles are present. Remove only the native frame bits for a locked crop;
+    # the renderer is remeasured after this transition before the HRGN is applied.
     $windowDecorationMask = [long]0x00CF0000
     $pinnedStyle = $record.originalStyle -band (-bnot $windowDecorationMask)
-    $pinnedExStyle = $record.originalExStyle -bor [long]0x00000008 -bor [long]0x08000000
+    $pinnedExStyle = $record.originalExStyle -bor [long]0x00000008
+    if ($record.globalHotkeysAvailable -or $Mode -ceq "CLICK_THROUGH") {
+        $pinnedExStyle = $pinnedExStyle -bor [long]0x08000000
+    } else {
+        # When global registration is unavailable the focused PiP document is
+        # the keyboard fallback, so a normal locked window must remain activatable.
+        $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x08000000)
+    }
     if ($Mode -ceq "CLICK_THROUGH") {
         $pinnedExStyle = $pinnedExStyle -bor [long]0x00080000 -bor [long]0x00000020
     } else {
-        $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00000020)
+        $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00080020)
     }
-    [TarkovHelper.NativeOverlayBridge]::Apply(
+    [TarkovHelper.NativeOverlayBridge]::ApplyCropped(
         $record.handle,
         $pinnedStyle,
         $pinnedExStyle,
-        $nextLockedRect.left,
-        $nextLockedRect.top,
-        $nextLockedRect.width,
-        $nextLockedRect.height,
-        $true
+        $nextVisibleRect.left,
+        $nextVisibleRect.top,
+        $nextVisibleRect.width,
+        $nextVisibleRect.height
     )
-    $record.lockedRect = $nextLockedRect
+    $record.lockedVisibleRect = $nextVisibleRect
+    $record.lockedBoundsDip = $nextBoundsDip
     $record.mode = $Mode
     return Get-NativeOverlayResponse
 }
@@ -1209,7 +1821,7 @@ function Remove-NativeOverlay {
     $record = $script:nativeOverlayRecord
     $current = Get-CurrentNativeOverlayWindow
     if ($null -ne $current) {
-        [TarkovHelper.NativeOverlayBridge]::Apply(
+        [TarkovHelper.NativeOverlayBridge]::ApplyOriginal(
             $record.handle,
             $record.originalStyle,
             $record.originalExStyle,
@@ -1217,13 +1829,16 @@ function Remove-NativeOverlay {
             $record.originalRect.top,
             $record.originalRect.width,
             $record.originalRect.height,
-            (($record.originalExStyle -band [long]0x00000008) -ne 0)
+            (($record.originalExStyle -band [long]0x00000008) -ne 0),
+            $record.originalRegionData
         )
+        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
         $script:nativeOverlayRecord = $null
     } else {
         if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
             throw [InvalidOperationException]::new("The overlay window identity could not be verified.")
         }
+        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
         $script:nativeOverlayRecord = $null
     }
     return $true
@@ -1870,6 +2485,7 @@ try {
     while (-not $shutdownRequested -and ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests)) {
         while (-not $listener.Pending()) {
             Update-ScreenshotWatcher
+            Update-NativeOverlayBridge
             Start-Sleep -Milliseconds 100
         }
         $client = $listener.AcceptTcpClient()
@@ -1904,6 +2520,7 @@ try {
             $originHeaders = @()
             $controlHeaders = @()
             $overlayHeaders = @()
+            $secFetchSiteHeaders = @()
             $contentLengthHeaders = @()
             $contentTypeHeaders = @()
             $transferEncodingHeaders = @()
@@ -1929,6 +2546,9 @@ try {
                 }
                 if ($headerName.Equals("X-Tarkov-Overlay", [StringComparison]::OrdinalIgnoreCase)) {
                     $overlayHeaders += $headerValue
+                }
+                if ($headerName.Equals("Sec-Fetch-Site", [StringComparison]::OrdinalIgnoreCase)) {
+                    $secFetchSiteHeaders += $headerValue
                 }
                 if ($headerName.Equals("Content-Length", [StringComparison]::OrdinalIgnoreCase)) {
                     $contentLengthHeaders += $headerValue
@@ -2200,6 +2820,38 @@ try {
                     -ContentType "application/json; charset=utf-8" -Body (New-Object byte[] 0)
                 continue
             }
+
+            if ($requestPath -eq "/api/v1/native-overlay/events") {
+                if ($method -ne "GET") {
+                    Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
+                        -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                    continue
+                }
+                $expectedOrigin = "http://127.0.0.1:$boundPort"
+                if (
+                    $overlayHeaders.Count -ne 1 -or
+                    $overlayHeaders[0] -cne $nativeOverlayToken -or
+                    $originHeaders.Count -gt 1 -or
+                    ($originHeaders.Count -eq 1 -and $originHeaders[0] -ne $expectedOrigin) -or
+                    $secFetchSiteHeaders.Count -gt 1 -or
+                    ($secFetchSiteHeaders.Count -eq 1 -and $secFetchSiteHeaders[0] -cne "same-origin")
+                ) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" `
+                        -Code "FORBIDDEN" -Message "The native overlay request could not be authenticated."
+                    continue
+                }
+                try {
+                    $eventPayload = Get-NativeOverlayEventsPayload -RequestTarget $requestTarget
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value $eventPayload
+                } catch [ArgumentException] {
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" `
+                        -Code "INVALID_QUERY" -Message $_.Exception.Message
+                } catch {
+                    Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
+                        -Code "NATIVE_FAILURE" -Message "The native overlay hotkey bridge could not be read."
+                }
+                continue
+            }
             if ($method -ne "GET" -and -not $headOnly) {
                 Send-TextResponse -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
                     -Message "Method Not Allowed" -ExtraHeaders @("Allow: GET, HEAD")
@@ -2309,6 +2961,7 @@ try {
             $client.Dispose()
             $handledRequests++
             Update-ScreenshotWatcher
+            Update-NativeOverlayBridge
         }
     }
 } finally {
