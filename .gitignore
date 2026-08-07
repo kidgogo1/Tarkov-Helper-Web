@@ -6,10 +6,3 @@ test-results/
 .env.*
 *.pem
 *.log
-public/data/*.json
-public/assets/item-icons/
-public/assets/hideout-icons/
-public/assets/maps/
-public/assets/map-icons/
-!public/data/.gitkeep
-!public/assets/.gitkeep
