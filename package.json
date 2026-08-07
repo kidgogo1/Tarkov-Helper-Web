@@ -1,0 +1,39 @@
+{
+  "name": "tarkov-helper-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "data:export": "python scripts/export_data.py",
+    "test": "vitest",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test:e2e": "node e2e/run.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.28.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.9.0",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}
