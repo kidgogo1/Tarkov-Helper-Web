@@ -119,12 +119,16 @@ const nativeSessionPayload = {
 const nativeClaimId = "c".repeat(43);
 const nativeOverlayId = "o".repeat(43);
 
-function nativeAttachment(mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH") {
+function nativeAttachment(
+  mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH",
+  globalHotkeysAvailable = true,
+) {
   return {
     protocolVersion: 1,
     overlayId: nativeOverlayId,
     state: "ATTACHED",
     mode,
+    globalHotkeysAvailable,
     bounds: mode === "LOCKED"
       ? { left: 80, top: 60, width: 300, height: 300 }
       : { left: 80, top: 60, width: 1200, height: 720 },
@@ -135,6 +139,7 @@ function createNativeOverlayApi(options: {
   claimResponse?: Promise<Response>;
   eventBatches?: unknown[];
   failAttach?: boolean;
+  globalHotkeysAvailable?: boolean;
   loseOverlayAfterLock?: boolean;
 } = {}) {
   const order: string[] = [];
@@ -167,7 +172,10 @@ function createNativeOverlayApi(options: {
           },
         }, 409);
       }
-      return jsonResponse(nativeAttachment("UNLOCKED"), 201);
+      return jsonResponse(nativeAttachment(
+        "UNLOCKED",
+        options.globalHotkeysAvailable,
+      ), 201);
     }
     if (path.endsWith("/api/v1/native-overlay/minimap") && method === "PATCH") {
       const body = JSON.parse(String(init?.body)) as { mode: "UNLOCKED" | "LOCKED" | "CLICK_THROUGH" };
@@ -181,7 +189,10 @@ function createNativeOverlayApi(options: {
           },
         }, 404);
       }
-      return jsonResponse(nativeAttachment(body.mode));
+      return jsonResponse(nativeAttachment(
+        body.mode,
+        options.globalHotkeysAvailable,
+      ));
     }
     if (path.endsWith("/api/v1/native-overlay/minimap") && method === "DELETE") {
       order.push("DETACH");
@@ -326,7 +337,7 @@ describe("MapMiniMap", () => {
     });
     fireEvent(document, zoomIn);
     expect(zoomIn.defaultPrevented).toBe(true);
-    expect(world.style.transform).toBe("translate(117px, 84px) scale(0.33)");
+    expect(world.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
 
     const zoomOut = new KeyboardEvent("keydown", {
       altKey: true,
@@ -357,7 +368,7 @@ describe("MapMiniMap", () => {
       code: "NumpadAdd",
       key: "+",
     });
-    expect(pipWorld.style.transform).toBe("translate(117px, 84px) scale(0.33)");
+    expect(pipWorld.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
 
     act(() => window.dispatchEvent(new CustomEvent("tarkov-helper:native-hotkey", {
       detail: { protocolVersion: 1, action: "MINIMAP_ZOOM_OUT" },
@@ -589,13 +600,47 @@ describe("MapMiniMap", () => {
     });
 
     await waitFor(() => {
-      expect(world.style.transform).toBe("translate(117px, 84px) scale(0.33)");
+      expect(world.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
     });
     expect(api.order).toContain("EVENTS");
 
     fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
     await waitFor(() => expect(pipWindow.close).toHaveBeenCalledOnce());
     expect(api.eventSignals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("keeps focused PiP Alt zoom when global native hotkeys are unavailable", async () => {
+    const api = createNativeOverlayApi({ globalHotkeysAvailable: false });
+    vi.stubGlobal("fetch", api.request);
+    const pipWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
+    });
+
+    renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const world = await within(pipWindow.document.body).findByTestId("map-minimap-world");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "전역 단축키 등록 실패—미니맵을 클릭한 뒤 사용",
+    );
+    const documentShortcut = new KeyboardEvent("keydown", {
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+      code: "NumpadAdd",
+      key: "+",
+    });
+    fireEvent(pipWindow.document, documentShortcut);
+
+    expect(documentShortcut.defaultPrevented).toBe(true);
+    expect(world.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    expect(api.eventSignals).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
+    await waitFor(() => expect(pipWindow.close).toHaveBeenCalledOnce());
   });
 
   it("stops native event polling when the attached overlay is lost", async () => {

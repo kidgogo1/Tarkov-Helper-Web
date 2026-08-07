@@ -38,6 +38,7 @@ const attachedPayload = {
   overlayId: "o".repeat(43),
   state: "ATTACHED",
   mode: "UNLOCKED",
+  globalHotkeysAvailable: true,
   bounds: { left: -120, top: 24, width: 1200, height: 720 },
 };
 
@@ -143,6 +144,20 @@ describe("native overlay API boundary", () => {
     await expect(attachNativeMiniMap(session, "c".repeat(43), request)).rejects.toMatchObject({
       code: "INVALID_RESPONSE",
     });
+  });
+
+  it("accepts an attached overlay when global hotkey registration is unavailable", async () => {
+    const unavailable = {
+      ...attachedPayload,
+      globalHotkeysAvailable: false,
+    } as const;
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(unavailable, 201));
+
+    await expect(attachNativeMiniMap(
+      session,
+      "c".repeat(43),
+      request,
+    )).resolves.toEqual(unavailable);
   });
 
   it("updates only the opaque overlay ID and an allowed mode", async () => {
@@ -263,6 +278,14 @@ describe("native overlay API boundary", () => {
     { ...attachedPayload, overlayId: "" },
     { ...attachedPayload, state: "DETACHED" },
     { ...attachedPayload, mode: "ALWAYS_ON_TOP" },
+    { ...attachedPayload, globalHotkeysAvailable: "true" },
+    {
+      protocolVersion: 1,
+      overlayId: "o".repeat(43),
+      state: "ATTACHED",
+      mode: "UNLOCKED",
+      bounds: attachedPayload.bounds,
+    },
     { ...attachedPayload, hwnd: 1234 },
     { ...attachedPayload, bounds: { ...attachedPayload.bounds, width: 0 } },
     { ...attachedPayload, bounds: { ...attachedPayload.bounds, pid: 99 } },

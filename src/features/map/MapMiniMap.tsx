@@ -37,7 +37,8 @@ import {
 import "../../styles/minimap.css";
 
 const MINI_MAP_SIZE = 300;
-const ZOOM_STEP = 0.1;
+const ZOOM_STEP = 0.05;
+
 interface DocumentPictureInPictureController {
   requestWindow: (options: { width: number; height: number }) => Promise<Window>;
 }
@@ -146,6 +147,7 @@ function clampMapTranslation(
 }
 
 interface MiniMapSurfaceProps extends MapMiniMapProps {
+  nativeGlobalHotkeysAvailable?: boolean;
   nativeOverlayMode?: NativeOverlayMode;
   presentation: MiniMapPresentation;
   viewport: MiniMapViewport;
@@ -194,6 +196,7 @@ function MiniMapSurface({
   selectedFloor,
   player,
   playerMarkerSize,
+  nativeGlobalHotkeysAvailable,
   nativeOverlayMode,
   presentation,
   viewport,
@@ -255,7 +258,7 @@ function MiniMapSurface({
   }, [updateMapSettings]);
 
   useEffect(() => {
-    if (nativeOverlayMode) return;
+    if (nativeGlobalHotkeysAvailable) return;
     const surfaceDocument = surfaceRef.current?.ownerDocument;
     if (!surfaceDocument) return;
 
@@ -278,7 +281,7 @@ function MiniMapSurface({
     };
     surfaceDocument.addEventListener("keydown", handleKeyDown);
     return () => surfaceDocument.removeEventListener("keydown", handleKeyDown);
-  }, [nativeOverlayMode, zoomBy]);
+  }, [nativeGlobalHotkeysAvailable, zoomBy]);
 
   useEffect(() => {
     const handleNativeHotkey = (event: Event) => {
@@ -459,8 +462,16 @@ interface NativeOverlayNotice {
   text: string;
 }
 
-function nativeOverlayModeNotice(mode: NativeOverlayMode): NativeOverlayNotice {
-  switch (mode) {
+function nativeOverlayModeNotice(
+  overlay: NativeOverlayAttachment,
+): NativeOverlayNotice {
+  if (!overlay.globalHotkeysAvailable) {
+    return {
+      kind: "error",
+      text: "전역 단축키 등록 실패—미니맵을 클릭한 뒤 사용",
+    };
+  }
+  switch (overlay.mode) {
     case "UNLOCKED":
       return {
         kind: "status",
@@ -569,7 +580,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   }, [stopNativeEventPolling]);
 
   const rememberNativeOverlay = useCallback((next: NativeOverlayAttachment | null) => {
-    if (!next) stopNativeEventPolling();
+    if (!next?.globalHotkeysAvailable) stopNativeEventPolling();
     nativeOverlayRef.current = next;
     if (mountedRef.current) setNativeOverlay(next);
   }, [stopNativeEventPolling]);
@@ -725,7 +736,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
       );
       if (nativeOverlayRef.current?.overlayId === overlay.overlayId) {
         rememberNativeOverlay(next);
-        setNativeNotice(nativeOverlayModeNotice(next.mode));
+        setNativeNotice(nativeOverlayModeNotice(next));
       }
     } catch (error) {
       if (
@@ -809,7 +820,9 @@ export function MapMiniMap(props: MapMiniMapProps) {
               return;
             }
             rememberNativeOverlay(attached);
-            startNativeEventPolling(session);
+            if (attached.globalHotkeysAvailable) {
+              startNativeEventPolling(session);
+            }
             const locked = await updateNativeMiniMap(
               session,
               attached.overlayId,
@@ -821,7 +834,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
               nativeOverlayRef.current?.overlayId === attached.overlayId
             ) {
               rememberNativeOverlay(locked);
-              setNativeNotice(nativeOverlayModeNotice(locked.mode));
+              setNativeNotice(nativeOverlayModeNotice(locked));
             }
           } catch (error) {
             if (
@@ -938,6 +951,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         ? createPortal(
             <MiniMapSurface
               {...props}
+              nativeGlobalHotkeysAvailable={nativeOverlay?.globalHotkeysAvailable}
               nativeOverlayMode={nativeOverlay?.mode}
               presentation="pip"
               viewport={pictureInPicture.viewport}

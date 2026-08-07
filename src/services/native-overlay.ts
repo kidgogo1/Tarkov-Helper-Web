@@ -41,6 +41,7 @@ export interface NativeOverlayAttachment {
   overlayId: string;
   state: "ATTACHED";
   mode: NativeOverlayMode;
+  globalHotkeysAvailable: boolean;
   bounds: NativeOverlayBounds;
 }
 
@@ -222,12 +223,14 @@ function parseAttachment(
       "overlayId",
       "state",
       "mode",
+      "globalHotkeysAvailable",
       "bounds",
     ]) ||
     value.protocolVersion !== NATIVE_OVERLAY_PROTOCOL_VERSION ||
     !isOpaqueId(value.overlayId) ||
     value.state !== "ATTACHED" ||
     !isMode(value.mode) ||
+    typeof value.globalHotkeysAvailable !== "boolean" ||
     !isRecord(value.bounds) ||
     !hasExactKeys(value.bounds, ["left", "top", "width", "height"])
   ) {
@@ -249,6 +252,7 @@ function parseAttachment(
     overlayId: value.overlayId,
     state: "ATTACHED",
     mode: value.mode,
+    globalHotkeysAvailable: value.globalHotkeysAvailable,
     bounds: { left, top, width, height },
   };
 }
