@@ -41,6 +41,37 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function assertMapCentered(page, label) {
+  const geometry = await page.evaluate(() => {
+    const viewport = globalThis.document.querySelector('[data-testid="map-viewport"]');
+    const map = globalThis.document.querySelector("object.map-svg-image");
+    if (!(viewport instanceof globalThis.HTMLElement) || !(map instanceof globalThis.HTMLElement)) return null;
+    const viewportRect = viewport.getBoundingClientRect();
+    const mapRect = map.getBoundingClientRect();
+    return {
+      viewportCenterX: viewportRect.left + viewportRect.width / 2,
+      viewportCenterY: viewportRect.top + viewportRect.height / 2,
+      mapCenterX: mapRect.left + mapRect.width / 2,
+      mapCenterY: mapRect.top + mapRect.height / 2,
+      mapWidth: mapRect.width,
+      mapHeight: mapRect.height,
+      viewportWidth: viewportRect.width,
+      viewportHeight: viewportRect.height,
+    };
+  });
+  assert(geometry, `${label}: map geometry was unavailable`);
+  assert(
+    Math.abs(geometry.mapCenterX - geometry.viewportCenterX) <= 2 &&
+      Math.abs(geometry.mapCenterY - geometry.viewportCenterY) <= 2,
+    `${label}: map is not centered: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.mapWidth <= geometry.viewportWidth + 2 &&
+      geometry.mapHeight <= geometry.viewportHeight + 2,
+    `${label}: fitted map exceeds the viewport: ${JSON.stringify(geometry)}`,
+  );
+}
+
 const server = await preview({
   logLevel: "error",
   preview: { host: HOST, port: PORT, strictPort: true },
@@ -62,7 +93,10 @@ try {
   page.on("console", (message) => {
     const location = message.location();
     const expectedHostedTrackerProbe =
-      message.type() === "error" && location.url.includes("/api/v1/local-tracker/status");
+      message.type() === "error" && (
+        location.url.includes("/api/v1/local-tracker/status") ||
+        location.url.includes("/api/v1/native-overlay/session")
+      );
     if ((message.type() === "error" || message.type() === "warning") && !expectedHostedTrackerProbe) {
       browserErrors.push(
         `${message.type()}: ${message.text()}${location.url ? ` (${location.url}:${location.lineNumber})` : ""}`,
@@ -73,7 +107,10 @@ try {
   page.on("response", (response) => {
     const url = new URL(response.url());
     const expectedHostedTrackerProbe =
-      response.status() === 404 && url.pathname.startsWith("/api/v1/local-tracker/");
+      response.status() === 404 && (
+        url.pathname.startsWith("/api/v1/local-tracker/") ||
+        url.pathname === "/api/v1/native-overlay/session"
+      );
     if (response.status() >= 400 && !expectedHostedTrackerProbe) {
       failedResponses.push(`${response.status()} ${response.url()}`);
     }
@@ -133,6 +170,7 @@ try {
   await page.waitForFunction(() =>
     globalThis.document.querySelector("object.map-svg-image")?.contentDocument?.getElementById("main"),
   );
+  await assertMapCentered(page, "Customs initial fit");
   await page.getByRole("button", { name: "Basement" }).click();
   const floorLayers = await page.locator("object.map-svg-image").evaluate((element) => ({
     basement: element.contentDocument?.getElementById("basement")?.style.display,

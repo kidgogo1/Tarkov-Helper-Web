@@ -25,6 +25,37 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function assertMapCentered(page, label) {
+  const geometry = await page.evaluate(() => {
+    const viewport = globalThis.document.querySelector('[data-testid="map-viewport"]');
+    const map = globalThis.document.querySelector("object.map-svg-image");
+    if (!(viewport instanceof globalThis.HTMLElement) || !(map instanceof globalThis.HTMLElement)) return null;
+    const viewportRect = viewport.getBoundingClientRect();
+    const mapRect = map.getBoundingClientRect();
+    return {
+      viewportCenterX: viewportRect.left + viewportRect.width / 2,
+      viewportCenterY: viewportRect.top + viewportRect.height / 2,
+      mapCenterX: mapRect.left + mapRect.width / 2,
+      mapCenterY: mapRect.top + mapRect.height / 2,
+      mapWidth: mapRect.width,
+      mapHeight: mapRect.height,
+      viewportWidth: viewportRect.width,
+      viewportHeight: viewportRect.height,
+    };
+  });
+  assert(geometry, `${label}: map geometry was unavailable`);
+  assert(
+    Math.abs(geometry.mapCenterX - geometry.viewportCenterX) <= 2 &&
+      Math.abs(geometry.mapCenterY - geometry.viewportCenterY) <= 2,
+    `${label}: map is not centered: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.mapWidth <= geometry.viewportWidth + 2 &&
+      geometry.mapHeight <= geometry.viewportHeight + 2,
+    `${label}: fitted map exceeds the viewport: ${JSON.stringify(geometry)}`,
+  );
+}
+
 function browserExecutable() {
   const candidates = process.platform === "win32"
     ? [
@@ -146,13 +177,20 @@ try {
   const browserErrors = [];
   const failedResponses = [];
   const externalRequests = [];
+  let expectedHeadlessOverlayConflictSeen = false;
 
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") browserErrors.push(`${message.type()}: ${message.text()}`);
   });
   page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
   page.on("response", (response) => {
-    if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
+    const responseUrl = new URL(response.url());
+    const isExpectedHeadlessOverlayConflict =
+      response.status() === 409 && responseUrl.pathname === "/api/v1/native-overlay/minimap";
+    if (isExpectedHeadlessOverlayConflict) expectedHeadlessOverlayConflictSeen = true;
+    if (response.status() >= 400 && !isExpectedHeadlessOverlayConflict) {
+      failedResponses.push(`${response.status()} ${response.url()}`);
+    }
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
@@ -194,6 +232,10 @@ try {
   );
 
   await page.locator("#map-picker").selectOption("Customs");
+  await page.waitForFunction(() =>
+    Boolean(globalThis.document.querySelector("object.map-svg-image")?.contentDocument?.documentElement),
+  );
+  await assertMapCentered(page, "Direct Customs initial fit");
   const trackedScreenshotName = "2026-08-08[00-20]_100, 1, 200_0, 0.7071068, 0, 0.7071068_16.74.png";
   await writeFile(path.join(screenshotFolder, trackedScreenshotName), Buffer.alloc(0));
   await page.locator(".map-player-marker").waitFor({ timeout: 10_000 });
@@ -233,7 +275,11 @@ try {
 
   assert(failedResponses.length === 0, `HTTP failures:\n${failedResponses.join("\n")}`);
   assert(externalRequests.length === 0, `Unexpected external requests:\n${externalRequests.join("\n")}`);
-  assert(browserErrors.length === 0, `Browser console errors:\n${browserErrors.join("\n")}`);
+  const unexpectedBrowserErrors = browserErrors.filter((error) => !(
+    expectedHeadlessOverlayConflictSeen &&
+    error === "error: Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ));
+  assert(unexpectedBrowserErrors.length === 0, `Browser console errors:\n${unexpectedBrowserErrors.join("\n")}`);
   await context.close();
   process.stdout.write(`Direct release browser flow passed: ${baseUrl}\n`);
 } finally {
