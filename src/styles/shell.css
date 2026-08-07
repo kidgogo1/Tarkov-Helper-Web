@@ -1,0 +1,258 @@
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  z-index: 100;
+  top: 0;
+  border-bottom: 1px solid var(--line);
+  background: rgb(31 33 32 / 96%);
+  backdrop-filter: blur(9px);
+}
+
+.topbar {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 14px;
+}
+
+.brand {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 0;
+  color: var(--accent);
+  text-align: left;
+}
+
+.brand:hover:not(:disabled) {
+  background: transparent;
+  color: var(--accent-strong);
+}
+
+.brand-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+}
+
+.brand > span:last-child {
+  display: grid;
+}
+
+.brand strong {
+  font-size: 17px;
+  line-height: 1.05;
+}
+
+.brand small {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 8px;
+  letter-spacing: 0.13em;
+}
+
+.profile-switch {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.profile-switch button {
+  min-width: 54px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 17px;
+  background: transparent;
+  padding: 5px 13px;
+  font-weight: 800;
+}
+
+.profile-switch button.active {
+  background: var(--accent);
+  color: #18170f;
+}
+
+.profile-switch button.active.pvp {
+  background: var(--pvp);
+  color: #fff;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+}
+
+.header-actions > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.level-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.level-control .quantity-stepper input {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.app-tabs {
+  display: flex;
+  min-height: 42px;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 14px;
+}
+
+.app-tabs button {
+  position: relative;
+  display: inline-flex;
+  min-width: 78px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.app-tabs button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 3%);
+  color: var(--text);
+}
+
+.app-tabs button.active {
+  color: var(--text);
+}
+
+.app-tabs button.active::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  background: var(--accent);
+  content: "";
+}
+
+.app-main {
+  min-height: calc(100vh - var(--header-height));
+  padding: 12px;
+}
+
+@media (max-width: 800px) {
+  .brand small,
+  .level-control > span,
+  .header-actions > button span {
+    display: none;
+  }
+
+  .brand strong {
+    font-size: 15px;
+  }
+
+  .header-actions > button {
+    width: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .app-header {
+    position: static;
+  }
+
+  .topbar {
+    min-height: 58px;
+    gap: 8px;
+    padding: 7px 10px;
+  }
+
+  .brand-mark,
+  .brand > span:last-child {
+    display: none;
+  }
+
+  .brand {
+    min-width: auto;
+  }
+
+  .brand::after {
+    display: block;
+    color: var(--accent);
+    content: "TH";
+    font-weight: 900;
+  }
+
+  .profile-switch button {
+    min-width: 48px;
+    padding-inline: 10px;
+  }
+
+  .level-control {
+    display: none;
+  }
+
+  .app-tabs {
+    position: fixed;
+    z-index: 120;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    min-height: 62px;
+    justify-content: space-around;
+    border-top: 1px solid var(--line-strong);
+    background: rgb(28 30 29 / 98%);
+    padding: 0 max(4px, env(safe-area-inset-right)) env(safe-area-inset-bottom)
+      max(4px, env(safe-area-inset-left));
+    backdrop-filter: blur(10px);
+  }
+
+  .app-tabs button {
+    display: grid;
+    min-width: 0;
+    min-height: 58px;
+    flex: 1;
+    place-content: center;
+    gap: 2px;
+    padding: 4px 1px;
+    font-size: 10px;
+  }
+
+  .app-tabs button.active::after {
+    top: 0;
+    right: 18%;
+    bottom: auto;
+    left: 18%;
+  }
+
+  .app-main {
+    min-height: calc(100vh - 58px);
+    padding: 8px 8px 74px;
+  }
+}
+

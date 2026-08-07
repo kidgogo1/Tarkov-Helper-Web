@@ -1,0 +1,39 @@
+:root {
+  color-scheme: dark;
+  --bg: #151716;
+  --bg-elevated: #1b1d1c;
+  --surface: #222423;
+  --surface-raised: #292b2a;
+  --surface-hover: #303230;
+  --surface-input: #1f2120;
+  --line: #363836;
+  --line-strong: #484a47;
+  --text: #f1f2ef;
+  --text-muted: #a8aaa5;
+  --text-dim: #777a75;
+  --accent: #d9b83f;
+  --accent-strong: #f0cf4d;
+  --accent-soft: rgb(217 184 63 / 14%);
+  --pvp: #f05a14;
+  --success: #55c977;
+  --success-soft: rgb(85 201 119 / 14%);
+  --warning: #f0a842;
+  --danger: #ff5353;
+  --danger-soft: rgb(255 83 83 / 14%);
+  --info: #6eb7ff;
+  --kappa: #ce47dc;
+  --radius-sm: 3px;
+  --radius: 5px;
+  --radius-lg: 8px;
+  --shadow: 0 12px 35px rgb(0 0 0 / 32%);
+  --header-height: 104px;
+  --font-ui: "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+  --font-size-base: 14px;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --header-height: 58px;
+  }
+}
+

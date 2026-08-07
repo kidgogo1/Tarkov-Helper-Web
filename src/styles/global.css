@@ -1,0 +1,233 @@
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 1.5%), transparent 180px),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-base);
+  line-height: 1.45;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+button,
+select,
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"] {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+a {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+.button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  padding: 6px 11px;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+button:hover:not(:disabled),
+.button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+
+button.primary,
+.button.primary {
+  border-color: color-mix(in srgb, var(--accent), #000 25%);
+  background: var(--accent);
+  color: #18170e;
+  font-weight: 700;
+}
+
+button.primary:hover:not(:disabled),
+.button.primary:hover {
+  background: var(--accent-strong);
+}
+
+button.danger {
+  border-color: rgb(255 83 83 / 42%);
+  background: var(--danger-soft);
+  color: #ffb4b4;
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+button.compact {
+  min-height: 28px;
+  padding: 3px 8px;
+}
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+select,
+textarea {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--surface-input);
+  padding: 7px 10px;
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: #19170c;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid var(--bg-elevated);
+  border-radius: 8px;
+  background: #555853;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.badge.success {
+  border-color: rgb(85 201 119 / 30%);
+  background: var(--success-soft);
+  color: #8be9a5;
+}
+
+.badge.danger {
+  border-color: rgb(255 83 83 / 30%);
+  background: var(--danger-soft);
+  color: #ff9292;
+}
+
+.badge.kappa {
+  border-color: rgb(206 71 220 / 32%);
+  background: rgb(206 71 220 / 14%);
+  color: #ea82f5;
+}
+
+.section-title {
+  margin: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
