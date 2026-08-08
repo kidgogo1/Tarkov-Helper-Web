@@ -56,6 +56,7 @@ describe("public GitHub update API boundary", () => {
     { ...session, extra: true },
     { ...session, status: { ...availableStatus, state: "UNKNOWN" } },
     { ...session, status: { ...availableStatus, latestVersion: "1.1.0-beta.1" } },
+    { ...session, status: { ...availableStatus, latestVersion: "999999999999999999999.1.0" } },
     { ...session, status: { ...availableStatus, latestVersion: "0.9.0" } },
     { ...session, status: { ...availableStatus, downloadBytes: -1 } },
     { ...session, status: { ...availableStatus, releasePageUrl: "http://github.com/example/repo" } },
@@ -160,6 +161,20 @@ describe("public GitHub update API boundary", () => {
   });
 
   it("rejects semantic mismatches and normalized launcher errors", async () => {
+    const wrongCheckState = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      status: {
+        state: "READY_TO_RESTART",
+        currentVersion: "1.0.0",
+        latestVersion: "1.1.0",
+        candidateId: availableStatus.candidateId,
+        stagedAt: "2026-08-09T03:05:06.000Z",
+      },
+    }));
+    await expect(checkForPublicUpdate(session, wrongCheckState)).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+
     const mismatched = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,
       status: { ...availableStatus, latestVersion: "1.2.0" },

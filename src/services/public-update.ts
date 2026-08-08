@@ -118,7 +118,10 @@ function hasExactKeys(value: Record<string, unknown>, expected: readonly string[
 }
 
 function isSemVer(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 64 && SEMVER_PATTERN.test(value);
+  return typeof value === "string" &&
+    value.length <= 64 &&
+    SEMVER_PATTERN.test(value) &&
+    value.split(".").every((part) => Number.isSafeInteger(Number(part)));
 }
 
 function compareSemVer(left: string, right: string): number {
@@ -455,7 +458,17 @@ export function checkForPublicUpdate(
   session: PublicUpdateSession,
   request: UpdateRequest = globalThis.fetch,
 ): Promise<PublicUpdateStatus> {
-  return sendUpdateMutation(CHECK_PATH, session, "{}", request);
+  return sendUpdateMutation(CHECK_PATH, session, "{}", request).then((status) => {
+    if (
+      status.state !== "CHECKING" &&
+      status.state !== "CURRENT" &&
+      status.state !== "AVAILABLE" &&
+      !(status.state === "ERROR" && status.operation === "CHECK")
+    ) {
+      throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher returned an invalid check result.");
+    }
+    return status;
+  });
 }
 
 export async function stagePublicUpdate(
