@@ -437,9 +437,17 @@ export async function loadReleaseConfig(filename) {
 
 function publicKeyDetails(key) {
   if (key.asymmetricKeyType !== "rsa") throw new Error("Update signing key must be an RSA key");
-  const modulusLength = key.asymmetricKeyDetails?.modulusLength;
-  if (!Number.isInteger(modulusLength) || modulusLength < 3072) {
-    throw new Error("Update signing RSA key must be at least 3072 bits");
+  const { modulusLength, publicExponent } = key.asymmetricKeyDetails ?? {};
+  if (!Number.isInteger(modulusLength) || modulusLength < 3072 || modulusLength > 16384) {
+    throw new Error("Update signing RSA modulus must be between 3072 and 16384 bits");
+  }
+  if (
+    typeof publicExponent !== "bigint" ||
+    publicExponent < 65537n ||
+    publicExponent > 0xffff_ffffn ||
+    publicExponent % 2n === 0n
+  ) {
+    throw new Error("Update signing RSA public exponent must be an odd integer from 65537 through 4294967295");
   }
   const publicKeySpkiPem = key.export({ format: "pem", type: "spki" }).toString();
   const publicKeySpkiDer = key.export({ format: "der", type: "spki" });
@@ -455,7 +463,7 @@ export function loadPublicSigningKey(publicKeyPem) {
   try {
     return publicKeyDetails(createPublicKey(publicKeyPem));
   } catch (error) {
-    if (/UPDATE_SIGNING_PUBLIC_KEY|at least 3072|must be an RSA/.test(error?.message ?? "")) throw error;
+    if (/UPDATE_SIGNING_PUBLIC_KEY|^Update signing (?:key|RSA)/.test(error?.message ?? "")) throw error;
     throw new Error(`UPDATE_SIGNING_PUBLIC_KEY is invalid: ${error?.message ?? error}`);
   }
 }

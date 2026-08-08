@@ -82,6 +82,10 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /Invoke-RestMethod/);
   assert.match(signJob, /immutable-releases/);
   assert.match(signJob, /ImportFromPem/);
+  assert.match(signJob, /Assert-RsaKeyPolicy/);
+  assert.match(signJob, /KeySize -gt 16384/);
+  assert.match(signJob, /exponentValue -lt 65537/);
+  assert.match(signJob, /exponentValue -band 1/);
   assert.match(signJob, /RSASignaturePadding\]::Pkcs1/);
   assert.match(signJob, /JsonDocument/);
   assert.match(signJob, /IsolatedZipValidator/);

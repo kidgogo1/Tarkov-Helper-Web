@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createPublicKey } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,10 +9,25 @@ import {
   assertSafeArchivePath,
   collectFiles,
   createZipFromDirectory,
+  loadPublicSigningKey,
   loadReleaseConfig,
   parseChecksumText,
   readZipArchive,
 } from "../../scripts/release-utils.mjs";
+
+function rsaPublicKeyPem({ exponent, modulusBytes }) {
+  const modulus = Buffer.alloc(modulusBytes, 0x55);
+  modulus[0] = 0x80;
+  modulus[modulus.length - 1] |= 1;
+  return createPublicKey({
+    format: "jwk",
+    key: {
+      e: Buffer.from(exponent).toString("base64url"),
+      kty: "RSA",
+      n: modulus.toString("base64url"),
+    },
+  }).export({ format: "pem", type: "spki" }).toString();
+}
 
 test("Windows-unsafe archive paths are rejected", () => {
   for (const unsafe of [
@@ -234,4 +250,27 @@ test("release config and checksum contracts reject schema drift and ambiguous JS
   } finally {
     await rm(parent, { recursive: true, force: true });
   }
+});
+
+test("release signing keys exactly match the portable verifier RSA policy", () => {
+  assert.doesNotThrow(() => loadPublicSigningKey(rsaPublicKeyPem({
+    exponent: [0x01, 0x00, 0x01],
+    modulusBytes: 384,
+  })));
+  assert.doesNotThrow(() => loadPublicSigningKey(rsaPublicKeyPem({
+    exponent: [0x01, 0x00, 0x01],
+    modulusBytes: 2048,
+  })));
+  assert.throws(() => loadPublicSigningKey(rsaPublicKeyPem({
+    exponent: [0x03],
+    modulusBytes: 384,
+  })), /public exponent.*odd.*65537/i);
+  assert.throws(() => loadPublicSigningKey(rsaPublicKeyPem({
+    exponent: [0x01, 0x00, 0x00],
+    modulusBytes: 384,
+  })), /public exponent.*odd.*65537/i);
+  assert.throws(() => loadPublicSigningKey(rsaPublicKeyPem({
+    exponent: [0x01, 0x00, 0x01],
+    modulusBytes: 2049,
+  })), /between 3072 and 16384 bits/i);
 });

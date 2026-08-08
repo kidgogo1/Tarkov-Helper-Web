@@ -945,6 +945,21 @@ jobs:
             }
             return Invoke-RestMethod -Method Get -Uri $Uri -Headers $headers -MaximumRedirection 0
           }
+          function Assert-RsaKeyPolicy([Security.Cryptography.RSA]$Key, [string]$Label) {
+            if ($Key.KeySize -lt 3072 -or $Key.KeySize -gt 16384) {
+              throw "$Label RSA modulus must be between 3072 and 16384 bits"
+            }
+            $parameters = $Key.ExportParameters($false)
+            $exponentBytes = $parameters.Exponent
+            if ($null -eq $exponentBytes -or $exponentBytes.Length -eq 0 -or $exponentBytes.Length -gt 4) {
+              throw "$Label RSA public exponent is outside the portable verifier policy"
+            }
+            [uint64]$exponentValue = 0
+            foreach ($value in $exponentBytes) { $exponentValue = ($exponentValue -shl 8) -bor $value }
+            if ($exponentValue -lt 65537 -or ($exponentValue -band 1) -eq 0) {
+              throw "$Label RSA public exponent must be an odd integer of at least 65537"
+            }
+          }
 
           $manifestPath = Join-Path $assetRoot $manifestName
           $manifestInfo = Get-Item -LiteralPath $manifestPath
@@ -976,7 +991,7 @@ jobs:
             $publicRsa = [Security.Cryptography.RSA]::Create()
             try {
               $publicRsa.ImportFromPem($env:UPDATE_SIGNING_PUBLIC_KEY)
-              if ($publicRsa.KeySize -lt 3072) { throw "Update signing RSA key must be at least 3072 bits" }
+              Assert-RsaKeyPolicy $publicRsa "Update signing public key"
               $publicDer = $publicRsa.ExportSubjectPublicKeyInfo()
               $keyId = "sha256:$([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($publicDer)).ToLowerInvariant())"
 
@@ -1128,7 +1143,7 @@ jobs:
                 $privateRsa.ImportFromPem($privatePem)
                 $privatePem = $null
                 $env:SIGNING_KEY_PEM = ""
-                if ($privateRsa.KeySize -lt 3072) { throw "Update signing RSA key must be at least 3072 bits" }
+                Assert-RsaKeyPolicy $privateRsa "Update signing private key"
                 $privatePublicDer = $privateRsa.ExportSubjectPublicKeyInfo()
                 if (-not [Convert]::ToBase64String($privatePublicDer).Equals([Convert]::ToBase64String($publicDer), [StringComparison]::Ordinal)) {
                   throw "Update signing private and public keys do not match"
