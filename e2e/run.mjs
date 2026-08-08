@@ -15,6 +15,13 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function isExpectedHostedBridgeProbe(pathname) {
+  return pathname.startsWith("/api/v1/local-tracker/") ||
+    pathname === "/api/v1/native-overlay/session" ||
+    pathname === "/api/v1/client/session" ||
+    pathname === "/api/v1/app-update/session";
+}
+
 function browserExecutable() {
   if (process.env.PLAYWRIGHT_EXECUTABLE_PATH) {
     return process.env.PLAYWRIGHT_EXECUTABLE_PATH;
@@ -92,12 +99,9 @@ try {
 
   page.on("console", (message) => {
     const location = message.location();
-    const expectedHostedTrackerProbe =
-      message.type() === "error" && (
-        location.url.includes("/api/v1/local-tracker/status") ||
-        location.url.includes("/api/v1/native-overlay/session")
-      );
-    if ((message.type() === "error" || message.type() === "warning") && !expectedHostedTrackerProbe) {
+    const expectedHostedBridgeProbe = message.type() === "error" &&
+      location.url !== "" && isExpectedHostedBridgeProbe(new URL(location.url, BASE_URL).pathname);
+    if ((message.type() === "error" || message.type() === "warning") && !expectedHostedBridgeProbe) {
       browserErrors.push(
         `${message.type()}: ${message.text()}${location.url ? ` (${location.url}:${location.lineNumber})` : ""}`,
       );
@@ -106,12 +110,8 @@ try {
   page.on("pageerror", (error) => browserErrors.push(`pageerror: ${error.message}`));
   page.on("response", (response) => {
     const url = new URL(response.url());
-    const expectedHostedTrackerProbe =
-      response.status() === 404 && (
-        url.pathname.startsWith("/api/v1/local-tracker/") ||
-        url.pathname === "/api/v1/native-overlay/session"
-      );
-    if (response.status() >= 400 && !expectedHostedTrackerProbe) {
+    const expectedHostedBridgeProbe = response.status() === 404 && isExpectedHostedBridgeProbe(url.pathname);
+    if (response.status() >= 400 && !expectedHostedBridgeProbe) {
       failedResponses.push(`${response.status()} ${response.url()}`);
     }
   });
@@ -121,6 +121,12 @@ try {
   });
 
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  const dataCounts = await page.evaluate(async () => {
+    const response = await fetch("./data/tarkov-data.json");
+    if (!response.ok) throw new Error(`Unable to load app data: ${response.status}`);
+    const data = await response.json();
+    return data.meta.counts;
+  });
   await page.getByText("TARKOV HELPER", { exact: true }).waitFor();
   assert(await page.getByRole("tab").count() === 5, "Expected five primary tabs");
 
@@ -149,9 +155,9 @@ try {
   await page.getByRole("button", { name: /설정/ }).click();
   const settingsDialog = page.getByRole("dialog", { name: "설정" });
   await settingsDialog.getByRole("button", { name: "데이터" }).click();
-  await settingsDialog.getByText("488개", { exact: true }).waitFor();
-  await settingsDialog.getByText("4,014개", { exact: true }).waitFor();
-  await settingsDialog.getByText("454개", { exact: true }).waitFor();
+  await settingsDialog.getByText(`${dataCounts.quests.toLocaleString()}개`, { exact: true }).waitFor();
+  await settingsDialog.getByText(`${dataCounts.items.toLocaleString()}개`, { exact: true }).waitFor();
+  await settingsDialog.getByText(`${dataCounts.mapMarkers.toLocaleString()}개`, { exact: true }).waitFor();
   await settingsDialog.getByRole("button", { name: "닫기" }).click();
 
   await page.getByRole("tab", { name: /은신처/ }).click();
