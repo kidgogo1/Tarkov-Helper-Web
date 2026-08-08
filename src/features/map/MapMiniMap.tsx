@@ -13,6 +13,7 @@ import {
   MousePointer2,
   Navigation,
   Pin,
+  Settings2,
 } from "lucide-react";
 
 import { useAppStore } from "../../app/store";
@@ -647,7 +648,7 @@ function nativeOverlayErrorNotice(error: unknown): NativeOverlayNotice {
 }
 
 export function MapMiniMap(props: MapMiniMapProps) {
-  const { settings } = useAppStore();
+  const { settings, updateMapSettings } = useAppStore();
   const mapSettings = settings.map;
   const miniMapSize = Math.min(
     MINI_MAP_MAX_SIZE,
@@ -665,6 +666,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const [nativeNotice, setNativeNotice] =
     useState<NativeOverlayNotice | null>(null);
   const [nativeBusy, setNativeBusy] = useState(false);
+  const [markerMenuOpen, setMarkerMenuOpen] = useState(false);
   const pipWindowRef = useRef<Window | null>(null);
   const mountedRef = useRef(true);
   const closingRef = useRef(false);
@@ -677,6 +679,13 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const nativeSessionCheckedRef = useRef(false);
   const pipLifecycleCleanupRef = useRef<(() => void) | null>(null);
   const isOpen = Boolean(pictureInPicture || fallbackOpen);
+
+  const toggleMiniMapBasicMarker = useCallback((markerType: string, visible: boolean) => {
+    const hidden = new Set(mapSettings.miniMapHiddenMarkerTypes);
+    if (visible) hidden.delete(markerType);
+    else hidden.add(markerType);
+    updateMapSettings({ miniMapHiddenMarkerTypes: [...hidden] });
+  }, [mapSettings.miniMapHiddenMarkerTypes, updateMapSettings]);
 
   const stopNativeEventPolling = useCallback(() => {
     nativeEventPollingAbortRef.current?.abort();
@@ -1127,6 +1136,97 @@ export function MapMiniMap(props: MapMiniMapProps) {
             <MousePointer2 aria-hidden="true" />
             <span>클릭 통과</span>
           </button>
+          <button
+            aria-expanded={markerMenuOpen}
+            aria-label="미니맵 마커 설정"
+            className="map-minimap-native-button"
+            onClick={() => setMarkerMenuOpen((open) => !open)}
+            title="미니맵에 표시할 마커 분류 선택"
+            type="button"
+          >
+            <Settings2 aria-hidden="true" />
+            <span>마커</span>
+          </button>
+          {markerMenuOpen ? (
+            <div
+              aria-label="미니맵 마커 표시 설정"
+              className="map-minimap-marker-controls"
+              role="group"
+            >
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowQuestMarkers}
+                  onChange={(event) => updateMapSettings({ miniMapShowQuestMarkers: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>미니맵 퀘스트 마커</span>
+              </label>
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowExtractMarkers}
+                  onChange={(event) => updateMapSettings({ miniMapShowExtractMarkers: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>미니맵 탈출구</span>
+              </label>
+              <label>
+                <input
+                  checked={!mapSettings.miniMapHiddenMarkerTypes.includes("BossSpawn")}
+                  onChange={(event) => toggleMiniMapBasicMarker("BossSpawn", event.target.checked)}
+                  type="checkbox"
+                />
+                <span>미니맵 보스</span>
+              </label>
+              <label>
+                <input
+                  checked={!mapSettings.miniMapHiddenMarkerTypes.includes("CultistSpawn")}
+                  onChange={(event) => toggleMiniMapBasicMarker("CultistSpawn", event.target.checked)}
+                  type="checkbox"
+                />
+                <span>미니맵 컬티</span>
+              </label>
+              <label>
+                <input
+                  checked={!mapSettings.miniMapHiddenMarkerTypes.includes("PmcSpawn")}
+                  onChange={(event) => toggleMiniMapBasicMarker("PmcSpawn", event.target.checked)}
+                  type="checkbox"
+                />
+                <span>미니맵 PMC 스폰 위치</span>
+              </label>
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowPmcExtracts}
+                  onChange={(event) => updateMapSettings({ miniMapShowPmcExtracts: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>미니맵 PMC 탈출구</span>
+              </label>
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowScavExtracts}
+                  onChange={(event) => updateMapSettings({ miniMapShowScavExtracts: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>미니맵 스캐브 탈출구</span>
+              </label>
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowTransits}
+                  onChange={(event) => updateMapSettings({ miniMapShowTransits: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>미니맵 트랜짓</span>
+              </label>
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowCustomMarkers}
+                  onChange={(event) => updateMapSettings({ miniMapShowCustomMarkers: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>미니맵 사용자 마커</span>
+              </label>
+            </div>
+          ) : null}
           {nativeNotice ? (
             <span
               className={`map-minimap-native-status ${nativeNotice.kind === "error" ? "error" : ""}`}

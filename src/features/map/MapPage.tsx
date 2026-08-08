@@ -63,7 +63,7 @@ import type {
   TarkovData,
   WorldPoint,
 } from "../../types/data";
-import type { CustomMapMarker } from "../../types/state";
+import type { CustomMapMarker, MapDisplaySettings } from "../../types/state";
 import "../../styles/map.css";
 
 export interface MapPageProps {
@@ -528,7 +528,10 @@ function isExtractionType(markerType: string): boolean {
 
 function extractionMarkerVisible(
   markerType: string,
-  settings: ReturnType<typeof useAppStore>["settings"]["map"],
+  settings: Pick<
+    MapDisplaySettings,
+    "showExtractMarkers" | "showPmcExtracts" | "showScavExtracts" | "showTransits"
+  >,
 ): boolean {
   if (!settings.showExtractMarkers) return false;
   switch (markerType) {
@@ -1232,6 +1235,28 @@ export function MapPage({
     [hiddenBasicTypes, mapMarkers, mapSettings, selectedFloor],
   );
 
+  const miniMapHiddenBasicTypes = useMemo(
+    () => new Set(mapSettings.miniMapHiddenMarkerTypes),
+    [mapSettings.miniMapHiddenMarkerTypes],
+  );
+
+  const miniMapVisibleDataMarkers = useMemo(
+    () =>
+      mapMarkers.filter((marker) => {
+        if (!markerFloorVisible(marker.floorId, selectedFloor)) return false;
+        if (isExtractionType(marker.markerType)) {
+          return extractionMarkerVisible(marker.markerType, {
+            showExtractMarkers: mapSettings.miniMapShowExtractMarkers,
+            showPmcExtracts: mapSettings.miniMapShowPmcExtracts,
+            showScavExtracts: mapSettings.miniMapShowScavExtracts,
+            showTransits: mapSettings.miniMapShowTransits,
+          });
+        }
+        return !miniMapHiddenBasicTypes.has(marker.markerType);
+      }),
+    [mapMarkers, mapSettings, miniMapHiddenBasicTypes, selectedFloor],
+  );
+
   const visibleQuestPoints = useMemo(
     () =>
       mapSettings.showQuestMarkers
@@ -1251,6 +1276,25 @@ export function MapPage({
     ],
   );
 
+  const miniMapVisibleQuestPoints = useMemo(
+    () =>
+      mapSettings.miniMapShowQuestMarkers
+        ? questPoints.filter(
+            (point) =>
+              markerFloorVisible(point.floorId, selectedFloor) &&
+              (mapSettings.showCompletedObjectives ||
+                !profile.objectiveProgress[point.objective.id]),
+          )
+        : [],
+    [
+      mapSettings.miniMapShowQuestMarkers,
+      mapSettings.showCompletedObjectives,
+      profile.objectiveProgress,
+      questPoints,
+      selectedFloor,
+    ],
+  );
+
   const customMarkers = useMemo(
     () =>
       profile.customMarkers.filter(
@@ -1259,6 +1303,11 @@ export function MapPage({
           markerFloorVisible(marker.floorId, selectedFloor),
       ),
     [config, profile.customMarkers, selectedFloor],
+  );
+
+  const miniMapCustomMarkers = useMemo(
+    () => (mapSettings.miniMapShowCustomMarkers ? customMarkers : []),
+    [customMarkers, mapSettings.miniMapShowCustomMarkers],
   );
 
   const profileCustomMarkers = useMemo(
@@ -1280,7 +1329,7 @@ export function MapPage({
 
   const miniMapMarkers = useMemo<MapMiniMapMarker[]>(
     () => [
-      ...visibleQuestPoints.map((point) => ({
+      ...miniMapVisibleQuestPoints.map((point) => ({
         id: point.id,
         kind: "quest" as const,
         shape: point.isOptional ? "optional" as const : "quest" as const,
@@ -1291,7 +1340,7 @@ export function MapPage({
         selected: selectedMarkerId === point.id,
         completed: Boolean(profile.objectiveProgress[point.objective.id]),
       })),
-      ...visibleDataMarkers.flatMap((marker) => {
+      ...miniMapVisibleDataMarkers.flatMap((marker) => {
         const screen = markerScreenPosition(config, marker);
         if (!screen) return [];
         const label = marker.nameKo || marker.name || markerLabel(marker.markerType);
@@ -1305,7 +1354,7 @@ export function MapPage({
           selected: selectedMarkerId === marker.id,
         }];
       }),
-      ...customMarkers.flatMap((marker) => {
+      ...miniMapCustomMarkers.flatMap((marker) => {
         const screen = markerScreenPosition(config, marker);
         if (!screen) return [];
         return [{
@@ -1322,11 +1371,11 @@ export function MapPage({
     ],
     [
       config,
-      customMarkers,
+      miniMapCustomMarkers,
+      miniMapVisibleDataMarkers,
+      miniMapVisibleQuestPoints,
       profile.objectiveProgress,
       selectedMarkerId,
-      visibleDataMarkers,
-      visibleQuestPoints,
     ],
   );
 
@@ -1335,11 +1384,11 @@ export function MapPage({
       id: definition.id,
       label: definition.label,
       iconUrl: definition.iconUrl,
-      count: visibleDataMarkers.filter(
+      count: miniMapVisibleDataMarkers.filter(
         (marker) => miniMapLegendCategory(marker.markerType) === definition.id,
       ).length,
     })),
-    [visibleDataMarkers],
+    [miniMapVisibleDataMarkers],
   );
 
   const focusQuestPoint = useCallback((point: QuestMapPoint) => {

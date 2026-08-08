@@ -103,6 +103,13 @@ function createDefaultMapSettings(): MapDisplaySettings {
     miniMapPlayerMarkerScale: 1,
     miniMapOffsetX: 0,
     miniMapOffsetY: 0,
+    miniMapShowQuestMarkers: true,
+    miniMapShowExtractMarkers: true,
+    miniMapShowPmcExtracts: true,
+    miniMapShowScavExtracts: true,
+    miniMapShowTransits: true,
+    miniMapShowCustomMarkers: true,
+    miniMapHiddenMarkerTypes: [],
   };
 }
 
@@ -232,6 +239,28 @@ function normalizeMapSettings(
     miniMapOffsetY: Number.isFinite(next.miniMapOffsetY)
       ? clamp(next.miniMapOffsetY, -10_000, 10_000)
       : current.miniMapOffsetY,
+    miniMapShowQuestMarkers: typeof next.miniMapShowQuestMarkers === "boolean"
+      ? next.miniMapShowQuestMarkers
+      : current.miniMapShowQuestMarkers,
+    miniMapShowExtractMarkers: typeof next.miniMapShowExtractMarkers === "boolean"
+      ? next.miniMapShowExtractMarkers
+      : current.miniMapShowExtractMarkers,
+    miniMapShowPmcExtracts: typeof next.miniMapShowPmcExtracts === "boolean"
+      ? next.miniMapShowPmcExtracts
+      : current.miniMapShowPmcExtracts,
+    miniMapShowScavExtracts: typeof next.miniMapShowScavExtracts === "boolean"
+      ? next.miniMapShowScavExtracts
+      : current.miniMapShowScavExtracts,
+    miniMapShowTransits: typeof next.miniMapShowTransits === "boolean"
+      ? next.miniMapShowTransits
+      : current.miniMapShowTransits,
+    miniMapShowCustomMarkers: typeof next.miniMapShowCustomMarkers === "boolean"
+      ? next.miniMapShowCustomMarkers
+      : current.miniMapShowCustomMarkers,
+    miniMapHiddenMarkerTypes: sanitizeHiddenMarkerTypes(
+      next.miniMapHiddenMarkerTypes,
+      current.miniMapHiddenMarkerTypes,
+    ),
   };
 }
 
@@ -383,6 +412,12 @@ function sanitizeSettings(value: unknown): SharedSettings {
       defaults.map.hiddenMarkerTypes,
     );
   }
+  if (Array.isArray(rawMap.miniMapHiddenMarkerTypes)) {
+    mapPatch.miniMapHiddenMarkerTypes = sanitizeHiddenMarkerTypes(
+      rawMap.miniMapHiddenMarkerTypes,
+      defaults.map.miniMapHiddenMarkerTypes,
+    );
+  }
   for (const key of [
     "fixedView",
     "showQuestMarkers",
@@ -392,6 +427,12 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "showTransits",
     "showCompletedObjectives",
     "miniMapKeyboardShortcutsEnabled",
+    "miniMapShowQuestMarkers",
+    "miniMapShowExtractMarkers",
+    "miniMapShowPmcExtracts",
+    "miniMapShowScavExtracts",
+    "miniMapShowTransits",
+    "miniMapShowCustomMarkers",
   ] as const) {
     if (typeof rawMap[key] === "boolean") mapPatch[key] = rawMap[key];
   }

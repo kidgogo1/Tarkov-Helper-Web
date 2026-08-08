@@ -45,6 +45,35 @@
   opacity: 0.42;
 }
 
+.map-minimap-marker-controls {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  min-width: 190px;
+  gap: 2px;
+  border: 1px solid rgb(110 183 255 / 35%);
+  border-radius: 5px;
+  background: rgb(13 18 20 / 98%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 42%);
+  padding: 6px;
+}
+
+.map-minimap-marker-controls label {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  color: #d8e3e7;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.map-minimap-marker-controls input {
+  accent-color: var(--accent);
+}
+
 .map-minimap-native-status {
   position: absolute;
   z-index: 20;

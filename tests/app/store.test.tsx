@@ -55,7 +55,32 @@ describe("AppStoreProvider", () => {
       miniMapPlayerMarkerScale: 1,
       miniMapOffsetX: 0,
       miniMapOffsetY: 0,
+      miniMapShowQuestMarkers: true,
+      miniMapShowExtractMarkers: true,
+      miniMapShowPmcExtracts: true,
+      miniMapShowScavExtracts: true,
+      miniMapShowTransits: true,
+      miniMapShowCustomMarkers: true,
+      miniMapHiddenMarkerTypes: [],
     });
+  });
+
+  it("keeps mini-map marker visibility independent from the full map", () => {
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    act(() => {
+      result.current.updateMapSettings({
+        showQuestMarkers: false,
+        miniMapShowQuestMarkers: true,
+        miniMapShowPmcExtracts: false,
+        miniMapHiddenMarkerTypes: ["BossSpawn"],
+      });
+    });
+
+    expect(result.current.settings.map.showQuestMarkers).toBe(false);
+    expect(result.current.settings.map.miniMapShowQuestMarkers).toBe(true);
+    expect(result.current.settings.map.miniMapShowPmcExtracts).toBe(false);
+    expect(result.current.settings.map.miniMapHiddenMarkerTypes).toEqual(["BossSpawn"]);
   });
 
   it("clamps profile fields and isolates every mutation to the active profile", () => {

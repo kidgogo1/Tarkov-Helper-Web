@@ -639,6 +639,24 @@ describe("MapMiniMap", () => {
     expect(markers[3].querySelector(".map-minimap-custom-pin")).toBeInTheDocument();
   });
 
+  it("offers separate mini-map marker toggles beside the overlay controls", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
+    setPictureInPictureController({ requestWindow: vi.fn() });
+
+    renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 마커 설정" }));
+    expect(screen.getByRole("checkbox", { name: "미니맵 퀘스트 마커" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "미니맵 PMC 탈출구" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "미니맵 PMC 탈출구" }));
+    const stored = JSON.parse(window.localStorage.getItem(APP_STATE_STORAGE_KEY) ?? "{}");
+    expect(stored.settings.map.miniMapShowPmcExtracts).toBe(false);
+    expect(stored.settings.map.showPmcExtracts).toBe(true);
+  });
+
   it("claims the PiP before opening, applies a 300px locked overlay, and keeps click-through controls on the main page", async () => {
     const api = createNativeOverlayApi();
     vi.stubGlobal("fetch", api.request);

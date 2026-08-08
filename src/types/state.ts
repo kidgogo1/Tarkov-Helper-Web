@@ -74,6 +74,13 @@ export interface MapDisplaySettings {
   miniMapPlayerMarkerScale: number;
   miniMapOffsetX: number;
   miniMapOffsetY: number;
+  miniMapShowQuestMarkers: boolean;
+  miniMapShowExtractMarkers: boolean;
+  miniMapShowPmcExtracts: boolean;
+  miniMapShowScavExtracts: boolean;
+  miniMapShowTransits: boolean;
+  miniMapShowCustomMarkers: boolean;
+  miniMapHiddenMarkerTypes: string[];
 }
 
 export interface SharedSettings {
