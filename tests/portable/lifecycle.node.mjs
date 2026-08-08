@@ -145,6 +145,66 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
   assert.equal(stoppedAgain.status, 0, `${stoppedAgain.stdout}\n${stoppedAgain.stderr}`);
 });
 
+test("the authenticated browser lease shuts the server down after the tab closes", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-client-lease-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  await mkdir(appRoot);
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Client lease test</title>", "utf8");
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const instance = JSON.parse(await readFile(instancePath, "utf8"));
+  const baseUrl = `http://127.0.0.1:${instance.port}/`;
+  const sessionResponse = await fetch(new URL("api/v1/client/session", baseUrl));
+  assert.equal(sessionResponse.status, 200);
+  const session = await sessionResponse.json();
+  assert.equal(session.protocolVersion, 1);
+  assert.match(session.leaseToken, /^[A-Za-z0-9_-]{40,64}$/);
+  assert.equal(session.heartbeatIntervalMs, 2000);
+  assert.equal(session.timeoutMs, 10000);
+
+  const headers = {
+    "content-type": "application/json",
+    origin: new URL(baseUrl).origin,
+  };
+  const heartbeat = await fetch(new URL("api/v1/client/heartbeat", baseUrl), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ leaseToken: session.leaseToken }),
+  });
+  assert.equal(heartbeat.status, 204);
+
+  const close = await fetch(new URL("api/v1/client/close", baseUrl), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ leaseToken: session.leaseToken }),
+  });
+  assert.equal(close.status, 204);
+  await waitFor(async () => {
+    try {
+      await access(instancePath);
+      return false;
+    } catch (error) {
+      if (error?.code === "ENOENT") return true;
+      throw error;
+    }
+  }, 8_000);
+  await assert.rejects(fetch(baseUrl));
+});
+
 test("Start preserves a live recorded instance when authenticated health probes time out", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-live-state-"));
   const appRoot = path.join(temporaryRoot, "app");

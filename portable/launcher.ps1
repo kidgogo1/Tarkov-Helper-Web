@@ -48,6 +48,10 @@ $nativeOverlayMaximumSize = 1000
 $nativeOverlayClaims = @{}
 $nativeOverlayRecord = $null
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
+$clientLeaseTimeoutSeconds = 10
+$clientLeaseCloseGraceSeconds = 3
+$clientLeases = @{}
+$clientLifecycleArmed = $false
 
 function Get-ScreenshotCandidates {
     $paths = New-Object 'Collections.Generic.List[string]'
@@ -699,6 +703,39 @@ function Get-RandomToken {
         $generator.Dispose()
     }
     return [Convert]::ToBase64String($bytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
+}
+
+function New-ClientLease {
+    $token = Get-RandomToken
+    $script:clientLeases[$token] = [DateTime]::UtcNow.AddSeconds($script:clientLeaseTimeoutSeconds)
+    $script:clientLifecycleArmed = $true
+    return $token
+}
+
+function Touch-ClientLease {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+        [switch]$Closing
+    )
+
+    if (-not $script:clientLeases.ContainsKey($Token)) { return $false }
+    $seconds = if ($Closing) { $script:clientLeaseCloseGraceSeconds } else { $script:clientLeaseTimeoutSeconds }
+    $script:clientLeases[$Token] = [DateTime]::UtcNow.AddSeconds($seconds)
+    return $true
+}
+
+function Update-ClientLeases {
+    if (-not $script:clientLifecycleArmed) { return }
+    $now = [DateTime]::UtcNow
+    foreach ($token in @($script:clientLeases.Keys)) {
+        if ($script:clientLeases[$token] -le $now) {
+            $script:clientLeases.Remove($token)
+        }
+    }
+    if ($script:clientLeases.Count -eq 0) {
+        $script:shutdownRequested = $true
+    }
 }
 
 function Initialize-NativeOverlayBridge {
@@ -2672,12 +2709,14 @@ try {
 
     Open-PortableBrowser -Url $url
 
-    while (-not $shutdownRequested -and ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests)) {
-        while (-not $listener.Pending()) {
+    while (-not $script:shutdownRequested -and ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests)) {
+        while (-not $script:shutdownRequested -and -not $listener.Pending()) {
+            Update-ClientLeases
             Update-ScreenshotWatcher
             Update-NativeOverlayBridge
             Start-Sleep -Milliseconds 100
         }
+        if ($script:shutdownRequested) { break }
         $client = $listener.AcceptTcpClient()
         $stream = $null
         try {
@@ -2773,6 +2812,86 @@ try {
             $headOnly = $method -eq "HEAD"
             $requestPath = $requestTarget.Split("?", 2)[0]
 
+            $clientLifecyclePaths = @(
+                "/api/v1/client/session",
+                "/api/v1/client/heartbeat",
+                "/api/v1/client/close"
+            )
+            if ($clientLifecyclePaths -contains $requestPath) {
+                $expectedOrigin = "http://127.0.0.1:$boundPort"
+                $originMatches = $originHeaders.Count -eq 0 -or (
+                    $originHeaders.Count -eq 1 -and $originHeaders[0] -ceq $expectedOrigin
+                )
+                $fetchSiteMatches = $secFetchSiteHeaders.Count -eq 0 -or (
+                    $secFetchSiteHeaders.Count -eq 1 -and $secFetchSiteHeaders[0] -ceq "same-origin"
+                )
+                if (-not $originMatches -or -not $fetchSiteMatches) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" `
+                        -Code "FORBIDDEN" -Message "The client lifecycle request could not be authenticated."
+                    continue
+                }
+
+                if ($requestPath -eq "/api/v1/client/session") {
+                    if ($method -ne "GET") {
+                        Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
+                            -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                        continue
+                    }
+                    $leaseToken = New-ClientLease
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value ([pscustomobject]@{
+                        protocolVersion = 1
+                        leaseToken = $leaseToken
+                        heartbeatIntervalMs = 2000
+                        timeoutMs = [int]($clientLeaseTimeoutSeconds * 1000)
+                    }) -HeadOnly:$headOnly
+                    continue
+                }
+
+                if ($method -ne "POST") {
+                    Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
+                        -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                    continue
+                }
+                if ($originHeaders.Count -ne 1 -or $originHeaders[0] -cne $expectedOrigin) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" `
+                        -Code "FORBIDDEN" -Message "The client lifecycle request could not be authenticated."
+                    continue
+                }
+
+                try {
+                    $clientRequest = Read-JsonRequestObject -Stream $stream `
+                        -ContentLengthHeaders $contentLengthHeaders `
+                        -ContentTypeHeaders $contentTypeHeaders `
+                        -TransferEncodingHeaders $transferEncodingHeaders
+                    Assert-JsonObjectShape -Value $clientRequest `
+                        -AllowedProperties @("leaseToken") -RequiredProperties @("leaseToken")
+                    if (
+                        $clientRequest.leaseToken -isnot [string] -or
+                        $clientRequest.leaseToken -notmatch "^[A-Za-z0-9_-]{40,64}$"
+                    ) {
+                        throw [ArgumentException]::new("The client lease token is invalid.")
+                    }
+                } catch [ArgumentException] {
+                    Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
+                        -Code "INVALID_REQUEST" -Message $_.Exception.Message
+                    continue
+                } catch {
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" `
+                        -Code "INVALID_JSON" -Message "A bounded JSON object is required."
+                    continue
+                }
+
+                $isCloseRequest = $requestPath -eq "/api/v1/client/close"
+                if (-not (Touch-ClientLease -Token ([string]$clientRequest.leaseToken) -Closing:$isCloseRequest)) {
+                    Send-JsonError -Stream $stream -StatusCode 404 -Reason "Not Found" `
+                        -Code "LEASE_NOT_FOUND" -Message "The client lease is no longer active."
+                    continue
+                }
+                Send-Response -Stream $stream -StatusCode 204 -Reason "No Content" `
+                    -ContentType "application/json; charset=utf-8" -Body (New-Object byte[] 0)
+                continue
+            }
+
             if ($method -eq "POST" -and $requestPath -eq "/api/v1/control/shutdown") {
                 $contentLength = 0
                 if (
@@ -2816,7 +2935,7 @@ try {
 
                 Send-Response -Stream $stream -StatusCode 204 -Reason "No Content" `
                     -ContentType "application/json; charset=utf-8" -Body (New-Object byte[] 0)
-                $shutdownRequested = $true
+                $script:shutdownRequested = $true
                 continue
             }
 
