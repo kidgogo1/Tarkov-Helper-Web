@@ -160,6 +160,29 @@ describe("quest pack refresh", () => {
     });
   });
 
+  it("keeps saved ids while following the wiki rename to Small Things, Big Help", () => {
+    const legacy = {
+      ...baseQuest,
+      id: "legacy-blood-of-war-part-3",
+      name: "The Blood of War - Part 3",
+      nameEn: "The Blood of War - Part 3",
+      nameKo: "전쟁의 피 - 파트 3",
+      normalizedName: "the-blood-of-war---part-3",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/The_Blood_of_War_-_Part_3",
+    };
+    const pack = { ...emptyPack, quests: [legacy] };
+    const refreshed = mergeQuestSources(pack, { meta: { generated: "now", count: 0 }, quests: [] });
+
+    expect(refreshed.quests[0]).toMatchObject({
+      id: "legacy-blood-of-war-part-3",
+      name: "Small Things, Big Help",
+      nameEn: "Small Things, Big Help",
+      nameKo: "작은 일, 큰 도움",
+      normalizedName: "small-things-big-help",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Small_Things,_Big_Help",
+    });
+  });
+
   it("creates safe app defaults for a remote quest without map locations", () => {
     const result = toAppQuest({
       id: "no-map",

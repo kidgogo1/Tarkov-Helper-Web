@@ -24,6 +24,12 @@ const WIKI_QUEST_RENAMES = new Map([
     normalizedName: "a-big-loss",
     wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/A_Big_Loss",
   }],
+  ["https://escapefromtarkov.fandom.com/wiki/The_Blood_of_War_-_Part_3", {
+    name: "Small Things, Big Help",
+    nameKo: "작은 일, 큰 도움",
+    normalizedName: "small-things-big-help",
+    wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Small_Things,_Big_Help",
+  }],
 ]);
 
 export function applyWikiQuestRenames(quests) {
