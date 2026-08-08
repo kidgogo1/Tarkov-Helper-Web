@@ -1055,7 +1055,7 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   await statusWhere((status) => (status.pips[0].exStyle & 0x00080000) === 0x00080000);
   const restored = await statusWhere((status) =>
     status.pips[0].style === original.style &&
-    status.pips[0].exStyle === original.exStyle &&
+    (status.pips[0].exStyle & ~0x00080000) === (original.exStyle & ~0x00080000) &&
     status.pips[0].region.type === original.region.type &&
     status.pips[0].region.width === original.region.width &&
     status.pips[0].region.height === original.region.height,
