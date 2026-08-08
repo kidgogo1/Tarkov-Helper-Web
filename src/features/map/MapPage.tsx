@@ -23,6 +23,8 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Search,
+  Settings2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -61,6 +63,8 @@ import "../../styles/map.css";
 export interface MapPageProps {
   data: TarkovData;
   focusQuestId?: string;
+  onOpenQuest?: (questId: string) => void;
+  onOpenSettings?: () => void;
   onQuestFocusConsumed?: () => void;
 }
 
@@ -284,6 +288,24 @@ function defaultFloor(config: MapConfig): string | undefined {
 
 function localQuestName(quest: QuestData): string {
   return quest.nameKo || quest.name || quest.nameEn;
+}
+
+function questAppliesToMap(quest: QuestData, config: MapConfig): boolean {
+  return [
+    ...quest.locations,
+    ...quest.objectives.map((objective) => objective.mapName),
+  ].some((mapName) => mapMatches(config, mapName));
+}
+
+function questSearchText(quest: QuestData): string {
+  return normalized([
+    localQuestName(quest),
+    quest.name,
+    quest.nameEn,
+    quest.normalizedName,
+    quest.trader,
+    ...quest.objectives.map((objective) => objective.description),
+  ].join(" "));
 }
 
 function objectiveAppliesToMap(entry: ObjectiveEntry, config: MapConfig): boolean {
@@ -677,7 +699,13 @@ function CustomMarkerEditor({
   );
 }
 
-export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPageProps) {
+export function MapPage({
+  data,
+  focusQuestId,
+  onOpenQuest,
+  onOpenSettings,
+  onQuestFocusConsumed,
+}: MapPageProps) {
   const {
     profile,
     settings,
@@ -718,6 +746,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   const [objectiveStatusFilter, setObjectiveStatusFilter] =
     useState<ObjectiveStatusFilter>("all");
   const [objectiveTypeFilter, setObjectiveTypeFilter] = useState("all");
+  const [regionQuestQuery, setRegionQuestQuery] = useState("");
   const [currentMapObjectivesOnly, setCurrentMapObjectivesOnly] = useState(true);
   const [groupObjectivesByQuest, setGroupObjectivesByQuest] = useState(true);
   const [playerPositions, setPlayerPositions] = useState<PlayerMapPosition[]>([]);
@@ -945,6 +974,19 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
     return entries;
   }, [data.quests, focusedQuestId, questStatusResolver]);
 
+  const regionQuests = useMemo(
+    () => data.quests
+      .filter((quest) => questAppliesToMap(quest, config))
+      .sort((left, right) =>
+        localQuestName(left).localeCompare(localQuestName(right), "ko-KR")),
+    [config, data.quests],
+  );
+  const filteredRegionQuests = useMemo(() => {
+    const needle = normalized(regionQuestQuery);
+    if (!needle) return regionQuests;
+    return regionQuests.filter((quest) => questSearchText(quest).includes(needle));
+  }, [regionQuestQuery, regionQuests]);
+
   const questPoints = useMemo(
     () =>
       objectiveEntries.flatMap((entry) =>
@@ -1136,6 +1178,7 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
   const changeMap = (event: ChangeEvent<HTMLSelectElement>) => {
     setFocusedQuestId(undefined);
     pendingMapFocusRef.current = undefined;
+    setRegionQuestQuery("");
     setSelectedMapKey(event.target.value);
   };
 
@@ -1618,6 +1661,18 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
               <option key={map.key} value={map.key}>{map.displayName}</option>
             ))}
           </select>
+          {onOpenSettings ? (
+            <button
+              aria-label="지도 설정 열기"
+              className="map-settings-button"
+              onClick={onOpenSettings}
+              title="화면·미니맵 설정 열기"
+              type="button"
+            >
+              <Settings2 aria-hidden="true" size={16} />
+              <span>설정</span>
+            </button>
+          ) : null}
         </div>
 
         {orderedFloors.length > 0 ? (
@@ -1737,6 +1792,52 @@ export function MapPage({ data, focusQuestId, onQuestFocusConsumed }: MapPagePro
                 <Trash2 aria-hidden="true" size={14} /> 플레이어 경로 지우기
               </button>
             </div>
+          </section>
+
+          <section aria-labelledby="map-region-quests-title" className="map-side-section map-region-quests-section">
+            <div className="map-section-heading">
+              <div>
+                <p className="map-eyebrow">현재 지도</p>
+                <h2 id="map-region-quests-title">지역 퀘스트 검색</h2>
+              </div>
+              <span className="badge">{filteredRegionQuests.length}/{regionQuests.length}</span>
+            </div>
+            <label className="map-region-quest-search">
+              <Search aria-hidden="true" size={15} />
+              <span className="sr-only">현재 지역 퀘스트 검색</span>
+              <input
+                aria-label="현재 지역 퀘스트 검색"
+                onChange={(event) => setRegionQuestQuery(event.target.value)}
+                placeholder="퀘스트·상인·목표 검색"
+                type="search"
+                value={regionQuestQuery}
+              />
+            </label>
+            {filteredRegionQuests.length > 0 ? (
+              <ul className="map-region-quest-list">
+                {filteredRegionQuests.map((quest) => (
+                  <li key={quest.id} data-testid="map-region-quest-item">
+                    <button
+                      className="map-region-quest-button"
+                      disabled={!onOpenQuest}
+                      onClick={() => onOpenQuest?.(quest.id)}
+                      type="button"
+                    >
+                      <span>
+                        <strong>{localQuestName(quest)}</strong>
+                        <small>
+                          {quest.trader} · {quest.objectives.length}개 목표
+                          {quest.objectives[0]?.description ? ` · ${quest.objectives[0].description}` : ""}
+                        </small>
+                      </span>
+                      <span aria-hidden="true">›</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="map-empty-copy">검색 조건에 맞는 지역 퀘스트가 없습니다.</p>
+            )}
           </section>
 
           <section aria-labelledby="map-objectives-title" className="map-side-section map-objectives-section">

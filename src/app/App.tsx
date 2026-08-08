@@ -261,6 +261,8 @@ export function App() {
           <MapPage
             data={data}
             focusQuestId={mapFocusQuestId}
+            onOpenQuest={openQuest}
+            onOpenSettings={() => setSettingsOpen(true)}
             onQuestFocusConsumed={() => setMapFocusQuestId(undefined)}
           />
         );

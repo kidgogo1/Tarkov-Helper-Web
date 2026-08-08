@@ -40,6 +40,23 @@
   font-weight: 750;
 }
 
+.map-settings-button {
+  display: inline-flex;
+  min-height: 31px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-color: color-mix(in srgb, var(--accent), var(--line) 70%);
+  color: var(--accent-strong);
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+.map-settings-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .map-floor-tabs {
   display: flex;
   min-width: 0;
@@ -134,6 +151,92 @@
   color: var(--text);
   font-size: 15px;
   line-height: 1.2;
+}
+
+.map-region-quest-search {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-dim);
+  padding: 0 9px;
+}
+
+.map-region-quest-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.map-region-quest-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 0;
+  font-size: 11px;
+}
+
+.map-region-quest-list {
+  display: grid;
+  max-height: 230px;
+  gap: 4px;
+  overflow: auto;
+  margin: 9px -4px 0;
+  padding: 0 4px;
+  list-style: none;
+}
+
+.map-region-quest-button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.map-region-quest-button:hover:not(:disabled),
+.map-region-quest-button:focus-visible:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
+}
+
+.map-region-quest-button > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.map-region-quest-button strong,
+.map-region-quest-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-region-quest-button strong {
+  font-size: 11px;
+}
+
+.map-region-quest-button small {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.map-region-quest-button > span:last-child {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 19px;
 }
 
 .map-eyebrow {

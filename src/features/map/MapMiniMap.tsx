@@ -767,6 +767,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
     if (controller) {
       let session: NativeOverlaySession | null = null;
       let claimId: string | null = null;
+      let nativeClaimFailed = false;
       try {
         session = await resolveNativeSession();
         if (!isCurrentAttempt()) return;
@@ -776,6 +777,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
             const claim = await beginNativeOverlayClaim(session);
             claimId = claim.claimId;
           } catch (error) {
+            nativeClaimFailed = true;
             if (isCurrentAttempt()) {
               setNativeNotice(nativeOverlayErrorNotice(error));
             }
@@ -783,6 +785,16 @@ export function MapMiniMap(props: MapMiniMapProps) {
         }
 
         if (!isCurrentAttempt()) return;
+        if (session && nativeClaimFailed) {
+          if (mountedRef.current) {
+            setNativeNotice(null);
+            setFallbackNotice(
+              "브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.",
+            );
+            setFallbackOpen(true);
+          }
+          return;
+        }
 
         const pipWindow = await controller.requestWindow({
           width: MINI_MAP_SIZE,
@@ -844,7 +856,23 @@ export function MapMiniMap(props: MapMiniMapProps) {
               rememberNativeOverlay(null);
             }
             if (isCurrentAttempt()) {
-              setNativeNotice(nativeOverlayErrorNotice(error));
+              // A regular Document-PiP window exposes the browser's own
+              // title/tab chrome. If the native crop bridge cannot attach,
+              // close that window and use the in-page fallback instead of
+              // leaving the user with a framed mini-map.
+              clearPictureInPictureLifecycle();
+              const failedPipWindow = pipWindowRef.current;
+              pipWindowRef.current = null;
+              await detachCurrentNativeOverlay(true);
+              if (mountedRef.current) {
+                setPictureInPicture(null);
+                setFallbackOpen(true);
+                setFallbackNotice(
+                  "브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.",
+                );
+                setNativeNotice(null);
+              }
+              failedPipWindow?.close();
             }
           }
         }

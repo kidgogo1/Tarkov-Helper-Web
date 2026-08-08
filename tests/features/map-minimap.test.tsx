@@ -681,7 +681,7 @@ describe("MapMiniMap", () => {
     expect(request.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
   });
 
-  it("keeps the PiP usable and explains the problem when native attachment fails", async () => {
+  it("falls back to the chrome-free page minimap when native attachment fails", async () => {
     const api = createNativeOverlayApi({ failAttach: true });
     vi.stubGlobal("fetch", api.request);
     const pipWindow = createPictureInPictureWindow();
@@ -693,13 +693,10 @@ describe("MapMiniMap", () => {
     expect(await screen.findByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
 
-    expect(await within(pipWindow.document.body).findByRole("dialog")).toBeInTheDocument();
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "미니맵 창을 정확히 찾지 못했습니다. 창을 닫고 다시 열어 주세요",
-    );
-    expect(screen.getByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
-    expect(pipWindow.close).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("map-minimap-fallback")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
+    expect(pipWindow.close).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
+    expect(screen.getByText("브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.")).toBeInTheDocument();
   });
 
   it("clears the native preparing state when the browser rejects the PiP request", async () => {

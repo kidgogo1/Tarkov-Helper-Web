@@ -300,6 +300,29 @@ function mockMapViewport(initialWidth: number, initialHeight: number) {
 }
 
 describe("MapPage", () => {
+  it("opens display settings from the map selector and searches every quest in the selected region", () => {
+    const onOpenSettings = vi.fn();
+    const onOpenQuest = vi.fn();
+
+    renderPage({ onOpenQuest, onOpenSettings });
+
+    expect(screen.getByRole("button", { name: "지도 설정 열기" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "지도 설정 열기" }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+    expect(screen.getByRole("heading", { name: "지역 퀘스트 검색" })).toBeInTheDocument();
+    const regionSearch = screen.getByRole("searchbox", { name: "현재 지역 퀘스트 검색" });
+    expect(screen.getByRole("button", { name: /물방 찾기/ })).toBeInTheDocument();
+
+    fireEvent.change(regionSearch, { target: { value: "문서" } });
+    expect(screen.getByRole("button", { name: /물방 찾기/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /물방 찾기/ }));
+    expect(onOpenQuest).toHaveBeenCalledWith("quest-customs");
+  });
+
   beforeEach(() => {
     window.localStorage.clear();
   });
