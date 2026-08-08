@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_STATE_STORAGE_KEY, AppStoreProvider, createDefaultState } from "../../src/app/store";
 import {
   MapMiniMap,
+  type MapMiniMapMarker,
   type MapMiniMapPlayer,
 } from "../../src/features/map/MapMiniMap";
 import type { MapConfig } from "../../src/types/data";
@@ -32,10 +33,16 @@ function StoreWrapper({ children }: PropsWithChildren) {
   return <AppStoreProvider>{children}</AppStoreProvider>;
 }
 
-function renderMiniMap(currentPlayer: MapMiniMapPlayer | undefined = player) {
+function renderMiniMap(
+  currentPlayer: MapMiniMapPlayer | undefined = player,
+  markers: readonly MapMiniMapMarker[] = [],
+  markerSummary?: string,
+) {
   return render(
     <MapMiniMap
       config={config}
+      markerSummary={markerSummary}
+      markers={markers}
       orderedFloors={config.floors}
       player={currentPlayer}
       playerMarkerSize={18}
@@ -535,6 +542,32 @@ describe("MapMiniMap", () => {
     expect(screen.queryByTestId("player-trail")).not.toBeInTheDocument();
     expect(screen.queryByText(/퀘스트|탈출구/)).not.toBeInTheDocument();
     expect(document.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
+  });
+
+  it("renders marker dots without names and keeps the selected meaning in the corner summary", async () => {
+    renderMiniMap(player, [
+      {
+        id: "quest:water-room:visit",
+        kind: "quest",
+        screen: { x: 200, y: 240 },
+        summary: "퀘스트 목표 · Water Room · Visit",
+        selected: true,
+      },
+      {
+        id: "extract-crossroads",
+        kind: "data",
+        screen: { x: 300, y: 330 },
+        summary: "탈출구 · Crossroads",
+      },
+    ], "퀘스트 목표 · Water Room · Visit");
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    expect(await screen.findAllByTestId("map-minimap-marker")).toHaveLength(2);
+    expect(screen.getByTestId("map-minimap-marker-summary")).toHaveTextContent(
+      "퀘스트 목표 · Water Room · Visit",
+    );
+    expect(screen.queryByText("Water Room")).not.toBeInTheDocument();
+    expect(screen.queryByText("Crossroads")).not.toBeInTheDocument();
   });
 
   it("claims the PiP before opening, applies a 300px locked overlay, and keeps click-through controls on the main page", async () => {

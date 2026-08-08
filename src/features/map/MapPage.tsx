@@ -31,7 +31,7 @@ import {
 
 import { useAppStore } from "../../app/store";
 import { Dialog } from "../../components/Dialog";
-import { MapMiniMap } from "./MapMiniMap";
+import { MapMiniMap, type MapMiniMapMarker } from "./MapMiniMap";
 import {
   applySvgFloorVisibility,
   detectFloor,
@@ -1095,6 +1095,25 @@ export function MapPage({
     [hiddenBasicTypes, mapMarkers, mapSettings, selectedFloor],
   );
 
+  const visibleQuestPoints = useMemo(
+    () =>
+      mapSettings.showQuestMarkers
+        ? questPoints.filter(
+            (point) =>
+              markerFloorVisible(point.floorId, selectedFloor) &&
+              (mapSettings.showCompletedObjectives ||
+                !profile.objectiveProgress[point.objective.id]),
+          )
+        : [],
+    [
+      mapSettings.showCompletedObjectives,
+      mapSettings.showQuestMarkers,
+      profile.objectiveProgress,
+      questPoints,
+      selectedFloor,
+    ],
+  );
+
   const customMarkers = useMemo(
     () =>
       profile.customMarkers.filter(
@@ -1121,6 +1140,60 @@ export function MapPage({
       }),
     [config, data.mapConfigs, profile.customMarkers],
   );
+
+  const miniMapMarkers = useMemo<MapMiniMapMarker[]>(
+    () => [
+      ...visibleQuestPoints.map((point) => ({
+        id: point.id,
+        kind: "quest" as const,
+        screen: point.screen,
+        summary: `퀘스트 목표 · ${localQuestName(point.quest)} · ${objectiveTypeLabel(point.objective.objectiveType)}`,
+        selected: selectedMarkerId === point.id,
+        completed: Boolean(profile.objectiveProgress[point.objective.id]),
+      })),
+      ...visibleDataMarkers.flatMap((marker) => {
+        const screen = markerScreenPosition(config, marker);
+        if (!screen) return [];
+        const label = marker.nameKo || marker.name || markerLabel(marker.markerType);
+        return [{
+          id: marker.id,
+          kind: "data" as const,
+          screen,
+          summary: `${markerLabel(marker.markerType)} · ${label}`,
+          selected: selectedMarkerId === marker.id,
+        }];
+      }),
+      ...customMarkers.flatMap((marker) => {
+        const screen = markerScreenPosition(config, marker);
+        if (!screen) return [];
+        return [{
+          id: marker.id,
+          kind: "custom" as const,
+          screen,
+          summary: `커스텀 마커 · ${marker.name}`,
+          selected: selectedMarkerId === marker.id,
+        }];
+      }),
+    ],
+    [
+      config,
+      customMarkers,
+      profile.objectiveProgress,
+      selectedMarkerId,
+      visibleDataMarkers,
+      visibleQuestPoints,
+    ],
+  );
+
+  const miniMapMarkerSummary = useMemo(() => {
+    const selected = miniMapMarkers.find((marker) => marker.selected);
+    if (selected) return selected.summary;
+    if (miniMapMarkers.length === 0) return "표시할 마커 없음";
+    const questCount = miniMapMarkers.filter((marker) => marker.kind === "quest").length;
+    const dataCount = miniMapMarkers.filter((marker) => marker.kind === "data").length;
+    const customCount = miniMapMarkers.filter((marker) => marker.kind === "custom").length;
+    return `마커 ${miniMapMarkers.length}개 · 퀘스트 ${questCount} · 지도 ${dataCount} · 사용자 ${customCount}`;
+  }, [miniMapMarkers]);
 
   const focusQuestPoint = useCallback((point: QuestMapPoint) => {
     if (point.floorId) setSelectedFloor(point.floorId);
@@ -1151,6 +1224,23 @@ export function MapPage({
       floorId: targetPoint.floorId,
     };
     setSelectedMapKey(targetConfig.key);
+  };
+
+  const focusRegionQuest = (quest: QuestData) => {
+    const entry = quest.objectives
+      .slice()
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((objective) => ({ quest, objective }))
+      .find((candidate) => {
+        const target = objectiveTargetMap(candidate, data.mapConfigs, config);
+        return Boolean(
+          target &&
+            buildQuestMapPoints(candidate, target, data.mapFloorLocations).length,
+        );
+      });
+    if (entry) focusObjectiveEntry(entry);
+    else setFocusedQuestId(quest.id);
+    onOpenQuest?.(quest.id);
   };
 
   const focusCustomMarker = (marker: CustomMapMarker) => {
@@ -1700,6 +1790,8 @@ export function MapPage({
           </span>
           <MapMiniMap
             config={config}
+            markerSummary={miniMapMarkerSummary}
+            markers={miniMapMarkers}
             orderedFloors={orderedFloors}
             player={latestPlayerPosition}
             playerMarkerSize={mapSettings.playerMarkerSize}
@@ -1820,8 +1912,7 @@ export function MapPage({
                   <li key={quest.id} data-testid="map-region-quest-item">
                     <button
                       className="map-region-quest-button"
-                      disabled={!onOpenQuest}
-                      onClick={() => onOpenQuest?.(quest.id)}
+                      onClick={() => focusRegionQuest(quest)}
                       type="button"
                     >
                       <span>
@@ -2202,13 +2293,7 @@ export function MapPage({
               })}
 
               {mapSettings.showQuestMarkers
-                ? questPoints
-                    .filter(
-                      (point) =>
-                        markerFloorVisible(point.floorId, selectedFloor) &&
-                        (mapSettings.showCompletedObjectives ||
-                          !profile.objectiveProgress[point.objective.id]),
-                    )
+                ? visibleQuestPoints
                     .map((point) => {
                       const completed = Boolean(profile.objectiveProgress[point.objective.id]);
                       const choiceLabel = point.isOptional

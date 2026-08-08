@@ -321,6 +321,10 @@ describe("MapPage", () => {
     expect(screen.getByRole("button", { name: /물방 찾기/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /물방 찾기/ }));
     expect(onOpenQuest).toHaveBeenCalledWith("quest-customs");
+    expect(screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   beforeEach(() => {

@@ -206,6 +206,67 @@
   animation: map-minimap-player-pulse 1.9s ease-out infinite;
 }
 
+.map-minimap-marker {
+  position: absolute;
+  z-index: 4;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 2px solid rgb(247 250 248 / 92%);
+  border-radius: 50%;
+  background: #e4b93f;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 80%);
+  transform: translate(-50%, -50%) scale(var(--mini-map-inverse-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.map-minimap-marker--quest {
+  border-radius: 3px;
+  background: #efc84a;
+}
+
+.map-minimap-marker--data {
+  background: #48a7e8;
+}
+
+.map-minimap-marker--custom {
+  border-radius: 2px;
+  background: #b474f2;
+  transform: translate(-50%, -50%) rotate(45deg) scale(var(--mini-map-inverse-scale, 1));
+}
+
+.map-minimap-marker.is-completed {
+  opacity: 0.55;
+}
+
+.map-minimap-marker.is-selected {
+  width: 14px;
+  height: 14px;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgb(110 203 255 / 70%), 0 1px 6px rgb(0 0 0 / 90%);
+}
+
+.map-minimap-marker-summary {
+  position: absolute;
+  z-index: 6;
+  top: 6px;
+  right: 6px;
+  max-width: min(70%, 260px);
+  overflow: hidden;
+  border: 1px solid rgb(180 210 220 / 28%);
+  border-radius: 3px;
+  background: rgb(10 14 16 / 72%);
+  color: rgb(240 245 242 / 88%);
+  padding: 3px 5px;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+
 @keyframes map-minimap-player-pulse {
   0% { opacity: 0.9; transform: scale(0.65); }
   75%, 100% { opacity: 0; transform: scale(1.5); }

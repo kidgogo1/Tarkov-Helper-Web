@@ -143,6 +143,13 @@ export function App() {
   };
 
   const openQuest = (questId: string) => {
+    // A quest selected from the map should keep the map visible so its
+    // objective marker can be inspected immediately. Other callers still
+    // open the quest list as before.
+    if (activeTab === "map") {
+      setMapFocusQuestId(questId);
+      return;
+    }
     setQuestFocusId(questId);
     changeTab("quests");
   };

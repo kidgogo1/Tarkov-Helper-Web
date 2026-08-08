@@ -72,12 +72,29 @@ export interface MapMiniMapPlayer {
   angle?: number;
 }
 
+export type MapMiniMapMarkerKind = "quest" | "data" | "custom";
+
+export interface MapMiniMapMarker {
+  id: string;
+  kind: MapMiniMapMarkerKind;
+  screen: {
+    x: number;
+    y: number;
+  };
+  /** Accessible description and the compact meaning shown in the summary. */
+  summary: string;
+  selected?: boolean;
+  completed?: boolean;
+}
+
 export interface MapMiniMapProps {
   config: MapConfig;
   orderedFloors: readonly MapFloor[];
   selectedFloor?: string;
   player?: MapMiniMapPlayer;
   playerMarkerSize: number;
+  markers?: readonly MapMiniMapMarker[];
+  markerSummary?: string;
 }
 
 function getPictureInPictureController():
@@ -206,6 +223,8 @@ function MiniMapSurface({
   selectedFloor,
   player,
   playerMarkerSize,
+  markers = [],
+  markerSummary,
   nativeGlobalHotkeysAvailable,
   nativeOverlayMode,
   presentation,
@@ -472,7 +491,27 @@ function MiniMapSurface({
               <Navigation aria-hidden="true" />
             </span>
           ) : null}
+          {markers.map((marker) => (
+            <span
+              aria-label={marker.summary}
+              className={`map-minimap-marker map-minimap-marker--${marker.kind}${marker.selected ? " is-selected" : ""}${marker.completed ? " is-completed" : ""}`}
+              data-marker-id={marker.id}
+              data-testid="map-minimap-marker"
+              key={marker.id}
+              role="img"
+              style={{ left: marker.screen.x, top: marker.screen.y }}
+            />
+          ))}
         </div>
+        {markerSummary ? (
+          <div
+            aria-live="polite"
+            className="map-minimap-marker-summary"
+            data-testid="map-minimap-marker-summary"
+          >
+            {markerSummary}
+          </div>
+        ) : null}
       </div>
 
     </section>
