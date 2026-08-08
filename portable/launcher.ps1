@@ -814,6 +814,13 @@ namespace TarkovHelper {
         private static extern int GetWindowRgn(IntPtr window, IntPtr region);
         [DllImport("user32.dll", SetLastError = true)]
         private static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetLayeredWindowAttributes(
+            IntPtr window,
+            uint colorKey,
+            byte alpha,
+            uint flags
+        );
         [DllImport("gdi32.dll", SetLastError = true)]
         private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
         [DllImport("gdi32.dll", SetLastError = true)]
@@ -861,6 +868,8 @@ namespace TarkovHelper {
         private const uint ShowWindow = 0x0040;
         private const uint NoActivate = 0x0010;
         private const long WindowEdge = 0x00000100L;
+        private const long LayeredWindow = 0x00080000L;
+        private const uint LayeredAlpha = 0x00000002;
         private const uint HotKeyMessage = 0x0312;
         private const uint QuitMessage = 0x0012;
         private const uint AltModifier = 0x0001;
@@ -915,6 +924,18 @@ namespace TarkovHelper {
             var window = new IntPtr(handle);
             if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
             return PixelsToDipsAtDpi(value, ReadDpi(window));
+        }
+
+        public static void SetLayeredAlpha(long handle, int alpha) {
+            if (alpha < 1 || alpha > 255) throw new ArgumentOutOfRangeException("alpha");
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new InvalidOperationException("The overlay window no longer exists.");
+            if ((ReadWindowLong(window, ExStyleIndex) & LayeredWindow) == 0) {
+                throw new InvalidOperationException("The overlay window is not layered.");
+            }
+            if (!SetLayeredWindowAttributes(window, 0, checked((byte)alpha), LayeredAlpha)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
         }
 
         public static NativePointInfo ScreenPointToDips(long handle, int x, int y) {
@@ -1252,10 +1273,21 @@ namespace TarkovHelper {
         ) {
             WriteWindowLong(window, StyleIndex, style);
             WriteWindowLong(window, ExStyleIndex, exStyle);
+            long effectiveExStyleMask = ~WindowEdge;
+            if (
+                ReadWindowLong(window, StyleIndex) != style ||
+                (ReadWindowLong(window, ExStyleIndex) & effectiveExStyleMask) !=
+                    (exStyle & effectiveExStyleMask)
+            ) {
+                throw new InvalidOperationException("The overlay window rejected its requested style.");
+            }
             if (!SetWindowPos(window, new IntPtr(-1), left, top, width, height, FrameChanged | ShowWindow | NoActivate)) {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
-            long effectiveExStyleMask = ~WindowEdge;
+            // Chromium may normalize extended styles while processing the
+            // frame change. Re-assert the layered bit after that pass before
+            // applying the compositor alpha.
+            WriteWindowLong(window, ExStyleIndex, exStyle);
             if (
                 ReadWindowLong(window, StyleIndex) != style ||
                 (ReadWindowLong(window, ExStyleIndex) & effectiveExStyleMask) !=
@@ -1581,6 +1613,15 @@ function Convert-NativeRectToDips {
     }
 }
 
+function Convert-NativeOpacityToAlpha {
+    param([Parameter(Mandatory = $true)][double]$Opacity)
+
+    if ([double]::IsNaN($Opacity) -or [double]::IsInfinity($Opacity) -or $Opacity -lt 0.1 -or $Opacity -gt 1) {
+        throw [ArgumentOutOfRangeException]::new("Opacity must be between 0.1 and 1.")
+    }
+    return [int][Math]::Round($Opacity * 255, [MidpointRounding]::AwayFromZero)
+}
+
 function Get-NativeOverlayEventsPayload {
     param([Parameter(Mandatory = $true)][string]$RequestTarget)
 
@@ -1748,6 +1789,7 @@ function Complete-NativeOverlayClaim {
         normalRect = $window.rect
         lockedVisibleRect = $null
         lockedBoundsDip = $null
+        nativeOpacity = [double]1
         globalHotkeysAvailable = $false
         mode = "UNLOCKED"
     }
@@ -1800,11 +1842,18 @@ function Set-NativeOverlayMode {
         [Parameter(Mandatory = $true)][string]$OverlayId,
         [Parameter(Mandatory = $true)][ValidateSet("UNLOCKED", "LOCKED", "CLICK_THROUGH")][string]$Mode,
         [Nullable[int]]$Width,
-        [Nullable[int]]$Height
+        [Nullable[int]]$Height,
+        [Nullable[double]]$Opacity
     )
 
     if (@("UNLOCKED", "LOCKED", "CLICK_THROUGH") -cnotcontains $Mode) {
         throw [ArgumentException]::new("The native overlay mode is invalid.")
+    }
+    if ($null -ne $Opacity) {
+        [void](Convert-NativeOpacityToAlpha -Opacity ([double]$Opacity))
+        if ($Mode -ceq "UNLOCKED") {
+            throw [ArgumentException]::new("Opacity may only be changed while the overlay is locked.")
+        }
     }
     if ($null -eq $script:nativeOverlayRecord -or $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
@@ -1834,6 +1883,12 @@ function Set-NativeOverlayMode {
         )
         $record.mode = "UNLOCKED"
         return Get-NativeOverlayResponse
+    }
+
+    $nextOpacity = if ($null -ne $Opacity) {
+        [double]$Opacity
+    } else {
+        [double]$record.nativeOpacity
     }
 
     if ($record.mode -ceq "UNLOCKED") {
@@ -1892,6 +1947,10 @@ function Set-NativeOverlayMode {
     $windowDecorationMask = [long]0x00CF0000
     $pinnedStyle = $record.originalStyle -band (-bnot $windowDecorationMask)
     $pinnedExStyle = $record.originalExStyle -bor [long]0x00000008
+    # A layered top-level surface is required for the transparent document
+    # background to reveal the desktop behind the map. Its alpha is updated
+    # after the crop is applied below.
+    $pinnedExStyle = $pinnedExStyle -bor [long]0x00080000
     if ($record.globalHotkeysAvailable -or $Mode -ceq "CLICK_THROUGH") {
         $pinnedExStyle = $pinnedExStyle -bor [long]0x08000000
     } else {
@@ -1902,7 +1961,7 @@ function Set-NativeOverlayMode {
     if ($Mode -ceq "CLICK_THROUGH") {
         $pinnedExStyle = $pinnedExStyle -bor [long]0x00080000 -bor [long]0x00000020
     } else {
-        $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00080020)
+        $pinnedExStyle = $pinnedExStyle -band (-bnot [long]0x00000020)
     }
     $appliedContent = [TarkovHelper.NativeOverlayBridge]::ApplyCroppedDips(
         $record.handle,
@@ -1912,6 +1971,10 @@ function Set-NativeOverlayMode {
         $nextVisibleRect.top,
         $nextBoundsDip.width,
         $nextBoundsDip.height
+    )
+    [TarkovHelper.NativeOverlayBridge]::SetLayeredAlpha(
+        $record.handle,
+        (Convert-NativeOpacityToAlpha -Opacity $nextOpacity)
     )
     $nextVisibleRect.left = [int]$appliedContent.Left
     $nextVisibleRect.top = [int]$appliedContent.Top
@@ -1926,6 +1989,7 @@ function Set-NativeOverlayMode {
     $nextBoundsDip.top = [int]$appliedTopLeftDip.Y
     $record.lockedVisibleRect = $nextVisibleRect
     $record.lockedBoundsDip = $nextBoundsDip
+    $record.nativeOpacity = $nextOpacity
     $record.mode = $Mode
     return Get-NativeOverlayResponse
 }
@@ -2865,16 +2929,22 @@ try {
                 if ($method -eq "PATCH") {
                     $hasWidth = @($requestObject.PSObject.Properties.Name) -contains "width"
                     $hasHeight = @($requestObject.PSObject.Properties.Name) -contains "height"
+                    $hasOpacity = @($requestObject.PSObject.Properties.Name) -contains "opacity"
                     try {
                         Assert-JsonObjectShape -Value $requestObject `
-                            -AllowedProperties @("overlayId", "mode", "width", "height") `
+                            -AllowedProperties @("overlayId", "mode", "width", "height", "opacity") `
                             -RequiredProperties @("overlayId", "mode")
                         if (
                             $requestObject.overlayId -isnot [string] -or
                             $requestObject.overlayId -notmatch "^[A-Za-z0-9_-]{40,64}$" -or
                             $requestObject.mode -isnot [string] -or
                             @("UNLOCKED", "LOCKED", "CLICK_THROUGH") -cnotcontains $requestObject.mode -or
-                            $hasWidth -ne $hasHeight
+                            $hasWidth -ne $hasHeight -or
+                            ($hasOpacity -and (
+                                $requestObject.opacity -isnot [double] -and
+                                $requestObject.opacity -isnot [decimal] -and
+                                $requestObject.opacity -isnot [int]
+                            ))
                         ) {
                             throw [ArgumentException]::new("The overlay identifier, mode, or size is invalid.")
                         }
@@ -2891,6 +2961,18 @@ try {
                                 throw [ArgumentException]::new("Overlay width and height must be bounded integers for a locked mode.")
                             }
                         }
+                        if ($hasOpacity) {
+                            $opacity = [double]$requestObject.opacity
+                            if (
+                                [double]::IsNaN($opacity) -or
+                                [double]::IsInfinity($opacity) -or
+                                $opacity -lt 0.1 -or
+                                $opacity -gt 1 -or
+                                $requestObject.mode -ceq "UNLOCKED"
+                            ) {
+                                throw [ArgumentException]::new("Overlay opacity must be between 0.1 and 1 for a locked mode.")
+                            }
+                        }
                     } catch [ArgumentException] {
                         Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
                             -Code "INVALID_REQUEST" -Message $_.Exception.Message
@@ -2900,8 +2982,9 @@ try {
                     try {
                         $width = if ($hasWidth) { [Nullable[int]]([int]$requestObject.width) } else { $null }
                         $height = if ($hasHeight) { [Nullable[int]]([int]$requestObject.height) } else { $null }
+                        $opacity = if ($hasOpacity) { [Nullable[double]]([double]$requestObject.opacity) } else { $null }
                         $updateResponse = Set-NativeOverlayMode -OverlayId $requestObject.overlayId `
-                            -Mode $requestObject.mode -Width $width -Height $height
+                            -Mode $requestObject.mode -Width $width -Height $height -Opacity $opacity
                     } catch {
                         Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                             -Code "NATIVE_FAILURE" -Message "The native overlay could not be updated."

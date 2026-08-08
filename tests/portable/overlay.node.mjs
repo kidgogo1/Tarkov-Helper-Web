@@ -915,7 +915,7 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
     (status.pips[0].exStyle & 0x08000008) === 0x08000008 &&
     status.pips[0].region.type > 0,
   );
-  assert.equal(lockedStatus.pips[0].exStyle & 0x00080020, 0);
+  assert.equal(lockedStatus.pips[0].exStyle & 0x00080020, 0x00080000);
   assert.deepEqual(locked.body.bounds, {
     left: screenPointToDips(original.left, original.monitor.left, original.dpi),
     top: screenPointToDips(original.top, original.monitor.top, original.dpi),
@@ -986,7 +986,7 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   await statusWhere((status) =>
     status.rejectExStyle === false &&
     status.pips[0].style === lockedStatus.pips[0].style &&
-    (status.pips[0].exStyle & 0x08080028) === 0x08000008 &&
+    (status.pips[0].exStyle & 0x08080028) === 0x08080008 &&
     status.pips[0].region.width === lockedStatus.pips[0].region.width &&
     status.pips[0].region.height === lockedStatus.pips[0].region.height,
   );
@@ -1026,7 +1026,7 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   const resizedStatus = await statusWhere((status) =>
     status.pips[0].region.width === resizedPixels && status.pips[0].region.height === resizedPixels,
   );
-  assert.equal(resizedStatus.pips[0].exStyle & 0x00080020, 0);
+  assert.equal(resizedStatus.pips[0].exStyle & 0x00080020, 0x00080000);
   assert.equal(resizedStatus.pips[0].style & 0x00cf0000, 0);
   assert.deepEqual(interactiveAgain.body.bounds, {
     left: locked.body.bounds.left,

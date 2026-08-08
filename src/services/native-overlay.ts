@@ -63,6 +63,8 @@ export interface NativeOverlayDetachOptions {
 export interface NativeOverlayUpdateOptions {
   width?: number;
   height?: number;
+  /** Window alpha used by the native layered overlay (0.1 = mostly transparent). */
+  opacity?: number;
 }
 
 type FetchRequest = (
@@ -519,6 +521,7 @@ export async function updateNativeMiniMap(
   const optionKeys = Object.keys(options);
   const hasWidth = options.width !== undefined;
   const hasHeight = options.height !== undefined;
+  const hasOpacity = options.opacity !== undefined;
   const invalidSize =
     hasWidth !== hasHeight ||
     (hasWidth && (
@@ -530,17 +533,27 @@ export async function updateNativeMiniMap(
       options.height > session.sizeLimits.maxHeight ||
       mode === "UNLOCKED"
     ));
+  const invalidOpacity = hasOpacity && (
+    typeof options.opacity !== "number" ||
+    !Number.isFinite(options.opacity) ||
+    options.opacity < 0.1 ||
+    options.opacity > 1
+  );
   if (
     !isOpaqueId(overlayId) ||
     !isMode(mode) ||
-    optionKeys.some((key) => key !== "width" && key !== "height") ||
-    invalidSize
+    optionKeys.some((key) => key !== "width" && key !== "height" && key !== "opacity") ||
+    invalidSize ||
+    invalidOpacity
   ) {
     throw new NativeOverlayApiError("INVALID_REQUEST", 0);
   }
-  const body = hasWidth && hasHeight
-    ? { overlayId, mode, width: options.width, height: options.height }
-    : { overlayId, mode };
+  const body: Record<string, unknown> = { overlayId, mode };
+  if (hasWidth && hasHeight) {
+    body.width = options.width;
+    body.height = options.height;
+  }
+  if (hasOpacity) body.opacity = options.opacity;
   const response = await fetchCommand(MINIMAP_PATH, {
     method: "PATCH",
     cache: "no-store",

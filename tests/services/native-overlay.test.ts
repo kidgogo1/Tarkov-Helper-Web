@@ -200,6 +200,39 @@ describe("native overlay API boundary", () => {
     });
   });
 
+  it("sends the configured opacity to the native layered window", async () => {
+    const locked = { ...attachedPayload, mode: "LOCKED" } as const;
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(locked));
+
+    await expect(updateNativeMiniMap(
+      session,
+      "o".repeat(43),
+      "LOCKED",
+      { opacity: 0.25 },
+      request,
+    )).resolves.toEqual(locked);
+    expect(JSON.parse(request.mock.calls[0]?.[1]?.body as string)).toEqual({
+      overlayId: "o".repeat(43),
+      mode: "LOCKED",
+      opacity: 0.25,
+    });
+  });
+
+  it.each([0, 0.09, 1.01, Number.NaN, Number.POSITIVE_INFINITY])(
+    "blocks an invalid opacity before sending it (%s)",
+    async (opacity) => {
+      const request = vi.fn<typeof fetch>();
+      await expect(updateNativeMiniMap(
+        session,
+        "o".repeat(43),
+        "LOCKED",
+        { opacity },
+        request,
+      )).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     { width: 301, height: 300 },
     { width: 300, height: 301 },

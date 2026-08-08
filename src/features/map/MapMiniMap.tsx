@@ -116,10 +116,14 @@ function preparePictureInPictureDocument(
   pipDocument.documentElement.lang = document.documentElement.lang || "ko";
   pipDocument.documentElement.style.width = "100%";
   pipDocument.documentElement.style.height = "100%";
+  pipDocument.documentElement.style.background = "transparent";
+  pipDocument.documentElement.style.backgroundImage = "none";
   pipDocument.body.style.width = "100%";
   pipDocument.body.style.height = "100%";
   pipDocument.body.style.margin = "0";
   pipDocument.body.style.overflow = "hidden";
+  pipDocument.body.style.background = "transparent";
+  pipDocument.body.style.backgroundImage = "none";
   copyPageStyles(pipDocument);
 
   const root = pipDocument.createElement("div");
@@ -348,7 +352,13 @@ function MiniMapSurface({
   };
   const rootStyle: MiniMapStyle = {
     backgroundColor: "transparent",
-    "--mini-map-opacity": String(mapSettings.miniMapOpacity),
+    // The native window applies the configured opacity at the OS compositor
+    // level so pixels behind the overlay remain visible. Avoid multiplying
+    // that alpha a second time on the SVG itself.
+    "--mini-map-opacity": nativeOverlayMode === "LOCKED" ||
+        nativeOverlayMode === "CLICK_THROUGH"
+      ? "1"
+      : String(mapSettings.miniMapOpacity),
   };
   const playerStyle: MiniMapStyle | undefined = player
     ? {
@@ -547,6 +557,7 @@ function nativeOverlayErrorNotice(error: unknown): NativeOverlayNotice {
 
 export function MapMiniMap(props: MapMiniMapProps) {
   const { settings } = useAppStore();
+  const mapSettings = settings.map;
   const miniMapSize = Math.min(
     MINI_MAP_MAX_SIZE,
     Math.max(MINI_MAP_MIN_SIZE, settings.map.miniMapWindowSize),
@@ -569,6 +580,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const openAttemptRef = useRef(0);
   const nativeSessionRef = useRef<NativeOverlaySession | null>(null);
   const nativeOverlayRef = useRef<NativeOverlayAttachment | null>(null);
+  const nativeOpacityRef = useRef<number | null>(null);
   const nativeEventPollingAbortRef = useRef<AbortController | null>(null);
   const sessionDetectionRef = useRef<Promise<NativeOverlaySession | null> | null>(null);
   const nativeSessionCheckedRef = useRef(false);
@@ -597,6 +609,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
 
   const rememberNativeOverlay = useCallback((next: NativeOverlayAttachment | null) => {
     if (!next?.globalHotkeysAvailable) stopNativeEventPolling();
+    if (!next) nativeOpacityRef.current = null;
     nativeOverlayRef.current = next;
     if (mountedRef.current) setNativeOverlay(next);
   }, [stopNativeEventPolling]);
@@ -745,12 +758,17 @@ export function MapMiniMap(props: MapMiniMapProps) {
 
     setNativeBusy(true);
     try {
+      const opacity = mode === "UNLOCKED"
+        ? undefined
+        : mapSettings.miniMapOpacity;
       const next = await updateNativeMiniMap(
         session,
         overlay.overlayId,
         mode,
+        opacity === undefined ? {} : { opacity },
       );
       if (nativeOverlayRef.current?.overlayId === overlay.overlayId) {
+        if (mode !== "UNLOCKED") nativeOpacityRef.current = opacity ?? null;
         rememberNativeOverlay(next);
         setNativeNotice(nativeOverlayModeNotice(next));
       }
@@ -765,7 +783,39 @@ export function MapMiniMap(props: MapMiniMapProps) {
     } finally {
       if (mountedRef.current) setNativeBusy(false);
     }
-  }, [nativeBusy, rememberNativeOverlay]);
+  }, [mapSettings.miniMapOpacity, nativeBusy, rememberNativeOverlay]);
+
+  useEffect(() => {
+    const session = nativeSessionRef.current;
+    const overlay = nativeOverlayRef.current;
+    const opacity = mapSettings.miniMapOpacity;
+    if (
+      nativeBusy ||
+      !session ||
+      !overlay ||
+      (overlay.mode !== "LOCKED" && overlay.mode !== "CLICK_THROUGH") ||
+      nativeOpacityRef.current === opacity
+    ) {
+      return;
+    }
+    nativeOpacityRef.current = opacity;
+    setNativeBusy(true);
+    void updateNativeMiniMap(
+      session,
+      overlay.overlayId,
+      overlay.mode,
+      { opacity },
+    ).then((next) => {
+      if (nativeOverlayRef.current?.overlayId === overlay.overlayId) {
+        rememberNativeOverlay(next);
+      }
+    }).catch((error: unknown) => {
+      nativeOpacityRef.current = null;
+      if (mountedRef.current) setNativeNotice(nativeOverlayErrorNotice(error));
+    }).finally(() => {
+      if (mountedRef.current) setNativeBusy(false);
+    });
+  }, [mapSettings.miniMapOpacity, nativeBusy, rememberNativeOverlay]);
 
   const openMiniMap = async () => {
     if (isOpen) {
@@ -851,11 +901,16 @@ export function MapMiniMap(props: MapMiniMapProps) {
             if (attached.globalHotkeysAvailable) {
               startNativeEventPolling(session);
             }
+            nativeOpacityRef.current = mapSettings.miniMapOpacity;
             const locked = await updateNativeMiniMap(
               session,
               attached.overlayId,
               "LOCKED",
-              { width: miniMapSize, height: miniMapSize },
+              {
+                width: miniMapSize,
+                height: miniMapSize,
+                opacity: mapSettings.miniMapOpacity,
+              },
             );
             if (
               isCurrentAttempt() &&

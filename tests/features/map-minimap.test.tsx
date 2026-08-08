@@ -551,12 +551,15 @@ describe("MapMiniMap", () => {
       "PATCH_LOCKED",
     ]);
     expect(pipWindow.document.title).toBe(nativeSessionPayload.windowTitle);
+    expect(pipWindow.document.documentElement.style.background).toBe("transparent");
+    expect(pipWindow.document.body.style.background).toBe("transparent");
     const firstPatch = api.request.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(firstPatch?.[1]?.body))).toEqual({
       overlayId: nativeOverlayId,
       mode: "LOCKED",
       width: 300,
       height: 300,
+      opacity: 0.8,
     });
 
     const lockButton = screen.getByRole("button", { name: "오버레이 위치 잠금 해제" });
@@ -595,6 +598,7 @@ describe("MapMiniMap", () => {
     expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toEqual({
       overlayId: nativeOverlayId,
       mode: "LOCKED",
+      opacity: 0.8,
     });
 
     await waitFor(() => expect(api.eventSignals.length).toBeGreaterThan(0));
