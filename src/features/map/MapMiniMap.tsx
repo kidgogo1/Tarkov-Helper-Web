@@ -347,6 +347,7 @@ function MiniMapSurface({
     "--mini-map-inverse-scale": String(1 / Math.max(scale, 0.0001)),
   };
   const rootStyle: MiniMapStyle = {
+    backgroundColor: "transparent",
     "--mini-map-opacity": String(mapSettings.miniMapOpacity),
   };
   const playerStyle: MiniMapStyle | undefined = player

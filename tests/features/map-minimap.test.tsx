@@ -336,6 +336,14 @@ describe("MapMiniMap", () => {
     expect(document.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
   });
 
+  it("keeps the minimap shell transparent so the desktop behind it remains visible", async () => {
+    renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    const surface = await screen.findByRole("dialog", { name: "Customs 미니맵" });
+    expect(surface.style.backgroundColor).toBe("transparent");
+  });
+
   it("zooms with Alt plus and Alt minus while the fallback has focus", async () => {
     renderMiniMap();
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));

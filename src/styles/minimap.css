@@ -113,7 +113,7 @@
   min-height: 0;
   overflow: hidden;
   border-radius: inherit;
-  background: #0d0f0e;
+  background: transparent;
   color: #f3f4f1;
   color-scheme: dark;
   font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
@@ -140,10 +140,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(rgb(255 255 255 / 3%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
-    #0d0f0e;
+  background: transparent;
   background-size: 24px 24px;
   touch-action: none;
   user-select: none;
