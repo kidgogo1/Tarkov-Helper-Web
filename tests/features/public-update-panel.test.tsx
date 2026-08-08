@@ -103,6 +103,29 @@ describe("public update settings", () => {
     expect(disabledRequest).toHaveBeenCalledOnce();
   });
 
+  it("resumes an in-progress startup check as a check operation", async () => {
+    let resolveStatus!: (response: Response) => void;
+    const checkingSession = {
+      ...idleSession,
+      status: {
+        state: "CHECKING",
+        currentVersion: "1.0.0",
+        startedAt: "2026-08-09T03:04:04.000Z",
+      },
+    } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(checkingSession))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveStatus = resolve;
+      }));
+
+    const { result } = renderHook(() => usePublicUpdate(request));
+
+    await waitFor(() => expect(result.current.busy).toBe("CHECK"));
+    resolveStatus(jsonResponse({ protocolVersion: 1, status: availableStatus }));
+    await waitFor(() => expect(result.current.status).toEqual(availableStatus));
+  });
+
   it("shows release details, retries checks, and explains restart installation", () => {
     const onCheck = vi.fn();
     const onStage = vi.fn();

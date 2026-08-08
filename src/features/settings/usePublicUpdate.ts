@@ -105,7 +105,10 @@ export function usePublicUpdate(
       ) return;
 
       busyRef.current = true;
-      const operation = loadedSession.status.state === "IDLE" ? "CHECK" : "STAGE";
+      const operation = loadedSession.status.state === "IDLE" ||
+        loadedSession.status.state === "CHECKING"
+        ? "CHECK"
+        : "STAGE";
       setBusy(operation);
       operationControllerRef.current = controller;
       try {
