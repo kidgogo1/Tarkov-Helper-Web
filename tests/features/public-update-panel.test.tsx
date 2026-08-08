@@ -61,6 +61,43 @@ describe("public update settings", () => {
     }
   });
 
+  it("keeps a startup update error visible before retrying it on schedule", async () => {
+    vi.useFakeTimers();
+    try {
+      const errorStatus = {
+        state: "ERROR",
+        currentVersion: "1.0.0",
+        operation: "CHECK",
+        code: "NETWORK_ERROR",
+        message: "The release service could not be reached.",
+      } as const;
+      const currentStatus = {
+        state: "CURRENT",
+        currentVersion: "1.0.0",
+        latestVersion: "1.0.0",
+        checkedAt: "2026-08-09T09:04:05.000Z",
+      } as const;
+      const request = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: errorStatus }))
+        .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: currentStatus }));
+
+      const { result } = renderHook(() => usePublicUpdate(request));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.status).toEqual(errorStatus);
+      expect(request).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1_000);
+      });
+      expect(result.current.status).toEqual(currentStatus);
+      expect(request).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("checks once on startup and stages the exact reviewed version", async () => {
     const ready = {
       state: "READY_TO_RESTART",

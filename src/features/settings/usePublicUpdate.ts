@@ -42,11 +42,14 @@ function isPendingStatus(status: PublicUpdateStatus): boolean {
     status.state === "ROLLING_BACK";
 }
 
-function isAutomaticCheckStatus(status: PublicUpdateStatus): boolean {
+function isStartupCheckStatus(status: PublicUpdateStatus): boolean {
   return status.state === "IDLE" ||
     status.state === "CURRENT" ||
-    status.state === "UPDATED" ||
-    status.state === "ERROR";
+    status.state === "UPDATED";
+}
+
+function isScheduledCheckStatus(status: PublicUpdateStatus): boolean {
+  return isStartupCheckStatus(status) || status.state === "ERROR";
 }
 
 function waitForNextPoll(signal: AbortSignal): Promise<void> {
@@ -109,19 +112,19 @@ export function usePublicUpdate(
       if (
         !loadedSession ||
         loadedSession.status.state === "DISABLED" ||
-        (!isAutomaticCheckStatus(loadedSession.status) && !isPendingStatus(loadedSession.status)) ||
+        (!isStartupCheckStatus(loadedSession.status) && !isPendingStatus(loadedSession.status)) ||
         busyRef.current
       ) return;
 
       busyRef.current = true;
-      const operation = isAutomaticCheckStatus(loadedSession.status) ||
+      const operation = isStartupCheckStatus(loadedSession.status) ||
         loadedSession.status.state === "CHECKING"
         ? "CHECK"
         : "STAGE";
       setBusy(operation);
       operationControllerRef.current = controller;
       try {
-        const initial = isAutomaticCheckStatus(loadedSession.status)
+        const initial = isStartupCheckStatus(loadedSession.status)
           ? await checkForPublicUpdate(loadedSession, request)
           : loadedSession.status;
         const settled = isPendingStatus(initial)
@@ -192,7 +195,7 @@ export function usePublicUpdate(
   }, [request, session, status]);
 
   useEffect(() => {
-    if (!session || !status || !isAutomaticCheckStatus(status)) return;
+    if (!session || !status || !isScheduledCheckStatus(status)) return;
     const interval = window.setInterval(() => {
       if (!busyRef.current) void check();
     }, AUTO_CHECK_INTERVAL_MS);
