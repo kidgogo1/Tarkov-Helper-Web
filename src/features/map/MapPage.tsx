@@ -64,7 +64,7 @@ export interface MapPageProps {
   data: TarkovData;
   focusQuestId?: string;
   onOpenQuest?: (questId: string) => void;
-  onOpenSettings?: () => void;
+  onOpenMiniMapSettings?: () => void;
   onQuestFocusConsumed?: () => void;
 }
 
@@ -702,8 +702,8 @@ function CustomMarkerEditor({
 export function MapPage({
   data,
   focusQuestId,
+  onOpenMiniMapSettings,
   onOpenQuest,
-  onOpenSettings,
   onQuestFocusConsumed,
 }: MapPageProps) {
   const {
@@ -1661,16 +1661,16 @@ export function MapPage({
               <option key={map.key} value={map.key}>{map.displayName}</option>
             ))}
           </select>
-          {onOpenSettings ? (
+          {onOpenMiniMapSettings ? (
             <button
-              aria-label="지도 설정 열기"
+              aria-label="미니맵 설정 열기"
               className="map-settings-button"
-              onClick={onOpenSettings}
-              title="화면·미니맵 설정 열기"
+              onClick={onOpenMiniMapSettings}
+              title="미니맵 설정 열기"
               type="button"
             >
               <Settings2 aria-hidden="true" size={16} />
-              <span>설정</span>
+              <span>미니맵 설정</span>
             </button>
           ) : null}
         </div>

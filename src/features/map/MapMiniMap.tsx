@@ -37,6 +37,8 @@ import {
 import "../../styles/minimap.css";
 
 const MINI_MAP_SIZE = 300;
+const MINI_MAP_MIN_SIZE = 240;
+const MINI_MAP_MAX_SIZE = 1000;
 const ZOOM_STEP = 0.05;
 
 interface DocumentPictureInPictureController {
@@ -535,6 +537,11 @@ function nativeOverlayErrorNotice(error: unknown): NativeOverlayNotice {
 }
 
 export function MapMiniMap(props: MapMiniMapProps) {
+  const { settings } = useAppStore();
+  const miniMapSize = Math.min(
+    MINI_MAP_MAX_SIZE,
+    Math.max(MINI_MAP_MIN_SIZE, settings.map.miniMapWindowSize),
+  );
   const [pictureInPicture, setPictureInPicture] =
     useState<PictureInPictureState | null>(null);
   const [fallbackOpen, setFallbackOpen] = useState(false);
@@ -797,8 +804,8 @@ export function MapMiniMap(props: MapMiniMapProps) {
         }
 
         const pipWindow = await controller.requestWindow({
-          width: MINI_MAP_SIZE,
-          height: MINI_MAP_SIZE,
+          width: miniMapSize,
+          height: miniMapSize,
         });
         if (!isCurrentAttempt()) {
           pipWindow.close();
@@ -839,7 +846,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
               session,
               attached.overlayId,
               "LOCKED",
-              { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE },
+              { width: miniMapSize, height: miniMapSize },
             );
             if (
               isCurrentAttempt() &&
@@ -903,6 +910,9 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const showNativeControls = Boolean(
     nativeSession && getPictureInPictureController() && !fallbackOpen,
   );
+  const fallbackStyle: MiniMapStyle = {
+    "--mini-map-window-size": `${miniMapSize}px`,
+  };
 
   return (
     <>
@@ -962,6 +972,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         <aside
           className="map-minimap-fallback"
           data-testid="map-minimap-fallback"
+          style={fallbackStyle}
         >
           {fallbackNotice ? (
             <p className="map-minimap-fallback-notice" role="status">
@@ -971,7 +982,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
           <MiniMapSurface
             {...props}
             presentation="fallback"
-            viewport={{ width: MINI_MAP_SIZE, height: MINI_MAP_SIZE }}
+            viewport={{ width: miniMapSize, height: miniMapSize }}
           />
         </aside>
       ) : null}

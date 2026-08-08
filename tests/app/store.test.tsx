@@ -45,6 +45,7 @@ describe("AppStoreProvider", () => {
     expect(state.settings.map.hiddenMarkerTypes).toEqual([]);
     expect(state.settings.map).toMatchObject({
       miniMapViewMode: "playerTracking",
+      miniMapWindowSize: 300,
       miniMapZoom: 1,
       miniMapOpacity: 0.8,
       miniMapPlayerMarkerScale: 1,
@@ -318,6 +319,7 @@ describe("AppStoreProvider", () => {
         extractNameSize: 90,
         customMarkerOpacity: -2,
         miniMapZoom: 99,
+        miniMapWindowSize: 2_000,
         miniMapOpacity: -2,
         miniMapPlayerMarkerScale: 0.1,
         miniMapOffsetX: 50_000,
@@ -334,6 +336,7 @@ describe("AppStoreProvider", () => {
         extractNameSize: 32,
         customMarkerOpacity: 0,
         miniMapZoom: 4,
+        miniMapWindowSize: 1000,
         miniMapOpacity: 0.1,
         miniMapPlayerMarkerScale: 0.5,
         miniMapOffsetX: 10_000,
@@ -353,6 +356,7 @@ describe("AppStoreProvider", () => {
           map: {
             lastMapKey: "Customs",
             miniMapViewMode: "invalid",
+            miniMapWindowSize: 10,
             miniMapZoom: 0,
             miniMapOpacity: 7,
             miniMapPlayerMarkerScale: 9,
@@ -368,6 +372,7 @@ describe("AppStoreProvider", () => {
     expect(result.current.settings.map).toMatchObject({
       lastMapKey: "Customs",
       miniMapViewMode: "playerTracking",
+      miniMapWindowSize: 240,
       miniMapZoom: 0.01,
       miniMapOpacity: 1,
       miniMapPlayerMarkerScale: 3,

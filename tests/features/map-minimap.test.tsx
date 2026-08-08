@@ -269,6 +269,20 @@ describe("MapMiniMap", () => {
     stylesheet.remove();
   });
 
+  it("uses the configured window size when opening the mini-map", async () => {
+    persistMapSettings({ miniMapWindowSize: 480 });
+    const pipWindow = createPictureInPictureWindow({ width: 480, height: 480 });
+    const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
+    setPictureInPictureController({ requestWindow });
+
+    renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    await waitFor(() => {
+      expect(requestWindow).toHaveBeenCalledWith({ width: 480, height: 480 });
+    });
+  });
+
   it("still opens after React Strict Mode replays mount effects", async () => {
     const pipWindow = createPictureInPictureWindow();
     const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);

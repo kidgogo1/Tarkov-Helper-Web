@@ -18,6 +18,7 @@ import { CollectorPage } from "../features/collector/CollectorPage";
 import { HideoutPage } from "../features/hideout/HideoutPage";
 import { ItemsPage } from "../features/items/ItemsPage";
 import { MapPage } from "../features/map/MapPage";
+import { MapMiniMapSettingsDialog } from "../features/map/MapMiniMapSettingsDialog";
 import { QuestsPage } from "../features/quests/QuestsPage";
 import { InProgressQuestDialog } from "../features/settings/InProgressQuestDialog";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
@@ -98,6 +99,7 @@ export function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(tabFromHash);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [miniMapSettingsOpen, setMiniMapSettingsOpen] = useState(false);
   const [inProgressQuestsOpen, setInProgressQuestsOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [mapFocusQuestId, setMapFocusQuestId] = useState<string>();
@@ -262,7 +264,7 @@ export function App() {
             data={data}
             focusQuestId={mapFocusQuestId}
             onOpenQuest={openQuest}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenMiniMapSettings={() => setMiniMapSettingsOpen(true)}
             onQuestFocusConsumed={() => setMapFocusQuestId(undefined)}
           />
         );
@@ -320,6 +322,13 @@ export function App() {
         open={settingsOpen}
         profile={store.profile}
         settings={store.settings}
+      />
+
+      <MapMiniMapSettingsDialog
+        mapSettings={store.settings.map}
+        onClose={() => setMiniMapSettingsOpen(false)}
+        onUpdateMapSettings={store.updateMapSettings}
+        open={miniMapSettingsOpen}
       />
 
       <InProgressQuestDialog

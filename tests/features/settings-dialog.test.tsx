@@ -118,12 +118,8 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("탈출구 이름 크기")).toBeInTheDocument();
   });
 
-  it("moves all minimap display options into the web settings", () => {
+  it("keeps minimap controls out of the full settings dialog", () => {
     const state = createDefaultState();
-    state.settings.map.miniMapOffsetX = 20;
-    state.settings.map.miniMapOffsetY = -10;
-    const onUpdateMapSettings = vi.fn();
-
     render(
       <SettingsDialog
         dataMeta={{
@@ -135,7 +131,7 @@ describe("SettingsDialog", () => {
         onClose={vi.fn()}
         onLogFiles={vi.fn()}
         onOpenInProgressQuests={vi.fn()}
-        onUpdateMapSettings={onUpdateMapSettings}
+        onUpdateMapSettings={vi.fn()}
         onUpdateProfile={vi.fn()}
         onUpdateSettings={vi.fn()}
         open
@@ -146,34 +142,9 @@ describe("SettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "화면" }));
 
-    fireEvent.change(screen.getByRole("combobox", { name: "미니맵 화면 방식" }), {
-      target: { value: "fixed" },
-    });
-    const zoomSlider = screen.getByRole("slider", { name: "미니맵 확대율" });
-    expect(zoomSlider).toHaveAttribute("min", "1");
-    expect(zoomSlider).toHaveAttribute("max", "400");
-    expect(zoomSlider).toHaveAttribute("step", "1");
-    fireEvent.change(zoomSlider, {
-      target: { value: "140" },
-    });
-    fireEvent.change(screen.getByRole("slider", { name: "미니맵 투명도" }), {
-      target: { value: "65" },
-    });
-    fireEvent.change(screen.getByRole("slider", { name: "미니맵 플레이어 크기" }), {
-      target: { value: "125" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "미니맵 위치 초기화" }));
-
-    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapViewMode: "fixed" });
-    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapZoom: 1.4 });
-    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapOpacity: 0.65 });
-    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapPlayerMarkerScale: 1.25 });
-    expect(onUpdateMapSettings).toHaveBeenCalledWith({
-      miniMapOffsetX: 0,
-      miniMapOffsetY: 0,
-    });
-    expect(screen.getByText(/Alt \+ \+/)).toBeInTheDocument();
-    expect(screen.getByText(/Alt \+ -/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "미니맵 화면 방식" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "미니맵 확대율" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "미니맵 위치 초기화" })).not.toBeInTheDocument();
   });
 
   it("opens manual in-progress quest input from log sync settings", () => {

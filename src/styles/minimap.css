@@ -85,8 +85,8 @@
   z-index: 1200;
   top: 14px;
   right: 14px;
-  width: min(300px, calc(100vw - 28px));
-  height: min(300px, calc(100vh - 28px));
+  width: min(var(--mini-map-window-size, 300px), calc(100vw - 28px));
+  height: min(var(--mini-map-window-size, 300px), calc(100vh - 28px));
   border: 0;
   border-radius: 0;
 }

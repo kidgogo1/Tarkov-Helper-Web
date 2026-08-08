@@ -300,15 +300,15 @@ function mockMapViewport(initialWidth: number, initialHeight: number) {
 }
 
 describe("MapPage", () => {
-  it("opens display settings from the map selector and searches every quest in the selected region", () => {
-    const onOpenSettings = vi.fn();
+  it("opens independent mini-map settings from the map selector and searches every quest in the selected region", () => {
+    const onOpenMiniMapSettings = vi.fn();
     const onOpenQuest = vi.fn();
 
-    renderPage({ onOpenQuest, onOpenSettings });
+    renderPage({ onOpenQuest, onOpenMiniMapSettings });
 
-    expect(screen.getByRole("button", { name: "지도 설정 열기" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "지도 설정 열기" }));
-    expect(onOpenSettings).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "미니맵 설정 열기" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 설정 열기" }));
+    expect(onOpenMiniMapSettings).toHaveBeenCalledOnce();
 
     fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
       target: { value: "Customs" },

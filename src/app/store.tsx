@@ -91,6 +91,7 @@ function createDefaultMapSettings(): MapDisplaySettings {
     extractNameSize: 16,
     customMarkerOpacity: 1,
     miniMapViewMode: "playerTracking",
+    miniMapWindowSize: 300,
     miniMapZoom: 1,
     miniMapOpacity: 0.8,
     miniMapPlayerMarkerScale: 1,
@@ -174,6 +175,9 @@ function normalizeMapSettings(
       next.miniMapViewMode === "fixed" || next.miniMapViewMode === "playerTracking"
         ? next.miniMapViewMode
         : current.miniMapViewMode,
+    miniMapWindowSize: Number.isFinite(next.miniMapWindowSize)
+      ? clampInteger(next.miniMapWindowSize, 240, 1000)
+      : current.miniMapWindowSize,
     miniMapZoom: Number.isFinite(next.miniMapZoom)
       ? clamp(next.miniMapZoom, 0.01, 4)
       : current.miniMapZoom,
@@ -357,6 +361,7 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "playerMarkerSize",
     "extractNameSize",
     "customMarkerOpacity",
+    "miniMapWindowSize",
     "miniMapZoom",
     "miniMapOpacity",
     "miniMapPlayerMarkerScale",
