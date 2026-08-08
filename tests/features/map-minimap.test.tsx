@@ -234,6 +234,8 @@ describe("MapMiniMap", () => {
   });
 
   it("fills and tracks the resizable Picture-in-Picture viewport while copying stylesheet links", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
     const pipWindow = createPictureInPictureWindow({ width: 640, height: 360 });
     const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
     setPictureInPictureController({ requestWindow });
@@ -270,6 +272,8 @@ describe("MapMiniMap", () => {
   });
 
   it("uses the configured window size when opening the mini-map", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
     persistMapSettings({ miniMapWindowSize: 480 });
     const pipWindow = createPictureInPictureWindow({ width: 480, height: 480 });
     const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
@@ -284,6 +288,8 @@ describe("MapMiniMap", () => {
   });
 
   it("still opens after React Strict Mode replays mount effects", async () => {
+    const api = createNativeOverlayApi();
+    vi.stubGlobal("fetch", api.request);
     const pipWindow = createPictureInPictureWindow();
     const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
     setPictureInPictureController({ requestWindow });
@@ -399,6 +405,11 @@ describe("MapMiniMap", () => {
   });
 
   it("handles Alt zoom in the PiP document and validated native hotkey events", async () => {
+    const api = createNativeOverlayApi({
+      eventBatches: [{ protocolVersion: 1, latestCursor: 0, events: [] }],
+      globalHotkeysAvailable: false,
+    });
+    vi.stubGlobal("fetch", api.request);
     const pipWindow = createPictureInPictureWindow();
     setPictureInPictureController({
       requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
@@ -713,19 +724,20 @@ describe("MapMiniMap", () => {
     expect(screen.getByRole("button", { name: "오버레이 위치 고정" })).toBeDisabled();
   });
 
-  it("hides native controls on a static host and keeps the normal PiP working", async () => {
+  it("does not open a framed PiP window when the native bridge is unavailable", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: "missing" }, 404));
     vi.stubGlobal("fetch", request);
-    const pipWindow = createPictureInPictureWindow();
-    const requestWindow = vi.fn().mockResolvedValue(pipWindow as unknown as Window);
+    const requestWindow = vi.fn();
     setPictureInPictureController({ requestWindow });
 
     renderMiniMap();
     await waitFor(() => expect(request).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
 
-    expect(await within(pipWindow.document.body).findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
+    expect(requestWindow).not.toHaveBeenCalled();
     expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
+    expect(screen.getByText("브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.")).toBeInTheDocument();
     expect(request.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
   });
 

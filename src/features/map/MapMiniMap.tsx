@@ -846,16 +846,28 @@ export function MapMiniMap(props: MapMiniMapProps) {
       try {
         session = await resolveNativeSession();
         if (!isCurrentAttempt()) return;
-        if (session) {
-          setNativeNotice({ kind: "status", text: "Windows 오버레이 창 준비 중…" });
-          try {
-            const claim = await beginNativeOverlayClaim(session);
-            claimId = claim.claimId;
-          } catch (error) {
-            nativeClaimFailed = true;
-            if (isCurrentAttempt()) {
-              setNativeNotice(nativeOverlayErrorNotice(error));
-            }
+        if (!session) {
+          // A static host (or an older launcher) cannot crop Chromium's
+          // Document-PiP chrome. Do not open a framed PiP window in that
+          // case; use the in-page overlay, which has no browser tab/title bar.
+          if (mountedRef.current) {
+            setNativeNotice(null);
+            setFallbackNotice(
+              "브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.",
+            );
+            setFallbackOpen(true);
+          }
+          return;
+        }
+
+        setNativeNotice({ kind: "status", text: "Windows 오버레이 창 준비 중…" });
+        try {
+          const claim = await beginNativeOverlayClaim(session);
+          claimId = claim.claimId;
+        } catch (error) {
+          nativeClaimFailed = true;
+          if (isCurrentAttempt()) {
+            setNativeNotice(nativeOverlayErrorNotice(error));
           }
         }
 
