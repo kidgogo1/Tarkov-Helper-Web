@@ -62,6 +62,8 @@ test("release identity comes from GitHub context and publish has only required p
   assert.match(publishJob, /releases\/\$releaseId/);
   assert.match(publishJob, /StringComparison\]::Ordinal/);
   assert.match(publishJob, /equal or newer version already exists/);
+  assert.match(publishJob, /-f make_latest=legacy/);
+  assert.doesNotMatch(publishJob, /-f make_latest=true/);
   assert.doesNotMatch(publishJob, /gh release edit/);
   const privateKeyReferences = [...workflow.matchAll(/UPDATE_SIGNING_PRIVATE_KEY/g)];
   assert.equal(privateKeyReferences.length, 1, "the private key must be exposed only to the fresh finalization step");

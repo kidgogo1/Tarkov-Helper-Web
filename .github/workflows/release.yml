@@ -393,7 +393,7 @@ jobs:
             }
           }
           $releaseId = [int64]$release.id
-          gh api --method PATCH -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" -F draft=false -f make_latest=true | Out-Null
+          gh api --method PATCH -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" -F draft=false -f make_latest=legacy | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Release publication failed; the verified draft was retained"
           }
           for ($attempt = 1; $attempt -le 6; $attempt += 1) {
@@ -427,4 +427,12 @@ jobs:
             [int64](Get-ExactAsset $published "tarkov-helper-web-source-v$version.zip")[0].id -ne $sourceId
           ) {
             throw "Published ZIP asset IDs changed after manifest signing"
+          }
+          $latest = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/latest" | ConvertFrom-Json
+          if (
+            $LASTEXITCODE -ne 0 -or $latest.draft -or $latest.prerelease -or
+            $latest.tag_name -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$' -or
+            [System.Version]::Parse($latest.tag_name.Substring(1)) -lt $candidate
+          ) {
+            throw "Latest stable release regressed below the published candidate"
           }
