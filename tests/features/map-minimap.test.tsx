@@ -570,6 +570,61 @@ describe("MapMiniMap", () => {
     expect(screen.queryByText("Crossroads")).not.toBeInTheDocument();
   });
 
+  it("uses the same icon and shape variants as the full map markers", async () => {
+    renderMiniMap(player, [
+      {
+        id: "quest-icon",
+        kind: "quest",
+        shape: "quest",
+        iconUrl: "/assets/map-icons/Quest_Mark.svg",
+        screen: { x: 200, y: 240 },
+        summary: "퀘스트 목표 · Mark",
+      },
+      {
+        id: "optional-icon",
+        kind: "quest",
+        shape: "optional",
+        optionalLabel: "선택 1",
+        screen: { x: 240, y: 280 },
+        summary: "퀘스트 선택지 · 1",
+      },
+      {
+        id: "extract-icon",
+        kind: "data",
+        shape: "icon",
+        iconUrl: "/assets/map-icons/PMC%20Extraction.webp",
+        screen: { x: 300, y: 330 },
+        summary: "탈출구 · Crossroads",
+      },
+      {
+        id: "custom-pin",
+        kind: "custom",
+        shape: "custom",
+        color: "#4f8cff",
+        size: 24,
+        screen: { x: 360, y: 390 },
+        summary: "커스텀 마커 · Custom",
+      },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    const markers = await screen.findAllByTestId("map-minimap-marker");
+    expect(markers[0]).toHaveAttribute("data-marker-shape", "quest");
+    expect(markers[0].querySelector("img")).toHaveAttribute(
+      "src",
+      "/assets/map-icons/Quest_Mark.svg",
+    );
+    expect(markers[1]).toHaveAttribute("data-marker-shape", "optional");
+    expect(within(markers[1]).getByText("선택 1")).toBeInTheDocument();
+    expect(markers[2]).toHaveAttribute("data-marker-shape", "icon");
+    expect(markers[2].querySelector("img")).toHaveAttribute(
+      "src",
+      "/assets/map-icons/PMC%20Extraction.webp",
+    );
+    expect(markers[3]).toHaveAttribute("data-marker-shape", "custom");
+    expect(markers[3].querySelector(".map-minimap-custom-pin")).toBeInTheDocument();
+  });
+
   it("claims the PiP before opening, applies a 300px locked overlay, and keeps click-through controls on the main page", async () => {
     const api = createNativeOverlayApi();
     vi.stubGlobal("fetch", api.request);

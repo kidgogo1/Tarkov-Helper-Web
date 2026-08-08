@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  LocateFixed,
   MousePointer2,
   Navigation,
   Pin,
@@ -73,10 +74,16 @@ export interface MapMiniMapPlayer {
 }
 
 export type MapMiniMapMarkerKind = "quest" | "data" | "custom";
+export type MapMiniMapMarkerShape = "icon" | "quest" | "optional" | "custom";
 
 export interface MapMiniMapMarker {
   id: string;
   kind: MapMiniMapMarkerKind;
+  shape?: MapMiniMapMarkerShape;
+  iconUrl?: string;
+  color?: string;
+  size?: number;
+  optionalLabel?: string;
   screen: {
     x: number;
     y: number;
@@ -494,13 +501,33 @@ function MiniMapSurface({
           {markers.map((marker) => (
             <span
               aria-label={marker.summary}
-              className={`map-minimap-marker map-minimap-marker--${marker.kind}${marker.selected ? " is-selected" : ""}${marker.completed ? " is-completed" : ""}`}
+              className={`map-minimap-marker map-minimap-marker--${marker.kind} map-minimap-marker-shape--${marker.shape ?? marker.kind}${marker.selected ? " is-selected" : ""}${marker.completed ? " is-completed" : ""}`}
               data-marker-id={marker.id}
+              data-marker-shape={marker.shape ?? marker.kind}
               data-testid="map-minimap-marker"
               key={marker.id}
               role="img"
-              style={{ left: marker.screen.x, top: marker.screen.y }}
-            />
+              style={{
+                left: marker.screen.x,
+                top: marker.screen.y,
+                ...(marker.color ? { "--mini-map-marker-color": marker.color } : {}),
+                ...(marker.size ? { "--mini-map-marker-size": `${marker.size}px` } : {}),
+              } as MiniMapStyle}
+            >
+              {marker.iconUrl ? (
+                <img alt="" draggable="false" src={marker.iconUrl} />
+              ) : marker.shape === "custom" ? (
+                <span className="map-minimap-custom-pin">
+                  <LocateFixed aria-hidden="true" />
+                </span>
+              ) : marker.shape === "optional" ? (
+                <span className="map-minimap-optional-circle">
+                  {marker.optionalLabel ? <small>{marker.optionalLabel}</small> : null}
+                </span>
+              ) : (
+                <span className="map-minimap-marker-fallback" />
+              )}
+            </span>
           ))}
         </div>
         {markerSummary ? (

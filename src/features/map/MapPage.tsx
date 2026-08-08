@@ -1233,6 +1233,9 @@ export function MapPage({
       ...visibleQuestPoints.map((point) => ({
         id: point.id,
         kind: "quest" as const,
+        shape: point.isOptional ? "optional" as const : "quest" as const,
+        iconUrl: point.isOptional ? undefined : questMarkerIcon(point.objective.objectiveType),
+        optionalLabel: point.isOptional ? `선택 ${point.optionalIndex ?? 1}` : undefined,
         screen: point.screen,
         summary: `퀘스트 목표 · ${localQuestName(point.quest)} · ${objectiveTypeLabel(point.objective.objectiveType)}`,
         selected: selectedMarkerId === point.id,
@@ -1245,6 +1248,8 @@ export function MapPage({
         return [{
           id: marker.id,
           kind: "data" as const,
+          shape: "icon" as const,
+          iconUrl: markerIcon(marker.markerType),
           screen,
           summary: `${markerLabel(marker.markerType)} · ${label}`,
           selected: selectedMarkerId === marker.id,
@@ -1256,6 +1261,9 @@ export function MapPage({
         return [{
           id: marker.id,
           kind: "custom" as const,
+          shape: "custom" as const,
+          color: marker.color,
+          size: marker.size,
           screen,
           summary: `커스텀 마커 · ${marker.name}`,
           selected: selectedMarkerId === marker.id,
