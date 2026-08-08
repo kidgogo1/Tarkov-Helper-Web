@@ -76,6 +76,13 @@ export interface MapMiniMapPlayer {
 export type MapMiniMapMarkerKind = "quest" | "data" | "custom";
 export type MapMiniMapMarkerShape = "icon" | "quest" | "optional" | "custom";
 
+export interface MapMiniMapLegendItem {
+  id: string;
+  label: string;
+  iconUrl?: string;
+  count?: number;
+}
+
 export interface MapMiniMapMarker {
   id: string;
   kind: MapMiniMapMarkerKind;
@@ -101,7 +108,7 @@ export interface MapMiniMapProps {
   player?: MapMiniMapPlayer;
   playerMarkerSize: number;
   markers?: readonly MapMiniMapMarker[];
-  markerSummary?: string;
+  markerLegend?: readonly MapMiniMapLegendItem[];
 }
 
 function getPictureInPictureController():
@@ -231,7 +238,7 @@ function MiniMapSurface({
   player,
   playerMarkerSize,
   markers = [],
-  markerSummary,
+  markerLegend = [],
   nativeGlobalHotkeysAvailable,
   nativeOverlayMode,
   presentation,
@@ -530,13 +537,30 @@ function MiniMapSurface({
             </span>
           ))}
         </div>
-        {markerSummary ? (
+        {markerLegend.length > 0 ? (
           <div
-            aria-live="polite"
-            className="map-minimap-marker-summary"
-            data-testid="map-minimap-marker-summary"
+            aria-label="미니맵 마커 범례"
+            className="map-minimap-marker-legend"
+            data-testid="map-minimap-marker-legend"
+            role="list"
           >
-            {markerSummary}
+            {markerLegend.map((item) => (
+              <span
+                className="map-minimap-marker-legend-item"
+                data-testid="map-minimap-legend-item"
+                data-legend-id={item.id}
+                key={item.id}
+                role="listitem"
+              >
+                {item.iconUrl ? (
+                  <img alt="" className="map-minimap-marker-legend-icon" src={item.iconUrl} />
+                ) : null}
+                <span className="map-minimap-marker-legend-label">{item.label}</span>
+                {item.count === undefined ? null : (
+                  <span className="map-minimap-marker-legend-count">{item.count}</span>
+                )}
+              </span>
+            ))}
           </div>
         ) : null}
       </div>

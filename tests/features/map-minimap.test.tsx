@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_STATE_STORAGE_KEY, AppStoreProvider, createDefaultState } from "../../src/app/store";
 import {
   MapMiniMap,
+  type MapMiniMapLegendItem,
   type MapMiniMapMarker,
   type MapMiniMapPlayer,
 } from "../../src/features/map/MapMiniMap";
@@ -36,12 +37,12 @@ function StoreWrapper({ children }: PropsWithChildren) {
 function renderMiniMap(
   currentPlayer: MapMiniMapPlayer | undefined = player,
   markers: readonly MapMiniMapMarker[] = [],
-  markerSummary?: string,
+  markerLegend: readonly MapMiniMapLegendItem[] = [],
 ) {
   return render(
     <MapMiniMap
       config={config}
-      markerSummary={markerSummary}
+      markerLegend={markerLegend}
       markers={markers}
       orderedFloors={config.floors}
       player={currentPlayer}
@@ -544,7 +545,7 @@ describe("MapMiniMap", () => {
     expect(document.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
   });
 
-  it("renders marker dots without names and keeps the selected meaning in the corner summary", async () => {
+  it("renders marker dots without names and shows the categorized legend at the bottom", async () => {
     renderMiniMap(player, [
       {
         id: "quest:water-room:visit",
@@ -559,13 +560,26 @@ describe("MapMiniMap", () => {
         screen: { x: 300, y: 330 },
         summary: "탈출구 · Crossroads",
       },
-    ], "퀘스트 목표 · Water Room · Visit");
+    ], [
+      { id: "extract", label: "탈출구", count: 2 },
+      { id: "boss", label: "보스", count: 1 },
+      { id: "cultist", label: "컬티", count: 0 },
+      { id: "pmc-spawn", label: "PMC 스폰 위치", count: 3 },
+      { id: "pmc-extract", label: "PMC 탈출구", count: 1 },
+      { id: "scav-extract", label: "스캐브 탈출구", count: 2 },
+    ]);
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
 
     expect(await screen.findAllByTestId("map-minimap-marker")).toHaveLength(2);
-    expect(screen.getByTestId("map-minimap-marker-summary")).toHaveTextContent(
-      "퀘스트 목표 · Water Room · Visit",
-    );
+    expect(screen.queryByTestId("map-minimap-marker-summary")).not.toBeInTheDocument();
+    const legend = screen.getByTestId("map-minimap-marker-legend");
+    expect(legend).toHaveTextContent("탈출구");
+    expect(legend).toHaveTextContent("보스");
+    expect(legend).toHaveTextContent("컬티");
+    expect(legend).toHaveTextContent("PMC 스폰 위치");
+    expect(legend).toHaveTextContent("PMC 탈출구");
+    expect(legend).toHaveTextContent("스캐브 탈출구");
+    expect(within(legend).getAllByTestId("map-minimap-legend-item")).toHaveLength(6);
     expect(screen.queryByText("Water Room")).not.toBeInTheDocument();
     expect(screen.queryByText("Crossroads")).not.toBeInTheDocument();
   });

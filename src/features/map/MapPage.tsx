@@ -33,7 +33,11 @@ import {
 
 import { useAppStore } from "../../app/store";
 import { Dialog } from "../../components/Dialog";
-import { MapMiniMap, type MapMiniMapMarker } from "./MapMiniMap";
+import {
+  MapMiniMap,
+  type MapMiniMapLegendItem,
+  type MapMiniMapMarker,
+} from "./MapMiniMap";
 import {
   applySvgFloorVisibility,
   detectFloor,
@@ -237,6 +241,52 @@ const EXTRACT_MARKER_ICONS: Record<string, string> = {
   SharedExtraction: bundledAsset("assets/map-icons/PMC%20Extraction.webp"),
   Transit: bundledAsset("assets/map-icons/Transit.webp"),
 };
+
+const MINI_MAP_LEGEND_DEFINITIONS = [
+  {
+    id: "extract",
+    label: "탈출구",
+    markerTypes: ["sharedextraction", "transit"],
+    iconUrl: EXTRACT_MARKER_ICONS.SharedExtraction,
+  },
+  {
+    id: "boss",
+    label: "보스",
+    markerTypes: ["bossspawn"],
+    iconUrl: BASIC_MARKER_ICONS.BossSpawn,
+  },
+  {
+    id: "cultist",
+    label: "컬티",
+    markerTypes: ["cultistspawn"],
+    iconUrl: BASIC_MARKER_ICONS.CultistSpawn,
+  },
+  {
+    id: "pmc-spawn",
+    label: "PMC 스폰 위치",
+    markerTypes: ["pmcspawn"],
+    iconUrl: BASIC_MARKER_ICONS.PmcSpawn,
+  },
+  {
+    id: "pmc-extract",
+    label: "PMC 탈출구",
+    markerTypes: ["pmcextraction"],
+    iconUrl: EXTRACT_MARKER_ICONS.PmcExtraction,
+  },
+  {
+    id: "scav-extract",
+    label: "스캐브 탈출구",
+    markerTypes: ["scavextraction"],
+    iconUrl: EXTRACT_MARKER_ICONS.ScavExtraction,
+  },
+] as const;
+
+function miniMapLegendCategory(markerType: string): string | undefined {
+  const normalizedType = normalized(markerType);
+  return MINI_MAP_LEGEND_DEFINITIONS.find((definition) =>
+    definition.markerTypes.some((type) => type === normalizedType),
+  )?.id;
+}
 
 const QUEST_MARKER_TYPES = new Map(
   ["Build", "Collect", "Custom", "HandOver", "Kill", "Mark", "Stash", "Survive", "Task", "Visit"].map(
@@ -1280,15 +1330,17 @@ export function MapPage({
     ],
   );
 
-  const miniMapMarkerSummary = useMemo(() => {
-    const selected = miniMapMarkers.find((marker) => marker.selected);
-    if (selected) return selected.summary;
-    if (miniMapMarkers.length === 0) return "표시할 마커 없음";
-    const questCount = miniMapMarkers.filter((marker) => marker.kind === "quest").length;
-    const dataCount = miniMapMarkers.filter((marker) => marker.kind === "data").length;
-    const customCount = miniMapMarkers.filter((marker) => marker.kind === "custom").length;
-    return `마커 ${miniMapMarkers.length}개 · 퀘스트 ${questCount} · 지도 ${dataCount} · 사용자 ${customCount}`;
-  }, [miniMapMarkers]);
+  const miniMapMarkerLegend = useMemo<MapMiniMapLegendItem[]>(
+    () => MINI_MAP_LEGEND_DEFINITIONS.map((definition) => ({
+      id: definition.id,
+      label: definition.label,
+      iconUrl: definition.iconUrl,
+      count: visibleDataMarkers.filter(
+        (marker) => miniMapLegendCategory(marker.markerType) === definition.id,
+      ).length,
+    })),
+    [visibleDataMarkers],
+  );
 
   const focusQuestPoint = useCallback((point: QuestMapPoint) => {
     if (point.floorId) setSelectedFloor(point.floorId);
@@ -1933,7 +1985,7 @@ export function MapPage({
           </span>
           <MapMiniMap
             config={config}
-            markerSummary={miniMapMarkerSummary}
+            markerLegend={miniMapMarkerLegend}
             markers={miniMapMarkers}
             orderedFloors={orderedFloors}
             player={latestPlayerPosition}

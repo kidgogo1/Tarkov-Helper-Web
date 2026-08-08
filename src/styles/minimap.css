@@ -295,24 +295,52 @@
   filter: drop-shadow(0 0 0.5px #fff) drop-shadow(0 0 3px rgb(110 203 255 / 95%)) drop-shadow(0 1px 5px rgb(0 0 0 / 90%));
 }
 
-.map-minimap-marker-summary {
+.map-minimap-marker-legend {
   position: absolute;
   z-index: 6;
-  top: 6px;
-  right: 6px;
-  max-width: min(70%, 260px);
-  overflow: hidden;
+  right: 5px;
+  bottom: 5px;
+  left: 5px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 4px;
   border: 1px solid rgb(180 210 220 / 28%);
   border-radius: 3px;
   background: rgb(10 14 16 / 72%);
-  color: rgb(240 245 242 / 88%);
-  padding: 3px 5px;
-  font-size: 10px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: rgb(240 245 242 / 92%);
+  font-size: 8px;
+  line-height: 1.1;
   pointer-events: none;
   text-shadow: 0 1px 2px #000;
+}
+
+.map-minimap-marker-legend-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.map-minimap-marker-legend-icon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
+}
+
+.map-minimap-marker-legend-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-minimap-marker-legend-count {
+  flex: 0 0 auto;
+  color: #d9b83f;
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes map-minimap-player-pulse {
