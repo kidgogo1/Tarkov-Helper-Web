@@ -30,6 +30,37 @@ const availableStatus = {
 } as const;
 
 describe("public update settings", () => {
+  it("rechecks a settled update status on startup and every six hours", async () => {
+    vi.useFakeTimers();
+    try {
+      const currentStatus = {
+        state: "CURRENT",
+        currentVersion: "1.0.0",
+        latestVersion: "1.0.0",
+        checkedAt: "2026-08-09T03:04:05.000Z",
+      } as const;
+      const currentSession = { ...idleSession, status: currentStatus } as const;
+      const request = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(currentSession))
+        .mockResolvedValue(jsonResponse({ protocolVersion: 1, status: currentStatus }));
+
+      const { result } = renderHook(() => usePublicUpdate(request));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result.current.status).toEqual(currentStatus);
+      expect(request).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1_000);
+      });
+      expect(request).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("checks once on startup and stages the exact reviewed version", async () => {
     const ready = {
       state: "READY_TO_RESTART",

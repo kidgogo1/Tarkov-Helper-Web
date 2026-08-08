@@ -15,6 +15,8 @@ type UpdateRequest = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+const AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+
 export type PublicUpdateBusyState = "CHECK" | "STAGE" | null;
 
 export interface PublicUpdateController {
@@ -38,6 +40,13 @@ function isPendingStatus(status: PublicUpdateStatus): boolean {
     status.state === "VERIFYING" ||
     status.state === "APPLYING" ||
     status.state === "ROLLING_BACK";
+}
+
+function isAutomaticCheckStatus(status: PublicUpdateStatus): boolean {
+  return status.state === "IDLE" ||
+    status.state === "CURRENT" ||
+    status.state === "UPDATED" ||
+    status.state === "ERROR";
 }
 
 function waitForNextPoll(signal: AbortSignal): Promise<void> {
@@ -100,19 +109,19 @@ export function usePublicUpdate(
       if (
         !loadedSession ||
         loadedSession.status.state === "DISABLED" ||
-        (loadedSession.status.state !== "IDLE" && !isPendingStatus(loadedSession.status)) ||
+        (!isAutomaticCheckStatus(loadedSession.status) && !isPendingStatus(loadedSession.status)) ||
         busyRef.current
       ) return;
 
       busyRef.current = true;
-      const operation = loadedSession.status.state === "IDLE" ||
+      const operation = isAutomaticCheckStatus(loadedSession.status) ||
         loadedSession.status.state === "CHECKING"
         ? "CHECK"
         : "STAGE";
       setBusy(operation);
       operationControllerRef.current = controller;
       try {
-        const initial = loadedSession.status.state === "IDLE"
+        const initial = isAutomaticCheckStatus(loadedSession.status)
           ? await checkForPublicUpdate(loadedSession, request)
           : loadedSession.status;
         const settled = isPendingStatus(initial)
@@ -181,6 +190,14 @@ export function usePublicUpdate(
       if (mountedRef.current) setBusy(null);
     }
   }, [request, session, status]);
+
+  useEffect(() => {
+    if (!session || !status || !isAutomaticCheckStatus(status)) return;
+    const interval = window.setInterval(() => {
+      if (!busyRef.current) void check();
+    }, AUTO_CHECK_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [check, session, status]);
 
   return { session, status, initializing, busy, clientError, check, stage };
 }
