@@ -670,10 +670,19 @@ export function MapMiniMap(props: MapMiniMapProps) {
       openAttemptRef.current += 1;
       clearPictureInPictureLifecycle();
       void detachCurrentNativeOverlay(true);
-      if (mountedRef.current) {
+      // PiP can disappear when the browser or native crop bridge tears down
+      // the auxiliary window. Keep the feature usable by switching to the
+      // in-page fallback; an explicit closeMiniMap() clears the lifecycle
+      // listener first, so intentional closes still stay closed.
+      if (mountedRef.current && !closingRef.current) {
         setPictureInPicture((current) =>
           current?.window === pipWindow ? null : current,
         );
+        setFallbackNotice(
+          "브라우저 미니맵 창이 닫혀 페이지 안 미니맵으로 전환했습니다.",
+        );
+        setFallbackOpen(true);
+        setNativeNotice(null);
       }
     };
     const handleResize = () => {

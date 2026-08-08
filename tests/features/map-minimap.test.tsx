@@ -828,6 +828,7 @@ describe("MapMiniMap", () => {
       const detachCall = pageHideApi.request.mock.calls.find(([, init]) => init?.method === "DELETE");
       expect(detachCall?.[1]).toMatchObject({ keepalive: true });
     });
+    expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
     expect(pageHideApi.eventSignals.every((signal) => signal.aborted)).toBe(true);
     firstView.unmount();
 
