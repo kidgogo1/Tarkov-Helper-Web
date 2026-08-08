@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   PublicUpdateApiError,
   checkForPublicUpdate,
+  fetchPublicUpdateStatus,
   fetchPublicUpdateSession,
   stagePublicUpdate,
   type PublicUpdateSession,
@@ -22,6 +23,7 @@ const availableStatus = {
   publishedAt: "2026-08-09T03:04:05.000Z",
   releasePageUrl: "https://github.com/example/tarkov-helper/releases/tag/v1.1.0",
   downloadBytes: 4_500_000,
+  candidateId: "c".repeat(43),
 } as const;
 
 const session: PublicUpdateSession = {
@@ -53,8 +55,11 @@ describe("public GitHub update API boundary", () => {
     { ...session, repository: "example/repo/extra" },
     { ...session, extra: true },
     { ...session, status: { ...availableStatus, state: "UNKNOWN" } },
+    { ...session, status: { ...availableStatus, latestVersion: "1.1.0-beta.1" } },
+    { ...session, status: { ...availableStatus, latestVersion: "0.9.0" } },
     { ...session, status: { ...availableStatus, downloadBytes: -1 } },
     { ...session, status: { ...availableStatus, releasePageUrl: "http://github.com/example/repo" } },
+    { ...session, status: { ...availableStatus, releasePageUrl: "https://github.com/other/repo/releases/tag/v1.1.0" } },
   ])("rejects an invalid or over-broad session payload", async (payload) => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload));
     await expect(fetchPublicUpdateSession(undefined, request)).resolves.toBeNull();
@@ -90,12 +95,13 @@ describe("public GitHub update API boundary", () => {
   });
 
   it("checks for an update with the exact authenticated empty request", async () => {
+    const checking = { state: "CHECKING", currentVersion: "1.0.0", startedAt: "2026-08-09T03:04:04.000Z" };
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,
-      status: availableStatus,
-    }));
+      status: checking,
+    }, 202));
 
-    await expect(checkForPublicUpdate(session, request)).resolves.toEqual(availableStatus);
+    await expect(checkForPublicUpdate(session, request)).resolves.toEqual(checking);
     expect(request).toHaveBeenCalledWith("/api/v1/app-update/check", {
       method: "POST",
       cache: "no-store",
@@ -108,19 +114,39 @@ describe("public GitHub update API boundary", () => {
     });
   });
 
+  it("polls authenticated status without allowing cached or cross-session state", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      status: availableStatus,
+    }));
+
+    await expect(fetchPublicUpdateStatus(session, undefined, request)).resolves.toEqual(availableStatus);
+    expect(request).toHaveBeenCalledWith("/api/v1/app-update/status", {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-Tarkov-Update": session.token,
+      },
+      signal: undefined,
+    });
+  });
+
   it("stages only the version the user reviewed", async () => {
-    const ready = {
-      state: "READY_TO_RESTART",
+    const downloading = {
+      state: "DOWNLOADING",
       currentVersion: "1.0.0",
       latestVersion: "1.1.0",
-      stagedAt: "2026-08-09T03:05:06.000Z",
+      candidateId: availableStatus.candidateId,
+      downloadedBytes: 0,
+      downloadBytes: availableStatus.downloadBytes,
+      startedAt: "2026-08-09T03:05:05.000Z",
     } as const;
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,
-      status: ready,
-    }));
+      status: downloading,
+    }, 202));
 
-    await expect(stagePublicUpdate(session, "1.1.0", request)).resolves.toEqual(ready);
+    await expect(stagePublicUpdate(session, availableStatus.candidateId, request)).resolves.toEqual(downloading);
     expect(request).toHaveBeenCalledWith("/api/v1/app-update/stage", {
       method: "POST",
       cache: "no-store",
@@ -129,7 +155,7 @@ describe("public GitHub update API boundary", () => {
         "Content-Type": "application/json",
         "X-Tarkov-Update": session.token,
       },
-      body: JSON.stringify({ version: "1.1.0" }),
+      body: JSON.stringify({ candidateId: availableStatus.candidateId }),
     });
   });
 
@@ -138,7 +164,7 @@ describe("public GitHub update API boundary", () => {
       protocolVersion: 1,
       status: { ...availableStatus, latestVersion: "1.2.0" },
     }));
-    await expect(stagePublicUpdate(session, "1.1.0", mismatched)).rejects.toMatchObject({
+    await expect(stagePublicUpdate(session, availableStatus.candidateId, mismatched)).rejects.toMatchObject({
       code: "INVALID_RESPONSE",
     });
 

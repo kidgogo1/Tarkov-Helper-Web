@@ -26,6 +26,7 @@ const availableStatus = {
   publishedAt: "2026-08-09T03:04:05.000Z",
   releasePageUrl: "https://github.com/example/tarkov-helper/releases/tag/v1.1.0",
   downloadBytes: 4_500_000,
+  candidateId: "c".repeat(43),
 } as const;
 
 describe("public update settings", () => {
@@ -34,21 +35,54 @@ describe("public update settings", () => {
       state: "READY_TO_RESTART",
       currentVersion: "1.0.0",
       latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
       stagedAt: "2026-08-09T03:05:06.000Z",
     } as const;
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(idleSession))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "CHECKING",
+          currentVersion: "1.0.0",
+          startedAt: "2026-08-09T03:04:04.000Z",
+        },
+      }, 202))
       .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: availableStatus }))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "DOWNLOADING",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          candidateId: availableStatus.candidateId,
+          downloadedBytes: 0,
+          downloadBytes: availableStatus.downloadBytes,
+          startedAt: "2026-08-09T03:05:05.000Z",
+        },
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "VERIFYING",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          candidateId: availableStatus.candidateId,
+          startedAt: "2026-08-09T03:05:05.000Z",
+        },
+      }))
       .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: ready }));
 
     const { result } = renderHook(() => usePublicUpdate(request));
 
     await waitFor(() => expect(result.current.status).toEqual(availableStatus));
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(3);
 
     await act(async () => result.current.stage());
     expect(result.current.status).toEqual(ready);
-    expect(request.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({ version: "1.1.0" }));
+    expect(request.mock.calls[3]?.[1]?.body).toBe(JSON.stringify({
+      candidateId: availableStatus.candidateId,
+    }));
   });
 
   it("keeps static hosting and an unconfigured local build non-fatal", async () => {
@@ -106,6 +140,7 @@ describe("public update settings", () => {
           state: "READY_TO_RESTART",
           currentVersion: "1.0.0",
           latestVersion: "1.1.0",
+          candidateId: availableStatus.candidateId,
           stagedAt: "2026-08-09T03:05:06.000Z",
         }}
       />,

@@ -1,14 +1,16 @@
 const UPDATE_PROTOCOL_VERSION = 1 as const;
 const SESSION_PATH = "/api/v1/app-update/session";
+const STATUS_PATH = "/api/v1/app-update/status";
 const CHECK_PATH = "/api/v1/app-update/check";
 const STAGE_PATH = "/api/v1/app-update/stage";
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const SEMVER_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const SEMVER_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const CANDIDATE_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
 const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
 const ISO_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/;
 
-export type PublicUpdateOperation = "CHECK" | "STAGE";
+export type PublicUpdateOperation = "CHECK" | "STAGE" | "APPLY" | "ROLLBACK";
 
 export type PublicUpdateStatus =
   | {
@@ -19,6 +21,11 @@ export type PublicUpdateStatus =
   | {
       state: "IDLE";
       currentVersion: string;
+    }
+  | {
+      state: "CHECKING";
+      currentVersion: string;
+      startedAt: string;
     }
   | {
       state: "CURRENT";
@@ -33,12 +40,42 @@ export type PublicUpdateStatus =
       publishedAt: string;
       releasePageUrl: string;
       downloadBytes: number;
+      candidateId: string;
+    }
+  | {
+      state: "DOWNLOADING";
+      currentVersion: string;
+      latestVersion: string;
+      candidateId: string;
+      downloadedBytes: number;
+      downloadBytes: number;
+      startedAt: string;
+    }
+  | {
+      state: "VERIFYING";
+      currentVersion: string;
+      latestVersion: string;
+      candidateId: string;
+      startedAt: string;
     }
   | {
       state: "READY_TO_RESTART";
       currentVersion: string;
       latestVersion: string;
+      candidateId: string;
       stagedAt: string;
+    }
+  | {
+      state: "APPLYING" | "ROLLING_BACK";
+      currentVersion: string;
+      latestVersion: string;
+      startedAt: string;
+    }
+  | {
+      state: "UPDATED";
+      currentVersion: string;
+      previousVersion: string;
+      updatedAt: string;
     }
   | {
       state: "ERROR";
@@ -84,19 +121,33 @@ function isSemVer(value: unknown): value is string {
   return typeof value === "string" && value.length <= 64 && SEMVER_PATTERN.test(value);
 }
 
+function compareSemVer(left: string, right: string): number {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = leftParts[index] - rightParts[index];
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
 function isIsoUtc(value: unknown): value is string {
   return typeof value === "string" && ISO_UTC_PATTERN.test(value) && Number.isFinite(Date.parse(value));
 }
 
-function isReleasePageUrl(value: unknown): value is string {
+function isReleasePageUrl(value: unknown, repository?: string, version?: string): value is string {
   if (typeof value !== "string" || value.length > 500) return false;
   try {
     const url = new URL(value);
+    const expectedPath = repository && version
+      ? `/${repository}/releases/tag/v${version}`
+      : null;
     return url.protocol === "https:" &&
       url.hostname === "github.com" &&
       url.username === "" &&
       url.password === "" &&
       /^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/releases\/tag\/v[^/]+$/.test(url.pathname) &&
+      (expectedPath === null || url.pathname === expectedPath) &&
       url.search === "" &&
       url.hash === "";
   } catch {
@@ -104,7 +155,7 @@ function isReleasePageUrl(value: unknown): value is string {
   }
 }
 
-function parseStatus(value: unknown): PublicUpdateStatus | null {
+function parseStatus(value: unknown, repository?: string): PublicUpdateStatus | null {
   if (!isRecord(value) || typeof value.state !== "string" || !isSemVer(value.currentVersion)) {
     return null;
   }
@@ -119,9 +170,15 @@ function parseStatus(value: unknown): PublicUpdateStatus | null {
       return hasExactKeys(value, ["state", "currentVersion"])
         ? { state: "IDLE", currentVersion: value.currentVersion }
         : null;
+    case "CHECKING":
+      return hasExactKeys(value, ["state", "currentVersion", "startedAt"]) && isIsoUtc(value.startedAt)
+        ? { state: "CHECKING", currentVersion: value.currentVersion, startedAt: value.startedAt }
+        : null;
     case "CURRENT":
       return hasExactKeys(value, ["state", "currentVersion", "latestVersion", "checkedAt"]) &&
-        isSemVer(value.latestVersion) && isIsoUtc(value.checkedAt)
+        isSemVer(value.latestVersion) &&
+        compareSemVer(value.latestVersion, value.currentVersion) <= 0 &&
+        isIsoUtc(value.checkedAt)
         ? {
             state: "CURRENT",
             currentVersion: value.currentVersion,
@@ -137,14 +194,18 @@ function parseStatus(value: unknown): PublicUpdateStatus | null {
         "publishedAt",
         "releasePageUrl",
         "downloadBytes",
+        "candidateId",
       ]) &&
         isSemVer(value.latestVersion) &&
+        compareSemVer(value.latestVersion, value.currentVersion) > 0 &&
         isIsoUtc(value.publishedAt) &&
-        isReleasePageUrl(value.releasePageUrl) &&
+        isReleasePageUrl(value.releasePageUrl, repository, value.latestVersion) &&
         typeof value.downloadBytes === "number" &&
         Number.isSafeInteger(value.downloadBytes) &&
         value.downloadBytes > 0 &&
-        value.downloadBytes <= 536_870_912
+        value.downloadBytes <= 536_870_912 &&
+        typeof value.candidateId === "string" &&
+        CANDIDATE_PATTERN.test(value.candidateId)
         ? {
             state: "AVAILABLE",
             currentVersion: value.currentVersion,
@@ -152,21 +213,97 @@ function parseStatus(value: unknown): PublicUpdateStatus | null {
             publishedAt: value.publishedAt,
             releasePageUrl: value.releasePageUrl,
             downloadBytes: value.downloadBytes,
+            candidateId: value.candidateId,
+          }
+        : null;
+    case "DOWNLOADING":
+      return hasExactKeys(value, [
+        "state",
+        "currentVersion",
+        "latestVersion",
+        "candidateId",
+        "downloadedBytes",
+        "downloadBytes",
+        "startedAt",
+      ]) &&
+        isSemVer(value.latestVersion) &&
+        compareSemVer(value.latestVersion, value.currentVersion) > 0 &&
+        typeof value.candidateId === "string" && CANDIDATE_PATTERN.test(value.candidateId) &&
+        typeof value.downloadedBytes === "number" && Number.isSafeInteger(value.downloadedBytes) &&
+        typeof value.downloadBytes === "number" && Number.isSafeInteger(value.downloadBytes) &&
+        value.downloadedBytes >= 0 && value.downloadedBytes <= value.downloadBytes &&
+        value.downloadBytes > 0 && value.downloadBytes <= 536_870_912 && isIsoUtc(value.startedAt)
+        ? {
+            state: "DOWNLOADING",
+            currentVersion: value.currentVersion,
+            latestVersion: value.latestVersion,
+            candidateId: value.candidateId,
+            downloadedBytes: value.downloadedBytes,
+            downloadBytes: value.downloadBytes,
+            startedAt: value.startedAt,
+          }
+        : null;
+    case "VERIFYING":
+      return hasExactKeys(value, [
+        "state",
+        "currentVersion",
+        "latestVersion",
+        "candidateId",
+        "startedAt",
+      ]) &&
+        isSemVer(value.latestVersion) &&
+        compareSemVer(value.latestVersion, value.currentVersion) > 0 &&
+        typeof value.candidateId === "string" && CANDIDATE_PATTERN.test(value.candidateId) &&
+        isIsoUtc(value.startedAt)
+        ? {
+            state: "VERIFYING",
+            currentVersion: value.currentVersion,
+            latestVersion: value.latestVersion,
+            candidateId: value.candidateId,
+            startedAt: value.startedAt,
           }
         : null;
     case "READY_TO_RESTART":
-      return hasExactKeys(value, ["state", "currentVersion", "latestVersion", "stagedAt"]) &&
-        isSemVer(value.latestVersion) && isIsoUtc(value.stagedAt)
+      return hasExactKeys(value, ["state", "currentVersion", "latestVersion", "candidateId", "stagedAt"]) &&
+        isSemVer(value.latestVersion) &&
+        compareSemVer(value.latestVersion, value.currentVersion) > 0 &&
+        typeof value.candidateId === "string" && CANDIDATE_PATTERN.test(value.candidateId) &&
+        isIsoUtc(value.stagedAt)
         ? {
             state: "READY_TO_RESTART",
             currentVersion: value.currentVersion,
             latestVersion: value.latestVersion,
+            candidateId: value.candidateId,
             stagedAt: value.stagedAt,
+          }
+        : null;
+    case "APPLYING":
+    case "ROLLING_BACK":
+      return hasExactKeys(value, ["state", "currentVersion", "latestVersion", "startedAt"]) &&
+        isSemVer(value.latestVersion) && isIsoUtc(value.startedAt)
+        ? {
+            state: value.state,
+            currentVersion: value.currentVersion,
+            latestVersion: value.latestVersion,
+            startedAt: value.startedAt,
+          }
+        : null;
+    case "UPDATED":
+      return hasExactKeys(value, ["state", "currentVersion", "previousVersion", "updatedAt"]) &&
+        isSemVer(value.previousVersion) &&
+        compareSemVer(value.currentVersion, value.previousVersion) > 0 &&
+        isIsoUtc(value.updatedAt)
+        ? {
+            state: "UPDATED",
+            currentVersion: value.currentVersion,
+            previousVersion: value.previousVersion,
+            updatedAt: value.updatedAt,
           }
         : null;
     case "ERROR":
       return hasExactKeys(value, ["state", "currentVersion", "operation", "code", "message"]) &&
-        (value.operation === "CHECK" || value.operation === "STAGE") &&
+        (value.operation === "CHECK" || value.operation === "STAGE" ||
+          value.operation === "APPLY" || value.operation === "ROLLBACK") &&
         typeof value.code === "string" && ERROR_CODE_PATTERN.test(value.code) &&
         typeof value.message === "string" && value.message.length >= 1 && value.message.length <= 500
         ? {
@@ -205,7 +342,7 @@ function parseSession(value: unknown): PublicUpdateSession | null {
   ) {
     return null;
   }
-  const status = parseStatus(value.status);
+  const status = parseStatus(value.status, typeof value.repository === "string" ? value.repository : undefined);
   if (!status) return null;
   if ((value.repository === null) !== (status.state === "DISABLED")) return null;
   return {
@@ -217,7 +354,10 @@ function parseSession(value: unknown): PublicUpdateSession | null {
   };
 }
 
-async function parseMutationResponse(response: Response): Promise<PublicUpdateStatus> {
+async function parseMutationResponse(
+  response: Response,
+  session: PublicUpdateSession,
+): Promise<PublicUpdateStatus> {
   const value = await readJson(response);
   if (!response.ok) {
     if (
@@ -242,7 +382,7 @@ async function parseMutationResponse(response: Response): Promise<PublicUpdateSt
   ) {
     throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher returned an invalid update response.");
   }
-  const status = parseStatus(value.status);
+  const status = parseStatus(value.status, session.repository ?? undefined);
   if (!status) {
     throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher returned an invalid update status.");
   }
@@ -287,7 +427,28 @@ async function sendUpdateMutation(
   } catch {
     throw new PublicUpdateApiError("REQUEST_FAILED", "The local update service could not be reached.");
   }
-  return parseMutationResponse(response);
+  return parseMutationResponse(response, session);
+}
+
+export async function fetchPublicUpdateStatus(
+  session: PublicUpdateSession,
+  signal?: AbortSignal,
+  request: UpdateRequest = globalThis.fetch,
+): Promise<PublicUpdateStatus> {
+  let response: Response;
+  try {
+    response = await request(STATUS_PATH, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-Tarkov-Update": session.token,
+      },
+      signal,
+    });
+  } catch {
+    throw new PublicUpdateApiError("REQUEST_FAILED", "The local update service could not be reached.");
+  }
+  return parseMutationResponse(response, session);
 }
 
 export function checkForPublicUpdate(
@@ -299,20 +460,23 @@ export function checkForPublicUpdate(
 
 export async function stagePublicUpdate(
   session: PublicUpdateSession,
-  version: string,
+  candidateId: string,
   request: UpdateRequest = globalThis.fetch,
-): Promise<Extract<PublicUpdateStatus, { state: "READY_TO_RESTART" }>> {
-  if (!isSemVer(version)) {
-    throw new PublicUpdateApiError("INVALID_VERSION", "The requested update version is invalid.");
+): Promise<PublicUpdateStatus> {
+  if (!CANDIDATE_PATTERN.test(candidateId)) {
+    throw new PublicUpdateApiError("INVALID_CANDIDATE", "The requested update candidate is invalid.");
   }
   const status = await sendUpdateMutation(
     STAGE_PATH,
     session,
-    JSON.stringify({ version }),
+    JSON.stringify({ candidateId }),
     request,
   );
-  if (status.state !== "READY_TO_RESTART" || status.latestVersion !== version) {
-    throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher staged a different update version.");
+  if (
+    !(status.state === "DOWNLOADING" || status.state === "VERIFYING" || status.state === "READY_TO_RESTART") ||
+    status.candidateId !== candidateId
+  ) {
+    throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher staged a different update candidate.");
   }
   return status;
 }

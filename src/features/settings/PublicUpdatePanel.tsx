@@ -54,6 +54,20 @@ export function PublicUpdatePanel({
       {status?.state === "IDLE" || busy === "CHECK" ? (
         <p className="update-status">최신 공개 버전을 확인하는 중입니다.</p>
       ) : null}
+      {status?.state === "DOWNLOADING" ? (
+        <p className="update-status">
+          업데이트를 다운로드하는 중입니다. {Math.floor(status.downloadedBytes / status.downloadBytes * 100)}%
+        </p>
+      ) : null}
+      {status?.state === "VERIFYING" ? (
+        <p className="update-status">서명·해시·패키지 파일을 검증하는 중입니다.</p>
+      ) : null}
+      {status?.state === "APPLYING" ? (
+        <p className="update-status">새 버전을 적용하는 중입니다.</p>
+      ) : null}
+      {status?.state === "ROLLING_BACK" ? (
+        <p className="update-status">이전 버전으로 안전하게 복원하는 중입니다.</p>
+      ) : null}
       {status?.state === "CURRENT" ? (
         <div className="update-status success">
           <CheckCircle2 aria-hidden="true" size={18} />
@@ -81,6 +95,12 @@ export function PublicUpdatePanel({
           <span>
             v{status.latestVersion} 검증이 끝났습니다. 탭을 닫은 다음 Tarkov Helper 실행.vbs를 다시 실행하면 안전하게 설치됩니다.
           </span>
+        </div>
+      ) : null}
+      {status?.state === "UPDATED" ? (
+        <div className="update-status success">
+          <CheckCircle2 aria-hidden="true" size={18} />
+          <span>v{status.currentVersion} 업데이트가 완료되었습니다.</span>
         </div>
       ) : null}
       {status?.state === "ERROR" ? (
