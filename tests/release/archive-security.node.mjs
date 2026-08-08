@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   assertNoWindowsPathCollisions,
   assertSafeArchivePath,
+  collectFiles,
   createZipFromDirectory,
   loadReleaseConfig,
   parseChecksumText,
@@ -91,6 +92,24 @@ test("ZIP reader enforces archive, entry, total, and regular-file bounds before 
   }
 });
 
+test("release input collection rejects size budgets before retaining file contents", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "tarkov-release-input-budget-"));
+  try {
+    await writeFile(path.join(parent, "first.txt"), "123456");
+    await writeFile(path.join(parent, "second.txt"), "abcdef");
+    await assert.rejects(
+      collectFiles(parent, "", { maxEntryUncompressedBytes: 5 }),
+      /entry size limit/i,
+    );
+    await assert.rejects(
+      collectFiles(parent, "", { maxTotalUncompressedBytes: 10 }),
+      /total uncompressed size limit/i,
+    );
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
 test("ZIP reader can discard verified payloads that later checks do not need", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "tarkov-zip-retention-"));
   const input = path.join(parent, "input");
@@ -159,6 +178,19 @@ test("ZIP reader rejects dangerous flags, corrupt identity, and trailing records
       const { bytes } = await fresh();
       await writeFile(archive, Buffer.concat([bytes, Buffer.from([0])]));
       await assert.rejects(readZipArchive(archive), /trailing data|end-of-central-directory/i);
+    }
+
+    {
+      const { bytes, central } = await fresh();
+      const withGap = Buffer.concat([
+        bytes.subarray(0, central),
+        Buffer.from([0]),
+        bytes.subarray(central),
+      ]);
+      const shiftedEnd = withGap.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+      withGap.writeUInt32LE(central + 1, shiftedEnd + 16);
+      await writeFile(archive, withGap);
+      await assert.rejects(readZipArchive(archive), /contiguous|gap|layout/i);
     }
 
     {

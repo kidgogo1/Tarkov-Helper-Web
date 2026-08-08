@@ -159,7 +159,7 @@ export function assertNoWindowsPathCollisions(entries) {
   }
 }
 
-export async function collectFiles(directory, prefix = "") {
+async function collectFilesWithinBudget(directory, prefix, budget) {
   const root = await lstat(directory).catch(() => null);
   if (!root?.isDirectory() || root.isSymbolicLink()) throw new Error(`Required directory is missing: ${directory}`);
 
@@ -169,18 +169,40 @@ export async function collectFiles(directory, prefix = "") {
   for (const entry of entries) {
     const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const absolutePath = path.join(directory, entry.name);
-    if (entry.isSymbolicLink()) throw new Error(`Symbolic links are not allowed in release inputs: ${relativePath}`);
-    if (entry.isDirectory()) {
-      files.push(...await collectFiles(absolutePath, relativePath));
-    } else if (entry.isFile()) {
+    const details = await lstat(absolutePath).catch(() => null);
+    if (!details || entry.isSymbolicLink() || details.isSymbolicLink()) {
+      throw new Error(`Symbolic links are not allowed in release inputs: ${relativePath}`);
+    }
+    if (entry.isDirectory() && details.isDirectory()) {
+      files.push(...await collectFilesWithinBudget(absolutePath, relativePath, budget));
+    } else if (entry.isFile() && details.isFile()) {
       assertSafeArchivePath(relativePath);
-      const contents = await readFile(absolutePath);
+      if (details.size > budget.maxEntry) throw new Error(`Release input entry size limit exceeded: ${relativePath}`);
+      if (budget.total + details.size > budget.maxTotal) {
+        throw new Error(`Release input total uncompressed size limit exceeded: ${relativePath}`);
+      }
+      budget.total += details.size;
+      const contents = await readFileBounded(
+        absolutePath,
+        budget.maxEntry,
+        `Release input ${relativePath}`,
+        details,
+      );
       files.push({ absolutePath, contents, path: relativePath, size: contents.length, sha256: sha256(contents) });
     } else {
       throw new Error(`Unsupported release input: ${relativePath}`);
     }
   }
   return files;
+}
+
+export async function collectFiles(directory, prefix = "", limitOverrides = {}) {
+  const limits = validatedZipLimits(limitOverrides);
+  return collectFilesWithinBudget(directory, prefix, {
+    maxEntry: limits.maxEntryUncompressedBytes,
+    maxTotal: limits.maxTotalUncompressedBytes,
+    total: 0,
+  });
 }
 
 export function checksumText(files) {
@@ -599,11 +621,18 @@ function assertSupportedZipExtraFields(contents, offset, length, label) {
   }
 }
 
-export async function readFileBounded(filename, maxBytes, label = "File") {
+export async function readFileBounded(filename, maxBytes, label = "File", expected = null) {
   const handle = await open(filename, "r");
   try {
     const before = await handle.stat();
     if (!before.isFile()) throw new Error(`${label} input is not a regular file: ${filename}`);
+    if (
+      expected &&
+      (before.size !== expected.size || before.mtimeMs !== expected.mtimeMs ||
+        before.dev !== expected.dev || before.ino !== expected.ino)
+    ) {
+      throw new Error(`${label} changed before it could be read: ${filename}`);
+    }
     if (!Number.isSafeInteger(before.size) || before.size > maxBytes) {
       throw new Error(`${label} size limit exceeded: ${before.size} > ${maxBytes}`);
     }
@@ -617,7 +646,10 @@ export async function readFileBounded(filename, maxBytes, label = "File") {
     const probe = Buffer.allocUnsafe(1);
     const { bytesRead: extraBytes } = await handle.read(probe, 0, 1, offset);
     const after = await handle.stat();
-    if (offset !== before.size || extraBytes !== 0 || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+    if (
+      offset !== before.size || extraBytes !== 0 || after.size !== before.size ||
+      after.mtimeMs !== before.mtimeMs || after.dev !== before.dev || after.ino !== before.ino
+    ) {
       throw new Error(`${label} changed while being read: ${filename}`);
     }
     return contents;
@@ -770,10 +802,19 @@ export async function readZipArchive(filename, limitOverrides = {}, options = {}
   const ranges = metadata
     .map((entry) => ({ end: entry.dataOffset + entry.compressedSize, path: entry.path, start: entry.localOffset }))
     .sort((left, right) => left.start - right.start);
+  if (ranges.length === 0 || ranges[0].start !== 0) {
+    throw new Error("ZIP local records must form a contiguous layout from byte zero");
+  }
   for (let index = 1; index < ranges.length; index += 1) {
     if (ranges[index].start < ranges[index - 1].end) {
       throw new Error(`ZIP entry data overlap: ${ranges[index - 1].path} and ${ranges[index].path}`);
     }
+    if (ranges[index].start !== ranges[index - 1].end) {
+      throw new Error(`ZIP local record gap: ${ranges[index - 1].path} and ${ranges[index].path}`);
+    }
+  }
+  if (ranges.at(-1).end !== centralOffset) {
+    throw new Error("ZIP local records and central directory must be contiguous");
   }
 
   const entries = [];
