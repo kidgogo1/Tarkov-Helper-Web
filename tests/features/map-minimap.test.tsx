@@ -602,6 +602,17 @@ describe("MapMiniMap", () => {
       "false",
     );
     expect(screen.getByText("위치 잠금 해제됨 · 창을 이동하거나 크기를 조절하세요")).toBeInTheDocument();
+    const unlockedPatch = api.request.mock.calls
+      .filter(([, init]) => init?.method === "PATCH")
+      .at(-1);
+    expect(JSON.parse(String(unlockedPatch?.[1]?.body))).toEqual({
+      overlayId: nativeOverlayId,
+      mode: "UNLOCKED",
+      opacity: 0.8,
+    });
+    expect(within(pipWindow.document.body).getByRole("dialog")).toHaveStyle({
+      "--mini-map-opacity": "1",
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "오버레이 위치 고정" }));
     await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");

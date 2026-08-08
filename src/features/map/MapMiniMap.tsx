@@ -353,10 +353,9 @@ function MiniMapSurface({
   const rootStyle: MiniMapStyle = {
     backgroundColor: "transparent",
     // The native window applies the configured opacity at the OS compositor
-    // level so pixels behind the overlay remain visible. Avoid multiplying
-    // that alpha a second time on the SVG itself.
-    "--mini-map-opacity": nativeOverlayMode === "LOCKED" ||
-        nativeOverlayMode === "CLICK_THROUGH"
+    // level in every attached mode so pixels behind the overlay remain visible.
+    // Avoid multiplying that alpha a second time on the SVG itself.
+    "--mini-map-opacity": nativeOverlayMode !== undefined
       ? "1"
       : String(mapSettings.miniMapOpacity),
   };
@@ -767,17 +766,15 @@ export function MapMiniMap(props: MapMiniMapProps) {
 
     setNativeBusy(true);
     try {
-      const opacity = mode === "UNLOCKED"
-        ? undefined
-        : mapSettings.miniMapOpacity;
+      const opacity = mapSettings.miniMapOpacity;
       const next = await updateNativeMiniMap(
         session,
         overlay.overlayId,
         mode,
-        opacity === undefined ? {} : { opacity },
+        { opacity },
       );
       if (nativeOverlayRef.current?.overlayId === overlay.overlayId) {
-        if (mode !== "UNLOCKED") nativeOpacityRef.current = opacity ?? null;
+        nativeOpacityRef.current = opacity;
         rememberNativeOverlay(next);
         setNativeNotice(nativeOverlayModeNotice(next));
       }
@@ -802,7 +799,6 @@ export function MapMiniMap(props: MapMiniMapProps) {
       nativeBusy ||
       !session ||
       !overlay ||
-      (overlay.mode !== "LOCKED" && overlay.mode !== "CLICK_THROUGH") ||
       nativeOpacityRef.current === opacity
     ) {
       return;

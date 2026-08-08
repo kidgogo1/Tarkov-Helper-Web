@@ -1888,9 +1888,6 @@ function Set-NativeOverlayMode {
     }
     if ($null -ne $Opacity) {
         [void](Convert-NativeOpacityToAlpha -Opacity ([double]$Opacity))
-        if ($Mode -ceq "UNLOCKED") {
-            throw [ArgumentException]::new("Opacity may only be changed while the overlay is locked.")
-        }
     }
     if ($null -eq $script:nativeOverlayRecord -or $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
@@ -1906,11 +1903,21 @@ function Set-NativeOverlayMode {
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
     }
 
+    $nextOpacity = if ($null -ne $Opacity) {
+        [double]$Opacity
+    } else {
+        [double]$record.nativeOpacity
+    }
+
     if ($Mode -ceq "UNLOCKED") {
+        # Keep the normal, movable window geometry while retaining the layered
+        # compositor surface. This makes the configured opacity work before
+        # the user pins the overlay as well as after it is locked.
+        $transparentNormalExStyle = $record.normalExStyle -bor [long]0x00080000
         [TarkovHelper.NativeOverlayBridge]::ApplyOriginal(
             $record.handle,
             $record.normalStyle,
-            $record.normalExStyle,
+            $transparentNormalExStyle,
             $record.normalRect.left,
             $record.normalRect.top,
             $record.normalRect.width,
@@ -1918,14 +1925,13 @@ function Set-NativeOverlayMode {
             (($record.normalExStyle -band [long]0x00000008) -ne 0),
             $record.normalRegionData
         )
+        [TarkovHelper.NativeOverlayBridge]::SetLayeredAlpha(
+            $record.handle,
+            (Convert-NativeOpacityToAlpha -Opacity $nextOpacity)
+        )
+        $record.nativeOpacity = $nextOpacity
         $record.mode = "UNLOCKED"
         return Get-NativeOverlayResponse
-    }
-
-    $nextOpacity = if ($null -ne $Opacity) {
-        [double]$Opacity
-    } else {
-        [double]$record.nativeOpacity
     }
 
     if ($record.mode -ceq "UNLOCKED") {
@@ -3086,10 +3092,9 @@ try {
                                 [double]::IsNaN($opacity) -or
                                 [double]::IsInfinity($opacity) -or
                                 $opacity -lt 0.1 -or
-                                $opacity -gt 1 -or
-                                $requestObject.mode -ceq "UNLOCKED"
+                                $opacity -gt 1
                             ) {
-                                throw [ArgumentException]::new("Overlay opacity must be between 0.1 and 1 for a locked mode.")
+                                throw [ArgumentException]::new("Overlay opacity must be between 0.1 and 1.")
                             }
                         }
                     } catch [ArgumentException] {

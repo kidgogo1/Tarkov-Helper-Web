@@ -1046,6 +1046,13 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
     width: pixelsToDips(original.width, original.dpi),
     height: pixelsToDips(original.height, original.dpi),
   });
+  const unlockedTransparent = await nativeRequest("PATCH", "api/v1/native-overlay/minimap", session.token, {
+    overlayId: complete.body.overlayId,
+    mode: "UNLOCKED",
+    opacity: 0.5,
+  });
+  assert.equal(unlockedTransparent.status, 200, JSON.stringify(unlockedTransparent.body));
+  await statusWhere((status) => (status.pips[0].exStyle & 0x00080000) === 0x00080000);
   const restored = await statusWhere((status) =>
     status.pips[0].style === original.style &&
     status.pips[0].exStyle === original.exStyle &&
