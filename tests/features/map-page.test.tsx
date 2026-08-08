@@ -50,6 +50,7 @@ const quest: QuestData = {
   name: "Water Room",
   nameEn: "Water Room",
   nameKo: "물방 찾기",
+  wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Water_Room",
   trader: "Therapist",
   locations: ["Customs"],
   kappaRequired: false,
@@ -90,6 +91,7 @@ const woodsQuest: QuestData = {
   name: "Woods Route",
   nameEn: "Woods Route",
   nameKo: "숲길 확인",
+  wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Woods_Route",
   trader: "Jaeger",
   locations: ["Woods"],
   kappaRequired: false,
@@ -376,6 +378,46 @@ describe("MapPage", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("toggles a region marker off and exposes wiki and cross-map actions with tooltips", () => {
+    const onOpenQuest = vi.fn();
+    renderPage({ onOpenQuest });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+    const regionSearch = screen.getByRole("searchbox", { name: "현재 지역 퀘스트 검색" });
+    fireEvent.change(regionSearch, { target: { value: "물방" } });
+    const regionItem = screen.getByTestId("map-region-quest-item");
+    const regionFocus = within(regionItem).getByRole("button", { name: /물방 찾기/ });
+    const wikiLink = within(regionItem).getByRole("link", { name: /위키에서 퀘스트 열기/ });
+
+    expect(wikiLink).toHaveAttribute(
+      "href",
+      "https://escapefromtarkov.fandom.com/wiki/Water_Room",
+    );
+    expect(wikiLink).toHaveAttribute("title", "위키에서 퀘스트 열기");
+
+    fireEvent.click(regionFocus);
+    expect(screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(regionFocus);
+    expect(screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    const allSearch = screen.getByRole("searchbox", { name: "전체 퀘스트 검색" });
+    fireEvent.change(allSearch, { target: { value: "Woods Route" } });
+    const allItem = screen.getByTestId("map-global-quest-item");
+    const mapLink = within(allItem).getByRole("button", { name: /Woods 지도 목표 마커/ });
+    expect(mapLink).toHaveAttribute("title", "Woods 지도 목표 마커로 이동");
+    fireEvent.click(mapLink);
+    expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Woods");
+    expect(onOpenQuest).toHaveBeenCalledWith("quest-woods");
   });
 
   beforeEach(() => {

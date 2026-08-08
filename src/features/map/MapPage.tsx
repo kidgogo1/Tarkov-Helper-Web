@@ -15,9 +15,11 @@ import {
 } from "react";
 import {
   Crosshair,
+  ExternalLink,
   Focus,
   LocateFixed,
   Maximize2,
+  MapPin,
   Minimize2,
   Navigation,
   Pencil,
@@ -1298,6 +1300,11 @@ export function MapPage({
 
     setFocusedQuestId(entry.quest.id);
     if (targetConfig.key === config.key) {
+      if (selectedMarkerId === targetPoint.id) {
+        setSelectedMarkerId(undefined);
+        setFocusedQuestId(undefined);
+        return;
+      }
       focusQuestPoint(targetPoint);
       return;
     }
@@ -1311,8 +1318,8 @@ export function MapPage({
     setSelectedMapKey(targetConfig.key);
   };
 
-  const focusRegionQuest = (quest: QuestData) => {
-    const entry = quest.objectives
+  const firstQuestFocusEntry = (quest: QuestData): ObjectiveEntry | undefined =>
+    quest.objectives
       .slice()
       .sort((left, right) => left.sortOrder - right.sortOrder)
       .map((objective) => ({ quest, objective }))
@@ -1323,9 +1330,49 @@ export function MapPage({
             buildQuestMapPoints(candidate, target, data.mapFloorLocations).length,
         );
       });
+
+  const focusRegionQuest = (quest: QuestData) => {
+    const entry = firstQuestFocusEntry(quest);
     if (entry) focusObjectiveEntry(entry);
     else setFocusedQuestId(quest.id);
     onOpenQuest?.(quest.id);
+  };
+
+  const questTargetConfig = (quest: QuestData): MapConfig | undefined => {
+    const entry = firstQuestFocusEntry(quest);
+    if (entry) return objectiveTargetMap(entry, data.mapConfigs, config);
+    return quest.locations.map((location) => findMapConfig(data.mapConfigs, location)).find(Boolean);
+  };
+
+  const renderQuestSearchActions = (quest: QuestData, includeMapAction: boolean) => {
+    const targetConfig = questTargetConfig(quest);
+    return (
+      <span className="map-search-result-actions">
+        {includeMapAction && targetConfig ? (
+          <button
+            aria-label={`${targetConfig.displayName} 지도 목표 마커로 이동`}
+            className="map-search-action"
+            onClick={() => focusRegionQuest(quest)}
+            title={`${targetConfig.displayName} 지도 목표 마커로 이동`}
+            type="button"
+          >
+            <MapPin aria-hidden="true" size={14} />
+          </button>
+        ) : null}
+        {quest.wikiPageLink ? (
+          <a
+            aria-label={`${localQuestName(quest)} 위키에서 퀘스트 열기`}
+            className="map-search-action"
+            href={quest.wikiPageLink}
+            rel="noreferrer"
+            target="_blank"
+            title="위키에서 퀘스트 열기"
+          >
+            <ExternalLink aria-hidden="true" size={14} />
+          </a>
+        ) : null}
+      </span>
+    );
   };
 
   const focusCustomMarker = (marker: CustomMapMarker) => {
@@ -1998,20 +2045,24 @@ export function MapPage({
               <ul className="map-region-quest-list">
                 {filteredRegionQuests.map((quest) => (
                   <li key={quest.id} data-testid="map-region-quest-item">
-                    <button
-                      className="map-region-quest-button"
-                      onClick={() => focusRegionQuest(quest)}
-                      type="button"
-                    >
-                      <span>
-                        <strong>{localQuestName(quest)}</strong>
-                        <small>
-                          {quest.trader} · {quest.objectives.length}개 목표
-                          {quest.objectives[0]?.description ? ` · ${quest.objectives[0].description}` : ""}
-                        </small>
-                      </span>
-                      <span aria-hidden="true">›</span>
-                    </button>
+                    <div className="map-search-result-row">
+                      <button
+                        className="map-region-quest-button"
+                        onClick={() => focusRegionQuest(quest)}
+                        title="목표 마커 표시/해제"
+                        type="button"
+                      >
+                        <span>
+                          <strong>{localQuestName(quest)}</strong>
+                          <small>
+                            {quest.trader} · {quest.objectives.length}개 목표
+                            {quest.objectives[0]?.description ? ` · ${quest.objectives[0].description}` : ""}
+                          </small>
+                        </span>
+                        <span aria-hidden="true">›</span>
+                      </button>
+                      {renderQuestSearchActions(quest, false)}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -2042,21 +2093,25 @@ export function MapPage({
             {allQuestQuery.trim() && filteredAllQuests.length > 0 ? (
               <ul className="map-global-search-list">
                 {filteredAllQuests.slice(0, 100).map((quest) => (
-                  <li key={quest.id}>
-                    <button
-                      aria-label={`${localQuestName(quest)} 지도 목표로 이동`}
-                      className="map-region-quest-button"
-                      onClick={() => focusRegionQuest(quest)}
-                      type="button"
-                    >
-                      <span>
-                        <strong>{localQuestName(quest)}</strong>
-                        <small>
-                          {quest.trader} · {quest.locations.join(", ") || "맵 미지정"} · {quest.objectives.length}개 목표
-                        </small>
-                      </span>
-                      <span aria-hidden="true">›</span>
-                    </button>
+                  <li data-testid="map-global-quest-item" key={quest.id}>
+                    <div className="map-search-result-row">
+                      <button
+                        aria-label={`${localQuestName(quest)} 지도 목표로 이동`}
+                        className="map-region-quest-button"
+                        onClick={() => focusRegionQuest(quest)}
+                        title="목표 마커 표시/해제"
+                        type="button"
+                      >
+                        <span>
+                          <strong>{localQuestName(quest)}</strong>
+                          <small>
+                            {quest.trader} · {quest.locations.join(", ") || "맵 미지정"} · {quest.objectives.length}개 목표
+                          </small>
+                        </span>
+                        <span aria-hidden="true">›</span>
+                      </button>
+                      {renderQuestSearchActions(quest, true)}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -2098,21 +2153,25 @@ export function MapPage({
               <ul className="map-global-search-list map-reward-item-list">
                 {rewardItemResults.slice(0, 100).map(({ item, quests, source }) => (
                   <li key={item.id}>
-                    <button
-                      aria-label={`${item.nameKo || item.nameEn || item.name} ${quests.map(localQuestName).join(", ")}`}
-                      className="map-region-quest-button map-reward-item-button"
-                      onClick={() => focusRegionQuest(quests[0])}
-                      type="button"
-                    >
-                      <span>
-                        <strong>{item.nameKo || item.nameEn || item.name}</strong>
-                        <small>
-                          {item.nameEn || item.name} · {source === "reward" ? "보상" : "제출"} · {quests.slice(0, 2).map(localQuestName).join(", ")}
-                          {quests.length > 2 ? ` 외 ${quests.length - 2}개` : ""}
-                        </small>
-                      </span>
-                      <span aria-hidden="true">›</span>
-                    </button>
+                    <div className="map-search-result-row">
+                      <button
+                        aria-label={`${item.nameKo || item.nameEn || item.name} ${quests.map(localQuestName).join(", ")}`}
+                        className="map-region-quest-button map-reward-item-button"
+                        onClick={() => focusRegionQuest(quests[0])}
+                        title="보상 퀘스트 목표 마커로 이동"
+                        type="button"
+                      >
+                        <span>
+                          <strong>{item.nameKo || item.nameEn || item.name}</strong>
+                          <small>
+                            {item.nameEn || item.name} · {source === "reward" ? "보상" : "제출"} · {quests.slice(0, 2).map(localQuestName).join(", ")}
+                            {quests.length > 2 ? ` 외 ${quests.length - 2}개` : ""}
+                          </small>
+                        </span>
+                        <span aria-hidden="true">›</span>
+                      </button>
+                      {renderQuestSearchActions(quests[0], true)}
+                    </div>
                   </li>
                 ))}
               </ul>

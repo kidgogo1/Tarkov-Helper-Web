@@ -344,6 +344,46 @@
   text-align: left;
 }
 
+.map-search-result-row {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.map-search-result-row > .map-region-quest-button {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.map-search-result-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.map-search-action {
+  display: inline-flex;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.map-search-action:hover,
+.map-search-action:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 .map-region-quest-button:hover:not(:disabled),
 .map-region-quest-button:focus-visible:not(:disabled) {
   border-color: var(--line-strong);
