@@ -2653,7 +2653,7 @@ function Invoke-PendingAppUpdate {
     )
     if ($env:TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE -ceq "1") { $arguments += "-SkipRunOnce" }
     if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH -ceq "1") { $arguments += "-TestFailHealth" }
-    if ($env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE -in @("PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLED_BACK")) {
+    if ($env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE -in @("PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK", "ROLLED_BACK")) {
         $arguments += @("-TestCrashAfterPhase", [string]$env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE)
     }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "

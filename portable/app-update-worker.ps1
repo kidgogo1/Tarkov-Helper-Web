@@ -676,6 +676,15 @@ function Write-WorkerLog {
     } catch { }
 }
 
+function Invoke-TestStageCrash {
+    param([ValidateSet("DOWNLOAD", "EXTRACTED")][string]$Phase)
+    if (($AllowTestHttpLoopback -or $env:TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP -ceq "1") -and $env:TARKOV_HELPER_UPDATE_TEST_STAGE_CRASH_PHASE -ceq $Phase) {
+        # Test-only hard stop. Environment.Exit bypasses finally and models a
+        # power loss while the worker owns a partially staged package.
+        [Environment]::Exit(98)
+    }
+}
+
 function Get-ExactPropertyNames {
     param([object]$Value)
     if ($null -eq $Value -or $Value -isnot [psobject] -or $Value -is [string]) { return @() }
@@ -1131,11 +1140,89 @@ function Remove-OwnedStageDirectory {
     param([string]$Path, [string]$ExpectedParent)
     if ([string]::IsNullOrWhiteSpace($Path) -or -not [IO.Directory]::Exists($Path)) { return }
     $full = [IO.Path]::GetFullPath($Path)
-    $parent = [IO.Path]::GetFullPath($ExpectedParent).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-    if (-not $full.StartsWith($parent, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($full) -notmatch '^\..+\.update-stage-[A-Za-z0-9_-]{40,64}$' -or ([IO.File]::GetAttributes($full) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    $parent = [IO.Path]::GetFullPath($ExpectedParent).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $packageLeaf = [IO.Path]::GetFileName([IO.Path]::GetFullPath($PackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar))
+    $stagePattern = '^\.' + [Regex]::Escape($packageLeaf) + '\.update-stage-[A-Za-z0-9_-]{40,64}$'
+    $info = [IO.DirectoryInfo]::new($full)
+    if ($null -eq $info.Parent -or -not $info.Parent.FullName.Equals($parent, [StringComparison]::OrdinalIgnoreCase) -or $info.Name -notmatch $stagePattern) {
         throw [IO.IOException]::new("Refusing to remove an unowned staging directory.")
     }
-    [IO.Directory]::Delete($full, $true)
+    $directories = [Collections.Generic.Stack[IO.DirectoryInfo]]::new()
+    $allDirectories = [Collections.Generic.List[IO.DirectoryInfo]]::new()
+    $allFiles = [Collections.Generic.List[IO.FileInfo]]::new()
+    $directories.Push($info)
+    while ($directories.Count -gt 0) {
+        $current = $directories.Pop()
+        $current.Refresh()
+        if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("Refusing to remove a staging tree that contains a reparse point.") }
+        $allDirectories.Add($current)
+        foreach ($child in $current.GetFileSystemInfos()) {
+            $child.Refresh()
+            if (($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("Refusing to remove a staging tree that contains a reparse point.") }
+            if ($child -is [IO.DirectoryInfo]) { $directories.Push([IO.DirectoryInfo]$child) }
+            else { $allFiles.Add([IO.FileInfo]$child) }
+        }
+    }
+    foreach ($file in $allFiles) {
+        $file.Refresh()
+        if ($file.Exists) {
+            if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("Refusing to remove a staging tree that changed into a reparse point.") }
+            $file.Delete()
+        }
+    }
+    foreach ($directory in @($allDirectories | Sort-Object { $_.FullName.Length } -Descending)) {
+        $directory.Refresh()
+        if ($directory.Exists) {
+            if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("Refusing to remove a staging tree that changed into a reparse point.") }
+            $directory.Delete($false)
+        }
+    }
+}
+
+function Get-ProtectedPendingStage {
+    param([string]$PackagePath, [string]$ExpectedParent, [string]$StagePattern)
+    $pendingPath = Get-PendingPath
+    if (-not [IO.File]::Exists($pendingPath)) { return $null }
+    $pending = Read-StrictJsonFile -Path $pendingPath -MaximumBytes 65536
+    Assert-ExactObject -Value $pending -Properties @(
+        "schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port",
+        "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount",
+        "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt"
+    ) -Label "pending update"
+    $stage = [IO.Path]::GetFullPath([string]$pending.stageRoot)
+    $stageInfo = [IO.DirectoryInfo]::new($stage)
+    if (
+        $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
+        $pending.candidateId -isnot [string] -or $pending.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+        -not ([string]$pending.packageRoot).Equals($PackagePath, [StringComparison]::OrdinalIgnoreCase) -or
+        $null -eq $stageInfo.Parent -or -not $stageInfo.Parent.FullName.Equals($ExpectedParent, [StringComparison]::OrdinalIgnoreCase) -or
+        $stageInfo.Name -notmatch $StagePattern
+    ) { throw [IO.InvalidDataException]::new("The pending update cannot protect a staging directory.") }
+    if ($stageInfo.Exists -and ($stageInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The pending staging directory is a reparse point.") }
+    return $stage
+}
+
+function Remove-StaleWorkerArtifacts {
+    param([string]$PackagePath)
+    $package = [IO.Path]::GetFullPath($PackagePath).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $parent = [IO.Path]::GetFullPath((Split-Path -Parent $package)).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $parentInfo = [IO.DirectoryInfo]::new($parent)
+    $parentInfo.Refresh()
+    if (($parentInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The package parent must not be a reparse point.") }
+    $stagePattern = '^\.' + [Regex]::Escape([IO.Path]::GetFileName($package)) + '\.update-stage-[A-Za-z0-9_-]{40,64}$'
+    $protectedStage = Get-ProtectedPendingStage -PackagePath $package -ExpectedParent $parent -StagePattern $stagePattern
+
+    $updateInfo = [IO.DirectoryInfo]::new((Get-UpdateDirectory))
+    foreach ($file in $updateInfo.GetFiles()) {
+        if ($file.Name -notmatch '^package-[A-Za-z0-9_-]{40,64}\.[0-9a-f]{32}\.zip$') { continue }
+        $file.Refresh()
+        if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("Refusing to remove a reparse-point update archive.") }
+        $file.Delete()
+    }
+    foreach ($directory in $parentInfo.GetDirectories()) {
+        if ($directory.Name -notmatch $stagePattern -or ($null -ne $protectedStage -and $directory.FullName.Equals($protectedStage, [StringComparison]::OrdinalIgnoreCase))) { continue }
+        Remove-OwnedStageDirectory -Path $directory.FullName -ExpectedParent $parent
+    }
 }
 
 function Invoke-Check {
@@ -1239,6 +1326,7 @@ function Invoke-Stage {
                     candidateId = $CandidateId; downloadedBytes = $Downloaded; downloadBytes = [long]$verified.Manifest.artifacts.direct.bytes; startedAt = $startedAt
                 })
             }
+            if ($Downloaded -gt 0) { Invoke-TestStageCrash -Phase "DOWNLOAD" }
         }
         $null = Invoke-BoundedDownload -Uri ([Uri]$verified.DirectAsset.url) -ReleaseApi ([Uri]$Configuration.releaseApi) -MaximumBytes $maximumArchiveBytes `
             -ExpectedBytes ([long]$verified.Manifest.artifacts.direct.bytes) -ExpectedDigest ([string]$verified.DirectAsset.digest) -Destination $downloadPath -Progress $progress
@@ -1248,6 +1336,7 @@ function Invoke-Stage {
         })
         $direct = $verified.Manifest.artifacts.direct
         $null = [TarkovHelperUpdateSupport.SafeZip]::Extract($downloadPath, $stageRoot, [string]$direct.rootDirectory, [int]$direct.unpacked.fileCount, [long]$direct.unpacked.bytes, [string]$direct.unpacked.treeSha256)
+        Invoke-TestStageCrash -Phase "EXTRACTED"
         Assert-StagedPackage -StageRoot $stageRoot -Manifest $verified.Manifest -CurrentConfiguration $Configuration
         $brokerHash = Get-FileSha256Hex (Join-Path $packagePath "app-update-broker.ps1")
         $healthNonce = Get-RandomIdentifier
@@ -1294,6 +1383,7 @@ try {
     $lockPath = Join-Path (Get-UpdateDirectory) "worker.lock"
     try { $lock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
     catch [IO.IOException] { exit 3 }
+    Remove-StaleWorkerArtifacts -PackagePath $packagePath
     $version = Get-CurrentVersionDocument
     $currentVersion = [string]$version.version
     $configuration = Get-UpdateConfiguration

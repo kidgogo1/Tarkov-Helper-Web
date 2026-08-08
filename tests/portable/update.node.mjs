@@ -367,6 +367,15 @@ async function runExternalBroker(fixture, port, options = {}) {
   ], options);
 }
 
+async function ownedUpdateResidues(fixture) {
+  const packageLeaf = path.basename(fixture.packageRoot);
+  const stages = (await readdir(path.dirname(fixture.packageRoot)))
+    .filter((name) => name.startsWith(`.${packageLeaf}.update-stage-`));
+  const downloads = (await readdir(path.join(fixture.stateDirectory, "app-update")))
+    .filter((name) => /^package-[A-Za-z0-9_-]{40,64}\.[0-9a-f]{32}\.zip$/.test(name));
+  return { downloads, stages };
+}
+
 function replaceZipName(archive, from, to) {
   const source = Buffer.from(from, "utf8");
   const target = Buffer.from(to, "utf8");
@@ -687,6 +696,43 @@ test("restricted ZIP preflight rejects unsafe Windows paths, reparse entries, co
   }
 });
 
+test("the next exclusive worker scavenges hard-crash download and extraction residues", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  for (const phase of ["DOWNLOAD", "EXTRACTED"]) {
+    await t.test(phase, async () => {
+      const fixture = await createUpdateFixture();
+      const port = await getFreePort();
+      const common = [
+        "-PackageRoot", fixture.packageRoot,
+        "-StateDirectory", fixture.stateDirectory,
+        "-Port", String(port),
+        "-AllowTestHttpLoopback",
+      ];
+      try {
+        const checked = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), ["-Action", "Check", ...common]);
+        assert.equal(checked.status, 0, `${checked.stdout}\n${checked.stderr}`);
+        const available = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
+        const crashed = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), [
+          "-Action", "Stage", ...common, "-CandidateId", available.candidateId,
+        ], {
+          env: { TARKOV_HELPER_UPDATE_TEST_STAGE_CRASH_PHASE: phase },
+          timeout: 30_000,
+        });
+        assert.equal(crashed.status, 98, `${phase}\n${crashed.stdout}\n${crashed.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+        const dirty = await ownedUpdateResidues(fixture);
+        assert.equal(dirty.stages.length, 1, `${phase} must leave one interrupted sibling stage`);
+        assert.equal(dirty.downloads.length, 1, `${phase} must leave one interrupted archive`);
+
+        const restarted = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), ["-Action", "Check", ...common]);
+        assert.equal(restarted.status, 0, `${phase}\n${restarted.stdout}\n${restarted.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+        assert.deepEqual(await ownedUpdateResidues(fixture), { downloads: [], stages: [] });
+      } finally {
+        await closeServer(fixture.releaseServer);
+        await rm(fixture.temporaryRoot, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 test("health failure rolls back safely and a fresh candidate can later apply", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
   const fixture = await createUpdateFixture();
   const port = await getFreePort();
@@ -878,4 +924,39 @@ test("rollback cleanup crash remains replayable and does not poison the next can
   ], { env, timeout: 40_000 });
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
   assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.1.0");
+});
+
+test("rollback journal preserves a live delayed server identity across a hard crash", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = { TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1", TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1" };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  await prepareStagedFixture(fixture, port);
+  const interrupted = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], {
+    env: {
+      ...env,
+      TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH: "1",
+      TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE: "ROLLING_BACK",
+    },
+    timeout: 30_000,
+  });
+  assert.equal(interrupted.status, 2, `${interrupted.stdout}\n${interrupted.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const journalPath = path.join(fixture.stateDirectory, "app-update", "apply-journal.json");
+  const interruptedJournal = JSON.parse(await readFile(journalPath, "utf8"));
+  assert.equal(interruptedJournal.phase, "ROLLING_BACK");
+  assert.ok(interruptedJournal.serverPid > 0, "the exact started server PID must remain durable");
+  assert.match(interruptedJournal.serverProcessStartTimeUtc, /^\d{4}-\d{2}-\d{2}T/);
+
+  const recovered = await runExternalBroker(fixture, port, { timeout: 40_000 });
+  assert.equal(recovered.status, 10, `${recovered.stdout}\n${recovered.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  await assert.rejects(readFile(path.join(fixture.stateDirectory, "app-update", "pending.json")), { code: "ENOENT" });
+  await assert.rejects(readFile(journalPath), { code: "ENOENT" });
 });

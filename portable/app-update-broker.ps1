@@ -6,7 +6,7 @@ param(
     [ValidateRange(1, 65535)][int]$Port = 41753,
     [switch]$SkipRunOnce,
     [switch]$TestFailHealth,
-    [ValidateSet("", "PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLED_BACK")]
+    [ValidateSet("", "PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK", "ROLLED_BACK")]
     [string]$TestCrashAfterPhase = ""
 )
 
@@ -552,7 +552,7 @@ try {
     }
 
     $instance = Read-Instance
-    if ($null -eq $instance -and $journal.serverPid -gt 0 -and $journal.phase -in @("NEW_STARTED", "HEALTHY", "COMMITTED")) {
+    if ($null -eq $instance -and $journal.serverPid -gt 0 -and $journal.phase -in @("NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK")) {
         $recorded = Get-RecordedProcess -ProcessId ([int]$journal.serverPid) -ProcessStartTimeUtc ([string]$journal.serverProcessStartTimeUtc)
         if ($null -ne $recorded) {
             $deadline = [DateTime]::UtcNow.AddSeconds(5)
@@ -570,19 +570,31 @@ try {
             $instance = $null
         } elseif (-not (Invoke-Health -Instance $instance -ExpectedRoot $packageRoot -ExpectedNonce ([string]$plan.healthNonce))) {
             throw [Security.SecurityException]::new("The running process could not be authenticated as this update transaction.")
+        } elseif ($journal.phase -in @("ROLLING_BACK", "ROLLED_BACK")) {
+            if ($rootIsOld) {
+                Complete-Rollback -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -BackupRoot $backupRoot -FailedRoot $failedRoot -Parent $parent -EscapedLeaf $escapedLeaf -HealthyOldInstance $instance
+                exit 10
+            }
+            if ($rootIsNew -and $backupIsOld) {
+                Stop-RecordedServer -Instance $instance -Root $packageRoot -Nonce ([string]$plan.healthNonce)
+                $instance = $null
+                throw [InvalidOperationException]::new("Continuing the interrupted update rollback.")
+            }
+            throw [IO.InvalidDataException]::new("The interrupted rollback trees are not recoverable.")
         } elseif ($rootIsNew -and $backupIsOld) {
             $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
             Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase ([string]$journal.phase) -ServerPid ([int]$instance.pid) -ServerProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
             exit 0
-        } elseif ($rootIsOld -and $journal.phase -in @("ROLLING_BACK", "ROLLED_BACK")) {
-            Complete-Rollback -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -BackupRoot $backupRoot -FailedRoot $failedRoot -Parent $parent -EscapedLeaf $escapedLeaf -HealthyOldInstance $instance
-            exit 10
         } elseif ($rootIsOld) {
             Stop-RecordedServer -Instance $instance -Root $packageRoot -Nonce ([string]$plan.healthNonce)
             $instance = $null
         } else {
             throw [IO.InvalidDataException]::new("The running update server does not match a recoverable package tree.")
         }
+    }
+
+    if ($journal.phase -in @("ROLLING_BACK", "ROLLED_BACK")) {
+        throw [InvalidOperationException]::new("Continuing the interrupted update rollback.")
     }
 
     if ($rootIsOld -and [IO.Directory]::Exists($stageRoot)) {
@@ -616,14 +628,15 @@ try {
         Write-Status ([ordered]@{ state = "ROLLING_BACK"; currentVersion = [string]$plan.currentVersion; latestVersion = [string]$plan.latestVersion; startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) })
         $serverPid = 0; $serverStart = ""
         if ($null -ne $newServer) { $serverPid = $newServer.Id; $serverStart = Get-ProcessStartTimeText $newServer }
+        elseif ($null -ne $journal -and $journal.serverPid -gt 0) { $serverPid = [int]$journal.serverPid; $serverStart = [string]$journal.serverProcessStartTimeUtc }
         Write-Journal -Plan $plan -Phase "ROLLING_BACK" -BackupRoot $backupRoot -FailedRoot $failedRoot -ServerPid $serverPid -ServerProcessStartTimeUtc $serverStart
 
         $rollbackInstance = Read-Instance
         $expectedServerProcess = $null
         if ($null -ne $newServer) {
             $expectedServerProcess = $newServer
-        } elseif ($null -ne $journal -and $journal.serverPid -gt 0) {
-            $expectedServerProcess = Get-RecordedProcess -ProcessId ([int]$journal.serverPid) -ProcessStartTimeUtc ([string]$journal.serverProcessStartTimeUtc)
+        } elseif ($serverPid -gt 0) {
+            $expectedServerProcess = Get-RecordedProcess -ProcessId $serverPid -ProcessStartTimeUtc $serverStart
         }
         if ($null -eq $rollbackInstance -and $null -ne $expectedServerProcess -and -not $expectedServerProcess.HasExited) {
             $instanceDeadline = [DateTime]::UtcNow.AddSeconds(5)
