@@ -41,11 +41,12 @@ async function waitFor(check, timeoutMs = 10_000) {
 }
 
 test("double-click scripts start and stop the hidden broker without a console", async () => {
-  const [startVbs, stopVbs, diagnosticCommand, launcher] = await Promise.all([
+  const [startVbs, stopVbs, diagnosticCommand, launcher, updateBroker] = await Promise.all([
     readFile(startVbsPath, "utf8"),
     readFile(stopVbsPath, "utf8"),
     readFile(diagnosticCommandPath, "utf8"),
     readFile(launcherPath, "utf8"),
+    readFile(path.join(portableRoot, "app-update-broker.ps1"), "utf8"),
   ]);
 
   assert.match(startVbs, /WScript\.Shell/i);
@@ -56,7 +57,11 @@ test("double-click scripts start and stop the hidden broker without a console", 
   assert.match(stopVbs, /\.Run\([\s\S]*,\s*0\s*,/i);
   assert.match(diagnosticCommand, /-Action Serve/i);
   assert.match(launcher, /Start-Process[\s\S]*-WindowStyle Hidden/i);
-  assert.equal((launcher.match(/Start-Process/g) ?? []).length, 1);
+  const launcherStarts = launcher.match(/^\s*(?:\$\w+\s*=\s*)?Start-Process\b/gm) ?? [];
+  const hiddenLauncherStarts = launcher.match(/^\s*(?:\$\w+\s*=\s*)?Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/gm) ?? [];
+  assert.equal(launcherStarts.length, 3);
+  assert.equal(hiddenLauncherStarts.length, launcherStarts.length);
+  assert.match(updateBroker, /Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/i);
   assert.equal((launcher.match(/Get-StateMutexName -Purpose "Control"/g) ?? []).length, 2);
   assert.match(launcher, /Get-FileHash -LiteralPath \$PSCommandPath -Algorithm SHA256/);
 });

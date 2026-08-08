@@ -9,7 +9,8 @@ param(
     [ValidateRange(0, 2147483647)]
     [int]$MaxRequests = 0,
     [string]$ScreenshotFolder,
-    [string]$StateDirectory
+    [string]$StateDirectory,
+    [string]$UpdateNonce
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,11 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 
 if ([string]::IsNullOrWhiteSpace($StateDirectory)) {
     $StateDirectory = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) "TarkovHelperWeb"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($UpdateNonce) -and $UpdateNonce -notmatch '^[A-Za-z0-9_-]{40,64}$') {
+    [Console]::Error.WriteLine("The internal update health nonce is invalid.")
+    exit 2
 }
 
 $trackerProtocolVersion = 1
@@ -48,6 +54,8 @@ $nativeOverlayMaximumSize = 1000
 $nativeOverlayClaims = @{}
 $nativeOverlayRecord = $null
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
+$appUpdateProtocolVersion = 1
+$appUpdateToken = $null
 # Browsers throttle background-tab timers. A short lease made the hidden
 # launcher stop while the user was still using the map, so keep a generous
 # orphan-recovery window; normal tab close still sends /client/close immediately.
@@ -2134,6 +2142,183 @@ function Write-PortableConfig {
     Move-Item -LiteralPath $temporaryPath -Destination $configPath -Force
 }
 
+function Get-AppUpdateDirectory {
+    $directory = Join-Path (Initialize-StateDirectory) "app-update"
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw [IO.IOException]::new("The app update state directory must not be a reparse point.")
+    }
+    return $directory
+}
+
+function Get-AppUpdateStatusPath { return Join-Path (Get-AppUpdateDirectory) "status.json" }
+function Get-AppUpdateCandidatePath { return Join-Path (Get-AppUpdateDirectory) "candidate.json" }
+function Get-AppUpdatePendingPath { return Join-Path (Get-AppUpdateDirectory) "pending.json" }
+function Get-AppUpdateWorkerPath { return Join-Path (Get-AppUpdateDirectory) "worker.json" }
+
+function Write-AppUpdateJson {
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][object]$Value)
+    $json = ConvertTo-Json -InputObject $Value -Compress -Depth 12
+    $bytes = (New-Object Text.UTF8Encoding($false, $true)).GetBytes($json)
+    $directory = Split-Path -Parent $Path
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($Path) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
+    $stream = [IO.FileStream]::new($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None, 4096, [IO.FileOptions]::WriteThrough)
+    try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+    try {
+        if ([IO.File]::Exists($Path)) {
+            $backup = Join-Path $directory ("." + [IO.Path]::GetFileName($Path) + "." + [Guid]::NewGuid().ToString("N") + ".bak")
+            try { [IO.File]::Replace($temporary, $Path, $backup, $true) } finally { if ([IO.File]::Exists($backup)) { [IO.File]::Delete($backup) } }
+        }
+        else { [IO.File]::Move($temporary, $Path) }
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+
+function Read-AppUpdateJson {
+    param([string]$Path, [ValidateRange(1, 4194304)][int]$MaximumBytes = 65536)
+    try {
+        $file = [IO.FileInfo]::new([IO.Path]::GetFullPath($Path))
+        if (-not $file.Exists -or $file.Length -le 0 -or $file.Length -gt $MaximumBytes) { return $null }
+        $bytes = [IO.File]::ReadAllBytes($file.FullName)
+        if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xef -and $bytes[1] -eq 0xbb -and $bytes[2] -eq 0xbf) { return $null }
+        $encoding = New-Object Text.UTF8Encoding($false, $true)
+        return $encoding.GetString($bytes) | ConvertFrom-Json
+    } catch { return $null }
+}
+
+function Test-AppUpdateObjectShape {
+    param([object]$Value, [string[]]$Properties)
+    if ($null -eq $Value -or $Value -is [string]) { return $false }
+    $actual = @($Value.PSObject.Properties | Where-Object { $_.MemberType -in @("NoteProperty", "Property") } | ForEach-Object { $_.Name })
+    if ($actual.Count -ne $Properties.Count) { return $false }
+    foreach ($property in $Properties) { if (-not ($actual -ccontains $property)) { return $false } }
+    return $true
+}
+
+function Test-AppUpdateVersion {
+    param([object]$Value)
+    if ($Value -isnot [string] -or $Value.Length -gt 64 -or $Value -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { return $false }
+    foreach ($part in $Value.Split('.')) { [long]$parsed = 0; if (-not [long]::TryParse($part, [ref]$parsed) -or $parsed -gt 9007199254740991) { return $false } }
+    return $true
+}
+
+function Test-AppUpdateInteger {
+    param([object]$Value, [long]$Minimum = 0, [long]$Maximum = 9007199254740991)
+    if ($Value -isnot [byte] -and $Value -isnot [int16] -and $Value -isnot [int32] -and $Value -isnot [int64] -and $Value -isnot [decimal]) { return $false }
+    try { $number = [decimal]$Value; return [decimal]::Truncate($number) -eq $number -and $number -ge $Minimum -and $number -le $Maximum } catch { return $false }
+}
+
+function Get-AppUpdateContext {
+    param([Parameter(Mandatory = $true)][string]$AppRoot)
+    $currentVersion = "0.0.0"
+    $currentCommit = "0000000000000000000000000000000000000000"
+    $packageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $expectedAppRoot = [IO.Path]::GetFullPath((Join-Path $packageRoot "app")).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $actualAppRoot = [IO.Path]::GetFullPath($AppRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if (-not $actualAppRoot.Equals($expectedAppRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $null }
+    }
+    $version = Read-AppUpdateJson -Path (Join-Path $actualAppRoot "version.json") -MaximumBytes 8192
+    if (
+        -not (Test-AppUpdateObjectShape $version @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -or
+        $version.schemaVersion -ne 1 -or $version.product -cne "tarkov-helper-web" -or -not (Test-AppUpdateVersion $version.version) -or
+        $version.commit -isnot [string] -or $version.commit -notmatch '^[0-9a-f]{40}$' -or $version.updaterProtocolVersion -ne 1
+    ) {
+        return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $null }
+    }
+    $currentVersion = [string]$version.version
+    $currentCommit = [string]$version.commit
+    $configuration = Read-AppUpdateJson -Path (Join-Path $packageRoot "UPDATE_CONFIG.json") -MaximumBytes 65536
+    if ($null -eq $configuration) {
+        return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $null }
+    }
+    if ($configuration.updaterEnabled -ceq $false) {
+        if (-not (Test-AppUpdateObjectShape $configuration @("schemaVersion", "updaterEnabled", "protocolVersion")) -or $configuration.schemaVersion -ne 1 -or $configuration.protocolVersion -ne 1) { $configuration = $null }
+        return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $configuration }
+    }
+    $valid = (
+        (Test-AppUpdateObjectShape $configuration @("schemaVersion", "updaterEnabled", "protocolVersion", "repository", "releaseApi", "manifestAsset", "signatureAsset", "requireImmutableRelease", "signing")) -and
+        (Test-AppUpdateObjectShape $configuration.signing @("algorithm", "keyId", "publicKeySpkiPem")) -and
+        $configuration.schemaVersion -eq 1 -and $configuration.updaterEnabled -ceq $true -and $configuration.protocolVersion -eq 1 -and
+        $configuration.repository -is [string] -and $configuration.repository -match '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -and
+        $configuration.manifestAsset -ceq "update-manifest-v1.json" -and $configuration.signatureAsset -ceq "update-manifest-v1.sig" -and
+        $configuration.requireImmutableRelease -ceq $true -and $configuration.signing.algorithm -ceq "RSA-SHA256" -and
+        $configuration.signing.keyId -is [string] -and $configuration.signing.keyId -match '^sha256:[0-9a-f]{64}$' -and
+        $configuration.signing.publicKeySpkiPem -is [string]
+    )
+    if ($valid) {
+        $expectedApi = "https://api.github.com/repos/$($configuration.repository)/releases/latest"
+        if ($env:TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP -ceq "1") {
+            try { $testApi = [Uri]$configuration.releaseApi; $valid = $testApi.Scheme -ceq "http" -and $testApi.Host -ceq "127.0.0.1" -and $testApi.AbsolutePath.EndsWith("/repos/$($configuration.repository)/releases/latest", [StringComparison]::Ordinal) } catch { $valid = $false }
+        } else { $valid = $configuration.releaseApi -ceq $expectedApi }
+    }
+    if (-not $valid) { return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $null } }
+    return [pscustomobject]@{ Enabled = $true; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = [string]$configuration.repository; PackageRoot = $packageRoot; Configuration = $configuration }
+}
+
+function Test-AppUpdateWorkerAlive {
+    $record = Read-AppUpdateJson -Path (Get-AppUpdateWorkerPath) -MaximumBytes 8192
+    if (-not (Test-AppUpdateObjectShape $record @("protocolVersion", "pid", "processStartTimeUtc", "operation")) -or $record.protocolVersion -ne 1 -or $record.pid -isnot [int] -or $record.processStartTimeUtc -isnot [string] -or $record.operation -notin @("CHECK", "STAGE")) { return $false }
+    try {
+        $process = Get-Process -Id ([int]$record.pid) -ErrorAction Stop
+        return $process.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture) -ceq [string]$record.processStartTimeUtc
+    } catch { return $false }
+}
+
+function Get-AppUpdateStatus {
+    param([object]$Context)
+    if (-not $Context.Enabled) { return [pscustomobject]@{ state = "DISABLED"; currentVersion = [string]$Context.CurrentVersion; reason = "NOT_CONFIGURED" } }
+    $status = Read-AppUpdateJson -Path (Get-AppUpdateStatusPath) -MaximumBytes 65536
+    if ($null -eq $status -or $status.state -isnot [string] -or $status.currentVersion -cne $Context.CurrentVersion) { return [pscustomobject]@{ state = "IDLE"; currentVersion = [string]$Context.CurrentVersion } }
+    $candidatePattern = '^[A-Za-z0-9_-]{40,64}$'; $datePattern = '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$'
+    $valid = switch ($status.state) {
+        "IDLE" { Test-AppUpdateObjectShape $status @("state", "currentVersion"); break }
+        "CHECKING" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "startedAt")) -and $status.startedAt -is [string] -and $status.startedAt -match $datePattern; break }
+        "CURRENT" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "checkedAt")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.checkedAt -is [string] -and $status.checkedAt -match $datePattern; break }
+        "AVAILABLE" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "publishedAt", "releasePageUrl", "downloadBytes", "candidateId")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.publishedAt -is [string] -and $status.publishedAt -match $datePattern -and $status.releasePageUrl -ceq "https://github.com/$($Context.Repository)/releases/tag/v$($status.latestVersion)" -and (Test-AppUpdateInteger $status.downloadBytes 1 536870912) -and $status.candidateId -is [string] -and $status.candidateId -match $candidatePattern; break }
+        "DOWNLOADING" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "candidateId", "downloadedBytes", "downloadBytes", "startedAt")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.candidateId -is [string] -and $status.candidateId -match $candidatePattern -and (Test-AppUpdateInteger $status.downloadedBytes 0 536870912) -and (Test-AppUpdateInteger $status.downloadBytes 1 536870912) -and [long]$status.downloadedBytes -le [long]$status.downloadBytes -and $status.startedAt -is [string] -and $status.startedAt -match $datePattern; break }
+        "VERIFYING" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "candidateId", "startedAt")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.candidateId -is [string] -and $status.candidateId -match $candidatePattern -and $status.startedAt -is [string] -and $status.startedAt -match $datePattern; break }
+        "READY_TO_RESTART" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "candidateId", "stagedAt")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.candidateId -is [string] -and $status.candidateId -match $candidatePattern -and $status.stagedAt -is [string] -and $status.stagedAt -match $datePattern -and [IO.File]::Exists((Get-AppUpdatePendingPath)); break }
+        "APPLYING" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "startedAt")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.startedAt -is [string] -and $status.startedAt -match $datePattern; break }
+        "ROLLING_BACK" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "latestVersion", "startedAt")) -and (Test-AppUpdateVersion $status.latestVersion) -and $status.startedAt -is [string] -and $status.startedAt -match $datePattern; break }
+        "UPDATED" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "previousVersion", "updatedAt")) -and (Test-AppUpdateVersion $status.previousVersion) -and $status.updatedAt -is [string] -and $status.updatedAt -match $datePattern; break }
+        "ERROR" { (Test-AppUpdateObjectShape $status @("state", "currentVersion", "operation", "code", "message")) -and $status.operation -in @("CHECK", "STAGE", "APPLY", "ROLLBACK") -and $status.code -is [string] -and $status.code -match '^[A-Z][A-Z0-9_]{1,63}$' -and $status.message -is [string] -and $status.message.Length -ge 1 -and $status.message.Length -le 500; break }
+        default { $false }
+    }
+    if (-not $valid) { return [pscustomobject]@{ state = "IDLE"; currentVersion = [string]$Context.CurrentVersion } }
+    if ($status.state -in @("CHECKING", "DOWNLOADING", "VERIFYING") -and -not (Test-AppUpdateWorkerAlive)) {
+        $operation = if ($status.state -eq "CHECKING") { "CHECK" } else { "STAGE" }
+        $status = [pscustomobject]@{ state = "ERROR"; currentVersion = [string]$Context.CurrentVersion; operation = $operation; code = "WORKER_EXITED"; message = "The background update worker stopped unexpectedly." }
+        Write-AppUpdateJson -Path (Get-AppUpdateStatusPath) -Value $status
+    }
+    return $status
+}
+
+function Start-AppUpdateWorker {
+    param([ValidateSet("Check", "Stage")][string]$WorkerAction, [object]$Context, [string]$ReviewedCandidate, [ValidateRange(1, 65535)][int]$BoundPort)
+    $current = Get-AppUpdateStatus -Context $Context
+    if ($current.state -in @("CHECKING", "DOWNLOADING", "VERIFYING", "APPLYING", "ROLLING_BACK")) { throw [InvalidOperationException]::new("An update operation is already in progress.") }
+    if ($WorkerAction -eq "Stage" -and ($current.state -ne "AVAILABLE" -or $current.candidateId -cne $ReviewedCandidate)) { throw [ArgumentException]::new("The reviewed update candidate is no longer available.") }
+    $worker = Join-Path $Context.PackageRoot "app-update-worker.ps1"
+    if (-not [IO.File]::Exists($worker)) { throw [IO.FileNotFoundException]::new("The app update worker is missing.", $worker) }
+    $now = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    if ($WorkerAction -eq "Check") { $initial = [pscustomobject]@{ state = "CHECKING"; currentVersion = [string]$Context.CurrentVersion; startedAt = $now } }
+    else { $initial = [pscustomobject]@{ state = "DOWNLOADING"; currentVersion = [string]$Context.CurrentVersion; latestVersion = [string]$current.latestVersion; candidateId = $ReviewedCandidate; downloadedBytes = [long]0; downloadBytes = [long]$current.downloadBytes; startedAt = $now } }
+    Write-AppUpdateJson -Path (Get-AppUpdateStatusPath) -Value $initial
+    $powershell = Join-Path $PSHOME "powershell.exe"; if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
+    $arguments = @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $worker, "-Action", $WorkerAction, "-PackageRoot", $Context.PackageRoot, "-StateDirectory", $StateDirectory, "-Port", [string]$BoundPort)
+    if ($WorkerAction -eq "Stage") { $arguments += @("-CandidateId", $ReviewedCandidate) }
+    $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
+    $directory = Get-AppUpdateDirectory
+    $child = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput (Join-Path $directory "worker.stdout.log") -RedirectStandardError (Join-Path $directory "worker.stderr.log")
+    $startedAt = $child.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    Write-AppUpdateJson -Path (Get-AppUpdateWorkerPath) -Value ([pscustomobject]@{ protocolVersion = 1; pid = $child.Id; processStartTimeUtc = $startedAt; operation = $WorkerAction.ToUpperInvariant() })
+    return $initial
+}
+
 function Read-PortableInstance {
     try {
         $instancePath = Get-InstancePath
@@ -2421,6 +2606,88 @@ function Stop-SpawnedPortableChild {
     }
 }
 
+function Invoke-PendingAppUpdate {
+    $pendingPath = Get-AppUpdatePendingPath
+    if (-not [IO.File]::Exists($pendingPath)) { return $null }
+    if ($Port -eq 0) {
+        [Console]::Error.WriteLine("A staged update requires a fixed local port.")
+        return 2
+    }
+    $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
+    $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $expectedAppRoot = [IO.Path]::GetFullPath((Join-Path $expectedPackageRoot "app")).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if (
+        -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
+        $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
+        -not ([string]$pending.packageRoot).Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        -not ([string]$pending.stateDirectory).Equals([IO.Path]::GetFullPath($StateDirectory), [StringComparison]::OrdinalIgnoreCase) -or
+        $pending.port -ne $Port -or
+        -not ([IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)).Equals($expectedAppRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        $pending.brokerSha256 -isnot [string] -or $pending.brokerSha256 -notmatch '^[0-9a-f]{64}$'
+    ) {
+        [Console]::Error.WriteLine("The staged update state is invalid and was preserved.")
+        return 2
+    }
+    $source = Join-Path $expectedPackageRoot "app-update-broker.ps1"
+    if (-not [IO.File]::Exists($source) -or (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$pending.brokerSha256) {
+        [Console]::Error.WriteLine("The trusted app update broker does not match the staged update state.")
+        return 2
+    }
+    $directory = Get-AppUpdateDirectory
+    $broker = Join-Path $directory ("broker-" + [string]$pending.brokerSha256 + ".ps1")
+    if (-not [IO.File]::Exists($broker) -or (Get-FileHash -LiteralPath $broker -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$pending.brokerSha256) {
+        $temporary = "$broker.$([Guid]::NewGuid().ToString('N')).tmp"
+        [IO.File]::Copy($source, $temporary, $false)
+        try {
+            if ((Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$pending.brokerSha256) { throw [Security.Cryptography.CryptographicException]::new("The copied app update broker hash does not match.") }
+            if ([IO.File]::Exists($broker)) {
+                $brokerBackup = "$broker.$PID.bak"
+                try { [IO.File]::Replace($temporary, $broker, $brokerBackup, $true) } finally { if ([IO.File]::Exists($brokerBackup)) { [IO.File]::Delete($brokerBackup) } }
+            } else { [IO.File]::Move($temporary, $broker) }
+        } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+    }
+    $powershell = Join-Path $PSHOME "powershell.exe"; if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
+    $arguments = @(
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $broker,
+        "-PlanPath", $pendingPath, "-ExpectedPackageRoot", $expectedPackageRoot, "-StateDirectory", $StateDirectory, "-Port", [string]$Port
+    )
+    if ($env:TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE -ceq "1") { $arguments += "-SkipRunOnce" }
+    if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH -ceq "1") { $arguments += "-TestFailHealth" }
+    if ($env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE -in @("PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLED_BACK")) {
+        $arguments += @("-TestCrashAfterPhase", [string]$env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE)
+    }
+    $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
+    # Windows PowerShell 5.1 loses Process.ExitCode when Start-Process owns
+    # redirected output handles. The broker writes durable status/journal state,
+    # so keep the hidden process unredirected and retain a reliable exit code.
+    $process = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
+    # Windows PowerShell's Start-Process -Wait follows the entire descendant tree.
+    # A successful broker intentionally leaves the replacement server running, so
+    # wait on the broker Process object itself instead of its long-lived child.
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+        $process.Refresh()
+    }
+    if (-not $process.HasExited) {
+        try { $process.Kill(); $null = $process.WaitForExit(5000) } catch { }
+        [Console]::Error.WriteLine("The staged update broker did not finish within the safety timeout.")
+        return 2
+    }
+    $process.WaitForExit()
+    $process.Refresh()
+    Write-PortableLog "App update broker exited with code $($process.ExitCode)."
+    $instance = Read-PortableInstance
+    if ($null -ne $instance -and (Test-PortableInstance -Instance $instance)) {
+        $url = "http://127.0.0.1:$($instance.port)/"
+        [Console]::Out.WriteLine("TARKOV_HELPER_URL=$url")
+        Open-PortableBrowser -Url $url
+    }
+    if ($process.ExitCode -eq 0) { return 0 }
+    [Console]::Error.WriteLine("The staged update could not be applied; the previous version was restored when possible.")
+    return 2
+}
+
 function Start-PortableBroker {
     $mutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Control"))
     $hasMutex = $false
@@ -2460,6 +2727,13 @@ function Start-PortableBroker {
                 return 2
             }
 
+            $pendingRecoveryPath = Get-AppUpdatePendingPath
+            $journalRecoveryPath = Join-Path (Get-AppUpdateDirectory) "apply-journal.json"
+            if ([IO.File]::Exists($pendingRecoveryPath) -and [IO.File]::Exists($journalRecoveryPath)) {
+                $recoveryResult = Invoke-PendingAppUpdate
+                if ($null -ne $recoveryResult) { return [int]$recoveryResult }
+            }
+
             $existingRootPath = [string]($existing.rootPath)
             if (
                 $existing.buildIdentity -cne $expectedBuildIdentity -or
@@ -2478,6 +2752,9 @@ function Start-PortableBroker {
         if ($null -ne $existing -and -not (Test-RecordedProcessIdentity -Instance $existing)) {
             Remove-Item -LiteralPath $instancePath -Force -ErrorAction SilentlyContinue
         }
+
+        $updateResult = Invoke-PendingAppUpdate
+        if ($null -ne $updateResult) { return [int]$updateResult }
 
         $powershellPath = Join-Path $PSHOME "powershell.exe"
         if (-not [IO.File]::Exists($powershellPath)) { $powershellPath = "powershell.exe" }
@@ -2616,6 +2893,8 @@ $buildIdentity = Get-AppBuildIdentity -AppRoot $rootPath
 $healthResponse = "tarkov-helper-web-portable-v1:$buildIdentity"
 $controlToken = Get-RandomToken
 $nativeOverlayToken = Get-RandomToken
+$appUpdateToken = Get-RandomToken
+$appUpdateContext = Get-AppUpdateContext -AppRoot $rootPath
 
 $serveMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Serve"))
 $hasServeMutex = $false
@@ -2707,6 +2986,7 @@ try {
             controlToken = $controlToken
             buildIdentity = $buildIdentity
             rootPath = $rootPath
+            updateNonce = if ([string]::IsNullOrWhiteSpace($UpdateNonce)) { "" } else { $UpdateNonce }
             startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
         })
         $ownsInstanceState = $true
@@ -2766,6 +3046,7 @@ try {
             $originHeaders = @()
             $controlHeaders = @()
             $overlayHeaders = @()
+            $updateHeaders = @()
             $secFetchSiteHeaders = @()
             $contentLengthHeaders = @()
             $contentTypeHeaders = @()
@@ -2792,6 +3073,9 @@ try {
                 }
                 if ($headerName.Equals("X-Tarkov-Overlay", [StringComparison]::OrdinalIgnoreCase)) {
                     $overlayHeaders += $headerValue
+                }
+                if ($headerName.Equals("X-Tarkov-Update", [StringComparison]::OrdinalIgnoreCase)) {
+                    $updateHeaders += $headerValue
                 }
                 if ($headerName.Equals("Sec-Fetch-Site", [StringComparison]::OrdinalIgnoreCase)) {
                     $secFetchSiteHeaders += $headerValue
@@ -2828,6 +3112,117 @@ try {
             $requestTarget = $requestParts[1]
             $headOnly = $method -eq "HEAD"
             $requestPath = $requestTarget.Split("?", 2)[0]
+
+            $appUpdatePaths = @(
+                "/api/v1/app-update/session",
+                "/api/v1/app-update/status",
+                "/api/v1/app-update/check",
+                "/api/v1/app-update/stage"
+            )
+            if ($appUpdatePaths -contains $requestPath) {
+                $expectedOrigin = "http://127.0.0.1:$boundPort"
+                $sameOriginGet = (
+                    ($originHeaders.Count -eq 0 -or ($originHeaders.Count -eq 1 -and $originHeaders[0] -ceq $expectedOrigin)) -and
+                    $secFetchSiteHeaders.Count -eq 1 -and $secFetchSiteHeaders[0] -ceq "same-origin"
+                )
+                if ($requestTarget -cne $requestPath) {
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" -Code "INVALID_REQUEST" -Message "Update API queries are not supported."
+                    continue
+                }
+                if ($requestPath -eq "/api/v1/app-update/session") {
+                    if ($method -ne "GET") {
+                        Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                        continue
+                    }
+                    if (-not $sameOriginGet -or $updateHeaders.Count -ne 0 -or $contentLengthHeaders.Count -ne 0 -or $contentTypeHeaders.Count -ne 0 -or $transferEncodingHeaders.Count -ne 0) {
+                        Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" -Code "FORBIDDEN" -Message "The update session request was not same-origin."
+                        continue
+                    }
+                    $status = Get-AppUpdateStatus -Context $appUpdateContext
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value ([ordered]@{
+                        protocolVersion = $appUpdateProtocolVersion
+                        capability = "PUBLIC_GITHUB_RELEASES"
+                        token = $appUpdateToken
+                        repository = if ($appUpdateContext.Enabled) { [string]$appUpdateContext.Repository } else { $null }
+                        status = $status
+                    })
+                    continue
+                }
+                if (
+                    $updateHeaders.Count -ne 1 -or $updateHeaders[0] -cne $appUpdateToken -or
+                    $secFetchSiteHeaders.Count -ne 1 -or $secFetchSiteHeaders[0] -cne "same-origin"
+                ) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" -Code "FORBIDDEN" -Message "The app update request could not be authenticated."
+                    continue
+                }
+                if ($requestPath -eq "/api/v1/app-update/status") {
+                    if ($method -ne "GET") {
+                        Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                        continue
+                    }
+                    if (-not $sameOriginGet -or $contentLengthHeaders.Count -ne 0 -or $contentTypeHeaders.Count -ne 0 -or $transferEncodingHeaders.Count -ne 0) {
+                        Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" -Code "FORBIDDEN" -Message "The app update status request was not same-origin."
+                        continue
+                    }
+                    try { $publicUpdateStatus = Get-AppUpdateStatus -Context $appUpdateContext }
+                    catch {
+                        Write-PortableLog "App update status serialization failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+                        Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" -Code "UPDATE_STATUS_FAILED" -Message "The app update status could not be read."
+                        continue
+                    }
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value ([ordered]@{ protocolVersion = $appUpdateProtocolVersion; status = $publicUpdateStatus })
+                    continue
+                }
+                if ($method -ne "POST") {
+                    Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                    continue
+                }
+                if ($originHeaders.Count -ne 1 -or $originHeaders[0] -cne $expectedOrigin) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" -Code "FORBIDDEN" -Message "The app update mutation was not same-origin."
+                    continue
+                }
+                try {
+                    $updateRequest = Read-JsonRequestObject -Stream $stream `
+                        -ContentLengthHeaders $contentLengthHeaders -ContentTypeHeaders $contentTypeHeaders -TransferEncodingHeaders $transferEncodingHeaders
+                    if ($requestPath -eq "/api/v1/app-update/check") {
+                        try { Assert-JsonObjectShape -Value $updateRequest -AllowedProperties @() }
+                        catch [ArgumentException] { throw [FormatException]::new("The check request must be an empty object.", $_.Exception) }
+                    } else {
+                        try { Assert-JsonObjectShape -Value $updateRequest -AllowedProperties @("candidateId") -RequiredProperties @("candidateId") }
+                        catch [ArgumentException] { throw [FormatException]::new("The stage request must contain exactly one candidateId.", $_.Exception) }
+                        if ($updateRequest.candidateId -isnot [string] -or $updateRequest.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$') { throw [FormatException]::new("The reviewed candidate identifier is invalid.") }
+                    }
+                    # Consume and validate the bounded POST body before any semantic
+                    # conflict response. Closing a Windows socket with unread body
+                    # bytes can reset and truncate an otherwise valid JSON reply.
+                    if (-not $appUpdateContext.Enabled) {
+                        Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "NOT_CONFIGURED" -Message "Public updates are not configured for this package."
+                        continue
+                    }
+                    if ((Get-AppUpdateStatus -Context $appUpdateContext).state -eq "READY_TO_RESTART") {
+                        Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "UPDATE_READY" -Message "The staged update is ready and will be applied on the next start."
+                        continue
+                    }
+                    if ($requestPath -eq "/api/v1/app-update/check") {
+                        $initialStatus = Start-AppUpdateWorker -WorkerAction "Check" -Context $appUpdateContext -BoundPort $boundPort
+                    } else {
+                        $initialStatus = Start-AppUpdateWorker -WorkerAction "Stage" -Context $appUpdateContext -ReviewedCandidate ([string]$updateRequest.candidateId) -BoundPort $boundPort
+                    }
+                    Send-JsonResponse -Stream $stream -StatusCode 202 -Reason "Accepted" -Value ([ordered]@{ protocolVersion = $appUpdateProtocolVersion; status = $initialStatus })
+                } catch [InvalidOperationException] {
+                    Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "UPDATE_BUSY" -Message "An app update operation is already in progress."
+                } catch [ArgumentException] {
+                    Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "CANDIDATE_MISMATCH" -Message "The reviewed update candidate is no longer available."
+                } catch [FormatException] {
+                    Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" -Code "INVALID_REQUEST" -Message "The update request shape is invalid."
+                } catch [IO.InvalidDataException] {
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" -Code "INVALID_JSON" -Message "A bounded JSON object is required."
+                } catch {
+                    Write-PortableLog "App update worker launch failed: $($_.Exception.GetType().Name)"
+                    Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" -Code "UPDATE_WORKER_FAILED" -Message "The background update worker could not be started."
+                }
+                continue
+            }
 
             $clientLifecyclePaths = @(
                 "/api/v1/client/session",
