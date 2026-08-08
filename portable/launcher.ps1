@@ -48,7 +48,10 @@ $nativeOverlayMaximumSize = 1000
 $nativeOverlayClaims = @{}
 $nativeOverlayRecord = $null
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
-$clientLeaseTimeoutSeconds = 10
+# Browsers throttle background-tab timers. A short lease made the hidden
+# launcher stop while the user was still using the map, so keep a generous
+# orphan-recovery window; normal tab close still sends /client/close immediately.
+$clientLeaseTimeoutSeconds = 600
 $clientLeaseCloseGraceSeconds = 3
 $clientLeases = @{}
 $clientLifecycleArmed = $false

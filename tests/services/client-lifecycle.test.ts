@@ -9,7 +9,7 @@ const session = {
   protocolVersion: 1,
   leaseToken: "l".repeat(43),
   heartbeatIntervalMs: 2_000,
-  timeoutMs: 10_000,
+  timeoutMs: 600_000,
 } as const;
 
 function jsonResponse(body: unknown, status = 200): Response {

@@ -174,7 +174,7 @@ test("the authenticated browser lease shuts the server down after the tab closes
   assert.equal(session.protocolVersion, 1);
   assert.match(session.leaseToken, /^[A-Za-z0-9_-]{40,64}$/);
   assert.equal(session.heartbeatIntervalMs, 2000);
-  assert.equal(session.timeoutMs, 10000);
+  assert.equal(session.timeoutMs, 600000);
 
   const headers = {
     "content-type": "application/json",

@@ -401,12 +401,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9BX1Nob290ZXJfQm9ybl9pbl9IZWF2ZW4=",
       "bsgId": "5c0bde0986f77479cf22c2f8",
-      "normalizedName": "a-shooter-born-in-heaven",
-      "name": "A Shooter Born in Heaven",
-      "nameEn": "A Shooter Born in Heaven",
+      "normalizedName": "shooter-born-in-heaven",
+      "name": "Shooter Born in Heaven",
+      "nameEn": "Shooter Born in Heaven",
       "nameKo": "천국에서 태어난 저격수",
-      "nameJa": "A Shooter Born in Heaven",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/A_Shooter_Born_in_Heaven",
+      "nameJa": "Shooter Born in Heaven",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Shooter_Born_in_Heaven",
       "trader": "Mechanic",
       "locations": [
         "Woods",
@@ -545,7 +545,10 @@
           "descriptionKo": "그라운드 제로(Ground Zero)에서 볼트액션 소총을 사용하여 헤드샷으로 PMC 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "A Shooter Born in Heaven"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9BYmFuZG9uZWRfQ2FyZ28=",
@@ -1128,12 +1131,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9BbWJ1bGFuY2U=",
       "bsgId": "5d25e46e86f77409453bce7c",
-      "normalizedName": "ambulance",
-      "name": "Ambulance",
-      "nameEn": "Ambulance",
+      "normalizedName": "first-aid",
+      "name": "First Aid",
+      "nameEn": "First Aid",
       "nameKo": "구급차",
-      "nameJa": "Ambulance",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Ambulance",
+      "nameJa": "First Aid",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/First_Aid",
       "trader": "Jaeger",
       "locations": [],
       "minLevel": 25,
@@ -1217,17 +1220,20 @@
           "requirementType": "Handover",
           "sortOrder": 1
         }
+      ],
+      "nameAliases": [
+        "Ambulance"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9BbWJ1bGFuY2VzX0FnYWlu",
       "bsgId": "64f3176921045e77405d63b5",
-      "normalizedName": "ambulances-again",
-      "name": "Ambulances Again",
-      "nameEn": "Ambulances Again",
+      "normalizedName": "paramedic",
+      "name": "Paramedic",
+      "nameEn": "Paramedic",
       "nameKo": "Ambulances Again",
-      "nameJa": "Ambulances Again",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Ambulances_Again",
+      "nameJa": "Paramedic",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Paramedic",
       "trader": "Therapist",
       "locations": [
         "StreetsOfTarkov"
@@ -1332,6 +1338,9 @@
           "requirementType": "Handover",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "Ambulances Again"
       ]
     },
     {
@@ -5554,12 +5563,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DYXJnb19YXy1fUGFydF80",
       "bsgId": "61958c366726521dd96828ec",
-      "normalizedName": "cargo-x---part-4",
-      "name": "Cargo X - Part 4",
-      "nameEn": "Cargo X - Part 4",
+      "normalizedName": "gifts-from-tarkov",
+      "name": "Gifts from Tarkov",
+      "nameEn": "Gifts from Tarkov",
       "nameKo": "화물 X - 파트 4",
-      "nameJa": "Cargo X - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X_-_Part_4",
+      "nameJa": "Gifts from Tarkov",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gifts_from_Tarkov",
       "trader": "Peacekeeper",
       "locations": [
         "Lighthouse"
@@ -5611,6 +5620,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "Cargo X - Part 4"
       ]
     },
     {
@@ -6630,12 +6642,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db2xsZWFndWVzXy1fUGFydF8x",
       "bsgId": "5edab736cc183c769d778bc2",
-      "normalizedName": "colleagues---part-1",
-      "name": "Colleagues - Part 1",
-      "nameEn": "Colleagues - Part 1",
+      "normalizedName": "colleagues",
+      "name": "Colleagues",
+      "nameEn": "Colleagues",
       "nameKo": "동료들 - 파트 1",
-      "nameJa": "Colleagues - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Colleagues_-_Part_1",
+      "nameJa": "Colleagues",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Colleagues",
       "trader": "Therapist",
       "locations": [
         "Shoreline"
@@ -6721,17 +6733,20 @@
           "descriptionKo": "살아서 탈출하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Colleagues - Part 1"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db2xsZWFndWVzXy1fUGFydF8y",
       "bsgId": "5edaba7c0c502106f869bc02",
-      "normalizedName": "colleagues---part-2",
-      "name": "Colleagues - Part 2",
-      "nameEn": "Colleagues - Part 2",
+      "normalizedName": "tarkov-style-diplomacy",
+      "name": "Tarkov-Style Diplomacy",
+      "nameEn": "Tarkov-Style Diplomacy",
       "nameKo": "동료들 - 파트 2",
-      "nameJa": "Colleagues - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Colleagues_-_Part_2",
+      "nameJa": "Tarkov-Style Diplomacy",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Tarkov-Style_Diplomacy",
       "trader": "Therapist",
       "locations": [
         "Shoreline"
@@ -6842,17 +6857,20 @@
           "requirementType": "Handover",
           "sortOrder": 2
         }
+      ],
+      "nameAliases": [
+        "Colleagues - Part 2"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db2xsZWFndWVzXy1fUGFydF8z",
       "bsgId": "5edac34d0bb72a50635c2bfa",
-      "normalizedName": "colleagues---part-3",
-      "name": "Colleagues - Part 3",
-      "nameEn": "Colleagues - Part 3",
+      "normalizedName": "a-difficult-choice",
+      "name": "A Difficult Choice",
+      "nameEn": "A Difficult Choice",
       "nameKo": "동료들 - 파트 3",
-      "nameJa": "Colleagues - Part 3",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Colleagues_-_Part_3",
+      "nameJa": "A Difficult Choice",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/A_Difficult_Choice",
       "trader": "Therapist",
       "locations": [],
       "kappaRequired": false,
@@ -6992,6 +7010,9 @@
           "requirementType": "Handover",
           "sortOrder": 2
         }
+      ],
+      "nameAliases": [
+        "Colleagues - Part 3"
       ]
     },
     {
@@ -10362,12 +10383,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9EYXRhYmFzZV8tX1BhcnRfMQ==",
       "bsgId": "5ae4493486f7744efa289417",
-      "normalizedName": "database---part-1",
-      "name": "Database - Part 1",
-      "nameEn": "Database - Part 1",
+      "normalizedName": "inventory-files",
+      "name": "Inventory Files",
+      "nameEn": "Inventory Files",
       "nameKo": "데이터베이스 - 파트 1",
-      "nameJa": "Database - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Database_-_Part_1",
+      "nameJa": "Inventory Files",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Inventory_Files",
       "trader": "Ragman",
       "locations": [
         "Interchange"
@@ -10516,6 +10537,9 @@
           "requirementType": "Handover",
           "sortOrder": 2
         }
+      ],
+      "nameAliases": [
+        "Database - Part 1"
       ]
     },
     {
@@ -10599,6 +10623,9 @@
           "requirementType": "Handover",
           "sortOrder": 1
         }
+      ],
+      "nameAliases": [
+        "Database - Part 2"
       ]
     },
     {
@@ -11983,12 +12010,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9FYXN5X0pvYl8tX1BhcnRfMQ==",
       "bsgId": "6179ac7511973d018217d0b9",
-      "normalizedName": "easy-job---part-1",
-      "name": "Easy Job - Part 1",
-      "nameEn": "Easy Job - Part 1",
+      "normalizedName": "easy-job",
+      "name": "Easy Job",
+      "nameEn": "Easy Job",
       "nameKo": "쉬운 일 - 파트 1",
-      "nameJa": "Easy Job - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Easy_Job_-_Part_1",
+      "nameJa": "Easy Job",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Easy_Job",
       "trader": "Prapor",
       "locations": [
         "Lighthouse"
@@ -12059,6 +12086,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "Easy Job - Part 1"
       ]
     },
     {
@@ -12776,12 +12806,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9GYXJtaW5nXy1fUGFydF8x",
       "bsgId": "5ac345dc86f774288030817f",
-      "normalizedName": "farming---part-1",
-      "name": "Farming - Part 1",
-      "nameEn": "Farming - Part 1",
+      "normalizedName": "playing-the-market",
+      "name": "Playing the Market",
+      "nameEn": "Playing the Market",
       "nameKo": "채굴 - 파트 1",
-      "nameJa": "Farming - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Farming_-_Part_1",
+      "nameJa": "Playing the Market",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Playing_the_Market",
       "trader": "Mechanic",
       "locations": [
         "Factory"
@@ -12851,6 +12881,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "Farming - Part 1"
       ]
     },
     {
@@ -12985,12 +13018,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9GYXJtaW5nXy1fUGFydF8z",
       "bsgId": "5ac3462b86f7741d6118b983",
-      "normalizedName": "farming---part-3",
-      "name": "Farming - Part 3",
-      "nameEn": "Farming - Part 3",
+      "normalizedName": "farming",
+      "name": "Farming",
+      "nameEn": "Farming",
       "nameKo": "채굴 - 파트 3",
-      "nameJa": "Farming - Part 3",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Farming_-_Part_3",
+      "nameJa": "Farming",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Farming",
       "trader": "Mechanic",
       "locations": [
         "Customs"
@@ -13081,17 +13114,20 @@
           "requirementType": "Handover",
           "sortOrder": 1
         }
+      ],
+      "nameAliases": [
+        "Farming - Part 3"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9GYXJtaW5nXy1fUGFydF80",
       "bsgId": "5ac3464c86f7741d651d6877",
-      "normalizedName": "farming---part-4",
-      "name": "Farming - Part 4",
-      "nameEn": "Farming - Part 4",
+      "normalizedName": "semiconductor-crisis",
+      "name": "Semiconductor Crisis",
+      "nameEn": "Semiconductor Crisis",
       "nameKo": "채굴 - 파트 4",
-      "nameJa": "Farming - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Farming_-_Part_4",
+      "nameJa": "Semiconductor Crisis",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Semiconductor_Crisis",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 14,
@@ -13177,6 +13213,9 @@
           "requirementType": "Handover",
           "sortOrder": 1
         }
+      ],
+      "nameAliases": [
+        "Farming - Part 4"
       ]
     },
     {
@@ -14191,12 +14230,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HZW5kYXJtZXJpZV8tX0Rpc3RyaWN0X1BhdHJvbA==",
       "bsgId": "64e7b9bffd30422ed03dad38",
-      "normalizedName": "gendarmerie---district-patrol",
-      "name": "Gendarmerie - District Patrol",
-      "nameEn": "Gendarmerie - District Patrol",
+      "normalizedName": "district-patrol",
+      "name": "District Patrol",
+      "nameEn": "District Patrol",
       "nameKo": "헌병대 - 지역 순찰",
-      "nameJa": "Gendarmerie - District Patrol",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gendarmerie_-_District_Patrol",
+      "nameJa": "District Patrol",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/District_Patrol",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -14258,17 +14297,20 @@
           "descriptionKo": "타르코프 시내(Streets of Tarkov)의 Cardinal 아파트 단지에서 돌격소총 또는 돌격카빈을 사용하여 아무 적이나 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gendarmerie - District Patrol"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HZW5kYXJtZXJpZV8tX01hbGxfQ29w",
       "bsgId": "64e7b99017ab941a6f7bf9d7",
-      "normalizedName": "gendarmerie---mall-cop",
-      "name": "Gendarmerie - Mall Cop",
-      "nameEn": "Gendarmerie - Mall Cop",
+      "normalizedName": "mall-cop",
+      "name": "Mall Cop",
+      "nameEn": "Mall Cop",
       "nameKo": "헌병대 - 쇼핑몰 경비대",
-      "nameJa": "Gendarmerie - Mall Cop",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gendarmerie_-_Mall_Cop",
+      "nameJa": "Mall Cop",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Mall_Cop",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -14332,17 +14374,20 @@
           "descriptionKo": "타르코프 시내(Streets of Tarkov)에서 권총으로 Stylobate 건물에 있는 모든 목표물을 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gendarmerie - Mall Cop"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HZW5kYXJtZXJpZV8tX1RpY2tldHMlMkNfUGxlYXNl",
       "bsgId": "64e7b9a4aac4cd0a726562cb",
-      "normalizedName": "gendarmerie---tickets-please",
-      "name": "Gendarmerie - Tickets, Please",
-      "nameEn": "Gendarmerie - Tickets, Please",
+      "normalizedName": "tickets-please",
+      "name": "Tickets, Please",
+      "nameEn": "Tickets, Please",
       "nameKo": "헌병대 - 표 검사",
-      "nameJa": "Gendarmerie - Tickets, Please",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gendarmerie_-_Tickets%2C_Please",
+      "nameJa": "Tickets, Please",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Tickets%2C_Please",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -14396,7 +14441,10 @@
           "descriptionKo": "타르코프 시내(Streets of Tarkov)에서 SMG를 사용하여 Rodina 영화관에 있는 모든 목표물 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gendarmerie - Tickets, Please"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HZW5lcmFsX1dhcmVz",
@@ -14894,12 +14942,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HbG9yeV90b19DUFNVXy1fUGFydF8y",
       "bsgId": "64f5aac4b63b74469b6c14c2",
-      "normalizedName": "glory-to-cpsu---part-2",
-      "name": "Glory to CPSU - Part 2",
-      "nameEn": "Glory to CPSU - Part 2",
+      "normalizedName": "glory-to-cpsu",
+      "name": "Glory to CPSU",
+      "nameEn": "Glory to CPSU",
       "nameKo": "소련공산당에 영광을 - 파트 2",
-      "nameJa": "Glory to CPSU - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Glory_to_CPSU_-_Part_2",
+      "nameJa": "Glory to CPSU",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Glory_to_CPSU",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -14978,6 +15026,9 @@
           "requirementType": "Handover",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "Glory to CPSU - Part 2"
       ]
     },
     {
@@ -15443,12 +15494,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMQ==",
       "bsgId": "5ac23c6186f7741247042bad",
-      "normalizedName": "gunsmith---part-1",
-      "name": "Gunsmith - Part 1",
-      "nameEn": "Gunsmith - Part 1",
+      "normalizedName": "gunsmith-mp-133",
+      "name": "Gunsmith - MP-133",
+      "nameEn": "Gunsmith - MP-133",
       "nameKo": "건스미스 - 파트 1",
-      "nameJa": "Gunsmith - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_1",
+      "nameJa": "Gunsmith - MP-133",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_MP-133",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 2,
@@ -15480,17 +15531,20 @@
           "descriptionKo": "MP-133을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 1"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTA=",
       "bsgId": "5ae327c886f7745c7b3f2f3f",
-      "normalizedName": "gunsmith---part-10",
-      "name": "Gunsmith - Part 10",
-      "nameEn": "Gunsmith - Part 10",
+      "normalizedName": "gunsmith-ak-105",
+      "name": "Gunsmith - AK-105",
+      "nameEn": "Gunsmith - AK-105",
       "nameKo": "건스미스 - 파트 10",
-      "nameJa": "Gunsmith - Part 10",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_10",
+      "nameJa": "Gunsmith - AK-105",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_AK-105",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 20,
@@ -15520,17 +15574,20 @@
           "descriptionKo": "AK-105를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 10"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTE=",
       "bsgId": "639872fc93ae507d5858c3a6",
-      "normalizedName": "gunsmith---part-11",
-      "name": "Gunsmith - Part 11",
-      "nameEn": "Gunsmith - Part 11",
+      "normalizedName": "gunsmith-vector-9x19",
+      "name": "Gunsmith - Vector 9x19",
+      "nameEn": "Gunsmith - Vector 9x19",
       "nameKo": "건스미스 - 파트 11",
-      "nameJa": "Gunsmith - Part 11",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_11",
+      "nameJa": "Gunsmith - Vector 9x19",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Vector_9x19",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 22,
@@ -15560,17 +15617,20 @@
           "descriptionKo": "KRISS Vector 9x19를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 11"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTI=",
       "bsgId": "5b47799d86f7746c5d6a5fd8",
-      "normalizedName": "gunsmith---part-12",
-      "name": "Gunsmith - Part 12",
-      "nameEn": "Gunsmith - Part 12",
+      "normalizedName": "gunsmith-mpx",
+      "name": "Gunsmith - MPX",
+      "nameEn": "Gunsmith - MPX",
       "nameKo": "건스미스 - 파트 12",
-      "nameJa": "Gunsmith - Part 12",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_12",
+      "nameJa": "Gunsmith - MPX",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_MPX",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 23,
@@ -15599,17 +15659,20 @@
           "descriptionKo": "SIG MPX를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 12"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTM=",
       "bsgId": "5ac244c486f77413e12cf945",
-      "normalizedName": "gunsmith---part-13",
-      "name": "Gunsmith - Part 13",
-      "nameEn": "Gunsmith - Part 13",
+      "normalizedName": "gunsmith-master-part-2",
+      "name": "Gunsmith Master - Part 2",
+      "nameEn": "Gunsmith Master - Part 2",
       "nameKo": "건스미스 - 파트 13",
-      "nameJa": "Gunsmith - Part 13",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_13",
+      "nameJa": "Gunsmith Master - Part 2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_2",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 25,
@@ -15639,17 +15702,20 @@
           "descriptionKo": "R11 RSASS를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 13"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTQ=",
       "bsgId": "639872fe8871e1272b10ccf6",
-      "normalizedName": "gunsmith---part-14",
-      "name": "Gunsmith - Part 14",
-      "nameEn": "Gunsmith - Part 14",
+      "normalizedName": "gunsmith-master-part-1",
+      "name": "Gunsmith Master - Part 1",
+      "nameEn": "Gunsmith Master - Part 1",
       "nameKo": "건스미스 - 파트 14",
-      "nameJa": "Gunsmith - Part 14",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_14",
+      "nameJa": "Gunsmith Master - Part 1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_1",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 27,
@@ -15678,17 +15744,20 @@
           "descriptionKo": "HK 416A5를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 14"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTU=",
       "bsgId": "5ae3280386f7742a41359364",
-      "normalizedName": "gunsmith---part-15",
-      "name": "Gunsmith - Part 15",
-      "nameEn": "Gunsmith - Part 15",
+      "normalizedName": "gunsmith-as-val",
+      "name": "Gunsmith - AS VAL",
+      "nameEn": "Gunsmith - AS VAL",
       "nameKo": "건스미스 - 파트 15",
-      "nameJa": "Gunsmith - Part 15",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_15",
+      "nameJa": "Gunsmith - AS VAL",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_AS_VAL",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 29,
@@ -15718,17 +15787,20 @@
           "descriptionKo": "AS VAL을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 15"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTY=",
       "bsgId": "5ac242ab86f77412464f68b4",
-      "normalizedName": "gunsmith---part-16",
-      "name": "Gunsmith - Part 16",
-      "nameEn": "Gunsmith - Part 16",
+      "normalizedName": "gunsmith-master-part-3",
+      "name": "Gunsmith Master - Part 3",
+      "nameEn": "Gunsmith Master - Part 3",
       "nameKo": "건스미스 - 파트 16",
-      "nameJa": "Gunsmith - Part 16",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_16",
+      "nameJa": "Gunsmith Master - Part 3",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_3",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 30,
@@ -15757,17 +15829,20 @@
           "descriptionKo": "DVL-10을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 16"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTc=",
       "bsgId": "5b47749f86f7746c5d6a5fd4",
-      "normalizedName": "gunsmith---part-17",
-      "name": "Gunsmith - Part 17",
-      "nameEn": "Gunsmith - Part 17",
+      "normalizedName": "gunsmith-master-part-4",
+      "name": "Gunsmith Master - Part 4",
+      "nameEn": "Gunsmith Master - Part 4",
       "nameKo": "건스미스 - 파트 17",
-      "nameJa": "Gunsmith - Part 17",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_17",
+      "nameJa": "Gunsmith Master - Part 4",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_4",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 31,
@@ -15796,17 +15871,20 @@
           "descriptionKo": "AK-102를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 17"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTg=",
       "bsgId": "5b477b6f86f7747290681823",
-      "normalizedName": "gunsmith---part-18",
-      "name": "Gunsmith - Part 18",
-      "nameEn": "Gunsmith - Part 18",
+      "normalizedName": "gunsmith-master-part-5",
+      "name": "Gunsmith Master - Part 5",
+      "nameEn": "Gunsmith Master - Part 5",
       "nameKo": "건스미스 - 파트 18",
-      "nameJa": "Gunsmith - Part 18",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_18",
+      "nameJa": "Gunsmith Master - Part 5",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_5",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 33,
@@ -15835,17 +15913,20 @@
           "descriptionKo": "AKMN을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 18"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMTk=",
       "bsgId": "639873003693c63d86328f25",
-      "normalizedName": "gunsmith---part-19",
-      "name": "Gunsmith - Part 19",
-      "nameEn": "Gunsmith - Part 19",
+      "normalizedName": "gunsmith-master-part-6",
+      "name": "Gunsmith Master - Part 6",
+      "nameEn": "Gunsmith Master - Part 6",
       "nameKo": "건스미스 - 파트 19",
-      "nameJa": "Gunsmith - Part 19",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_19",
+      "nameJa": "Gunsmith Master - Part 6",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_6",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 36,
@@ -15874,17 +15955,20 @@
           "descriptionKo": "SVDS를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 19"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMg==",
       "bsgId": "5ac2426c86f774138762edfe",
-      "normalizedName": "gunsmith---part-2",
-      "name": "Gunsmith - Part 2",
-      "nameEn": "Gunsmith - Part 2",
+      "normalizedName": "gunsmith-aks-74u",
+      "name": "Gunsmith - AKS-74U",
+      "nameEn": "Gunsmith - AKS-74U",
       "nameKo": "건스미스 - 파트 2",
-      "nameJa": "Gunsmith - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_2",
+      "nameJa": "Gunsmith - AKS-74U",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_AKS-74U",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 5,
@@ -15914,17 +15998,20 @@
           "descriptionKo": "AKS-74U를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 2"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMjA=",
       "bsgId": "5b477f7686f7744d1b23c4d2",
-      "normalizedName": "gunsmith---part-20",
-      "name": "Gunsmith - Part 20",
-      "nameEn": "Gunsmith - Part 20",
+      "normalizedName": "gunsmith-master-part-7",
+      "name": "Gunsmith Master - Part 7",
+      "nameEn": "Gunsmith Master - Part 7",
       "nameKo": "건스미스 - 파트 20",
-      "nameJa": "Gunsmith - Part 20",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_20",
+      "nameJa": "Gunsmith Master - Part 7",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_7",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 37,
@@ -15953,17 +16040,20 @@
           "descriptionKo": "M1A를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 20"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMjE=",
       "bsgId": "63987301e11ec11ff5504036",
-      "normalizedName": "gunsmith---part-21",
-      "name": "Gunsmith - Part 21",
-      "nameEn": "Gunsmith - Part 21",
+      "normalizedName": "gunsmith-master-part-8",
+      "name": "Gunsmith Master - Part 8",
+      "nameEn": "Gunsmith Master - Part 8",
       "nameKo": "건스미스 - 파트 21",
-      "nameJa": "Gunsmith - Part 21",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_21",
+      "nameJa": "Gunsmith Master - Part 8",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_8",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 38,
@@ -16002,17 +16092,20 @@
           "descriptionKo": "M1911을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 21"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMjI=",
       "bsgId": "5b47825886f77468074618d3",
-      "normalizedName": "gunsmith---part-22",
-      "name": "Gunsmith - Part 22",
-      "nameEn": "Gunsmith - Part 22",
+      "normalizedName": "gunsmith-master-part-9",
+      "name": "Gunsmith Master - Part 9",
+      "nameEn": "Gunsmith Master - Part 9",
       "nameKo": "건스미스 - 파트 22",
-      "nameJa": "Gunsmith - Part 22",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_22",
+      "nameJa": "Gunsmith Master - Part 9",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_Master_-_Part_9",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 39,
@@ -16041,7 +16134,10 @@
           "descriptionKo": "M4A1을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 22"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMjM=",
@@ -16155,12 +16251,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfMw==",
       "bsgId": "5ac2428686f77412450b42bf",
-      "normalizedName": "gunsmith---part-3",
-      "name": "Gunsmith - Part 3",
-      "nameEn": "Gunsmith - Part 3",
+      "normalizedName": "gunsmith-hk-mp5",
+      "name": "Gunsmith - HK MP5",
+      "nameEn": "Gunsmith - HK MP5",
       "nameKo": "건스미스 - 파트 3",
-      "nameJa": "Gunsmith - Part 3",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_3",
+      "nameJa": "Gunsmith - HK MP5",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_HK_MP5",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 7,
@@ -16190,17 +16286,20 @@
           "descriptionKo": "MP5를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 3"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNA==",
       "bsgId": "639872f9decada40426d3447",
-      "normalizedName": "gunsmith---part-4",
-      "name": "Gunsmith - Part 4",
-      "nameEn": "Gunsmith - Part 4",
+      "normalizedName": "gunsmith-op-sks",
+      "name": "Gunsmith - OP-SKS",
+      "nameEn": "Gunsmith - OP-SKS",
       "nameKo": "건스미스 - 파트 4",
-      "nameJa": "Gunsmith - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_4",
+      "nameJa": "Gunsmith - OP-SKS",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_OP-SKS",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 9,
@@ -16234,7 +16333,10 @@
           "descriptionKo": "OP-SKS를 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 4"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNQ==",
@@ -16279,12 +16381,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNg==",
       "bsgId": "5ae3270f86f77445ba41d4dd",
-      "normalizedName": "gunsmith---part-6",
-      "name": "Gunsmith - Part 6",
-      "nameEn": "Gunsmith - Part 6",
+      "normalizedName": "gunsmith-akm",
+      "name": "Gunsmith - AKM",
+      "nameEn": "Gunsmith - AKM",
       "nameKo": "건스미스 - 파트 6",
-      "nameJa": "Gunsmith - Part 6",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_6",
+      "nameJa": "Gunsmith - AKM",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_AKM",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 14,
@@ -16313,17 +16415,20 @@
           "descriptionKo": "AKM을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 6"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNw==",
       "bsgId": "5ac244eb86f7741356335af1",
-      "normalizedName": "gunsmith---part-7",
-      "name": "Gunsmith - Part 7",
-      "nameEn": "Gunsmith - Part 7",
+      "normalizedName": "gunsmith-m4a1",
+      "name": "Gunsmith - M4A1",
+      "nameEn": "Gunsmith - M4A1",
       "nameKo": "건스미스 - 파트 7",
-      "nameJa": "Gunsmith - Part 7",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_7",
+      "nameJa": "Gunsmith - M4A1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_M4A1",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 15,
@@ -16353,17 +16458,20 @@
           "descriptionKo": "M4A1을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 7"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfOA==",
       "bsgId": "5ae3277186f7745973054106",
-      "normalizedName": "gunsmith---part-8",
-      "name": "Gunsmith - Part 8",
-      "nameEn": "Gunsmith - Part 8",
+      "normalizedName": "gunsmith-aks-74n",
+      "name": "Gunsmith - AKS-74N",
+      "nameEn": "Gunsmith - AKS-74N",
       "nameKo": "건스미스 - 파트 8",
-      "nameJa": "Gunsmith - Part 8",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_8",
+      "nameJa": "Gunsmith - AKS-74N",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_AKS-74N",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 17,
@@ -16392,17 +16500,20 @@
           "descriptionKo": "AKS-74N을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 8"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfOQ==",
       "bsgId": "639872fa9b4fb827b200d8e5",
-      "normalizedName": "gunsmith---part-9",
-      "name": "Gunsmith - Part 9",
-      "nameEn": "Gunsmith - Part 9",
+      "normalizedName": "gunsmith-p226r",
+      "name": "Gunsmith - P226R",
+      "nameEn": "Gunsmith - P226R",
       "nameKo": "건스미스 - 파트 9",
-      "nameJa": "Gunsmith - Part 9",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_9",
+      "nameJa": "Gunsmith - P226R",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_P226R",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 19,
@@ -16431,17 +16542,20 @@
           "descriptionKo": "P226R을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 9"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IYWxmX0VtcHR5",
       "bsgId": "6740a2c17e3818d5bb0648b6",
       "normalizedName": "half-empty",
-      "name": "Half Empty",
-      "nameEn": "Half Empty",
+      "name": "Half-Empty",
+      "nameEn": "Half-Empty",
       "nameKo": "Half-Empty",
-      "nameJa": "Half Empty",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Half_Empty",
+      "nameJa": "Half-Empty",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Half-Empty",
       "trader": "Prapor",
       "locations": [],
       "kappaRequired": false,
@@ -16480,7 +16594,10 @@
           "descriptionKo": "Hand over the found in raid PC component items"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Half Empty"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfQ2FyZV9Qcml2YWN5Xy1fUGFydF8x",
@@ -17665,12 +17782,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Ib3VzZV9BcnJlc3RfLV9QYXJ0XzE=",
       "bsgId": "639135c3744e452011470807",
-      "normalizedName": "house-arrest---part-1",
-      "name": "House Arrest - Part 1",
-      "nameEn": "House Arrest - Part 1",
+      "normalizedName": "house-arrest",
+      "name": "House Arrest",
+      "nameEn": "House Arrest",
       "nameKo": "House Arrest - Part 1",
-      "nameJa": "House Arrest - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/House_Arrest_-_Part_1",
+      "nameJa": "House Arrest",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/House_Arrest",
       "trader": "Skier",
       "locations": [
         "StreetsOfTarkov"
@@ -17726,6 +17843,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "House Arrest - Part 1"
       ]
     },
     {
@@ -17974,12 +18094,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IdW50ZXI=",
       "bsgId": "600302d73b897b11364cd161",
-      "normalizedName": "hunter",
-      "name": "Hunter",
-      "nameEn": "Hunter",
+      "normalizedName": "all-this-filth",
+      "name": "All This Filth...",
+      "nameEn": "All This Filth...",
       "nameKo": "사냥꾼",
-      "nameJa": "Hunter",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Hunter",
+      "nameJa": "All This Filth...",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/All_This_Filth...",
       "trader": "Jaeger",
       "locations": [
         "Woods"
@@ -18014,7 +18134,10 @@
           "descriptionKo": "슈트르만 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Hunter"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IdW50aW5nX1RyaXA=",
@@ -18964,12 +19087,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9JbnZlbnRvcnlfQ2hlY2s=",
       "bsgId": "608974af4b05530f55550c21",
-      "normalizedName": "inventory-check",
-      "name": "Inventory Check",
-      "nameEn": "Inventory Check",
+      "normalizedName": "reserve-expert",
+      "name": "Reserve Expert",
+      "nameEn": "Reserve Expert",
       "nameKo": "재고 확인",
-      "nameJa": "Inventory Check",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Inventory_Check",
+      "nameJa": "Reserve Expert",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Reserve_Expert",
       "trader": "Ragman",
       "locations": [
         "Reserve"
@@ -19126,6 +19249,9 @@
           "requirementType": "Required",
           "sortOrder": 3
         }
+      ],
+      "nameAliases": [
+        "Inventory Check"
       ]
     },
     {
@@ -20487,12 +20613,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9MZW5kLUxlYXNlXy1fUGFydF8x",
       "bsgId": "5b4794cb86f774598100d5d4",
-      "normalizedName": "lend-lease---part-1",
-      "name": "Lend-Lease - Part 1",
-      "nameEn": "Lend-Lease - Part 1",
+      "normalizedName": "metal-birds",
+      "name": "Metal Birds",
+      "nameEn": "Metal Birds",
       "nameKo": "무기 대여 - 파트 1",
-      "nameJa": "Lend-Lease - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Lend-Lease_-_Part_1",
+      "nameJa": "Metal Birds",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Metal_Birds",
       "trader": "Skier",
       "locations": [
         "Shoreline",
@@ -20735,17 +20861,20 @@
           "requirementType": "Handover",
           "sortOrder": 7
         }
+      ],
+      "nameAliases": [
+        "Lend-Lease - Part 1"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9MZW5kLUxlYXNlXy1fUGFydF8y",
       "bsgId": "5c0d0f1886f77457b8210226",
-      "normalizedName": "lend-lease---part-2",
-      "name": "Lend-Lease - Part 2",
-      "nameEn": "Lend-Lease - Part 2",
+      "normalizedName": "from-hand-to-hand",
+      "name": "From Hand to Hand",
+      "nameEn": "From Hand to Hand",
       "nameKo": "무기 대여 - 파트 2",
-      "nameJa": "Lend-Lease - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Lend-Lease_-_Part_2",
+      "nameJa": "From Hand to Hand",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/From_Hand_to_Hand",
       "trader": "Peacekeeper",
       "locations": [],
       "minLevel": 30,
@@ -20830,17 +20959,20 @@
           "requirementType": "Handover",
           "sortOrder": 1
         }
+      ],
+      "nameAliases": [
+        "Lend-Lease - Part 2"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9MaXZpbmdfSGlnaF9pc19Ob3RfYV9DcmltZV8tX1BhcnRfMQ==",
       "bsgId": "5b47891f86f7744d1b23c571",
-      "normalizedName": "living-high-is-not-a-crime---part-1",
-      "name": "Living High is Not a Crime - Part 1",
-      "nameEn": "Living High is Not a Crime - Part 1",
+      "normalizedName": "living-high-is-not-a-crime",
+      "name": "Living High is Not a Crime",
+      "nameEn": "Living High is Not a Crime",
       "nameKo": "잘 사는 건 죄가 아니야 - 파트 1",
-      "nameJa": "Living High is Not a Crime - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Living_High_is_Not_a_Crime_-_Part_1",
+      "nameJa": "Living High is Not a Crime",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Living_High_is_Not_a_Crime",
       "trader": "Ragman",
       "locations": [],
       "minLevel": 27,
@@ -21028,17 +21160,20 @@
           "requirementType": "Handover",
           "sortOrder": 4
         }
+      ],
+      "nameAliases": [
+        "Living High is Not a Crime - Part 1"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9MaXZpbmdfSGlnaF9pc19Ob3RfYV9DcmltZV8tX1BhcnRfMg==",
       "bsgId": "5c1141f386f77430ff393792",
-      "normalizedName": "living-high-is-not-a-crime---part-2",
-      "name": "Living High is Not a Crime - Part 2",
-      "nameEn": "Living High is Not a Crime - Part 2",
+      "normalizedName": "antique-enthusiast",
+      "name": "Antique Enthusiast",
+      "nameEn": "Antique Enthusiast",
       "nameKo": "잘 사는 건 죄가 아니야 - 파트 2",
-      "nameJa": "Living High is Not a Crime - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Living_High_is_Not_a_Crime_-_Part_2",
+      "nameJa": "Antique Enthusiast",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Antique_Enthusiast",
       "trader": "Ragman",
       "locations": [],
       "kappaRequired": true,
@@ -21190,6 +21325,9 @@
           "requirementType": "Handover",
           "sortOrder": 3
         }
+      ],
+      "nameAliases": [
+        "Living High is Not a Crime - Part 2"
       ]
     },
     {
@@ -29908,12 +30046,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TYWxlc19OaWdodA==",
       "bsgId": "5ae449c386f7744bde357697",
-      "normalizedName": "sales-night",
-      "name": "Sales Night",
-      "nameEn": "Sales Night",
+      "normalizedName": "pathfinder",
+      "name": "Pathfinder",
+      "nameEn": "Pathfinder",
       "nameKo": "ULTRA 24시",
-      "nameJa": "Sales Night",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Sales_Night",
+      "nameJa": "Pathfinder",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Pathfinder",
       "trader": "Ragman",
       "locations": [
         "Interchange"
@@ -29946,7 +30084,10 @@
           "descriptionKo": "인터체인지(Interchange)에서 생존하여 탈출하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Sales Night"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TYW1wbGVz",
@@ -32400,12 +32541,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TaWduYWxfLV9QYXJ0XzE=",
       "bsgId": "5ac3467986f7741d6224abc2",
-      "normalizedName": "signal---part-1",
-      "name": "Signal - Part 1",
-      "nameEn": "Signal - Part 1",
+      "normalizedName": "ill-wisher",
+      "name": "Ill-Wisher",
+      "nameEn": "Ill-Wisher",
       "nameKo": "신호 - 파트 1",
-      "nameJa": "Signal - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Signal_-_Part_1",
+      "nameJa": "Ill-Wisher",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Ill-Wisher",
       "trader": "Mechanic",
       "locations": [
         "Shoreline"
@@ -32473,17 +32614,20 @@
           "descriptionKo": "살아서 탈출하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Signal - Part 1"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TaWduYWxfLV9QYXJ0XzI=",
       "bsgId": "5ac346a886f7744e1b083d67",
-      "normalizedName": "signal---part-2",
-      "name": "Signal - Part 2",
-      "nameEn": "Signal - Part 2",
+      "normalizedName": "rat-hunting",
+      "name": "Rat Hunting",
+      "nameEn": "Rat Hunting",
       "nameKo": "신호 - 파트 2",
-      "nameJa": "Signal - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Signal_-_Part_2",
+      "nameJa": "Rat Hunting",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Rat_Hunting",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 12,
@@ -32632,6 +32776,9 @@
           "requirementType": "Handover",
           "sortOrder": 3
         }
+      ],
+      "nameAliases": [
+        "Signal - Part 2"
       ]
     },
     {
@@ -35771,12 +35918,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Td2lmdF9PbmU=",
       "bsgId": "60e729cf5698ee7b05057439",
-      "normalizedName": "swift-one",
-      "name": "Swift One",
-      "nameEn": "Swift One",
+      "normalizedName": "swift",
+      "name": "Swift",
+      "nameEn": "Swift",
       "nameKo": "날쌘돌이",
-      "nameJa": "Swift One",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Swift_One",
+      "nameJa": "Swift",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Swift",
       "trader": "Jaeger",
       "locations": [
         "Woods"
@@ -35813,7 +35960,10 @@
           "descriptionKo": "삼림(Woods)에서 방탄복과 헬멧을 착용하지 않은 상태로 PMC 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Swift One"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Td2lmdF9SZXRyaWJ1dGlvbg==",
@@ -35964,12 +36114,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXN0X0RyaXZlXy1fUGFydF8x",
       "bsgId": "5c0bd94186f7747a727f09b2",
-      "normalizedName": "test-drive---part-1",
-      "name": "Test Drive - Part 1",
-      "nameEn": "Test Drive - Part 1",
+      "normalizedName": "the-tarkov-import",
+      "name": "The Tarkov Import",
+      "nameEn": "The Tarkov Import",
       "nameKo": "시범운용 - 파트 1",
-      "nameJa": "Test Drive - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_1",
+      "nameJa": "The Tarkov Import",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Tarkov_Import",
       "trader": "Prapor",
       "locations": [],
       "minLevel": 18,
@@ -36001,17 +36151,20 @@
           "descriptionKo": "SR-25 소총에 Hybrid 46 소음기와 Schmidt & Bender PM II 1-8x24 조준경을 장착한 상태로 PMC 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Test Drive - Part 1"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXN0X0RyaXZlXy1fUGFydF8y",
       "bsgId": "63a5cf262964a7488f5243ce",
-      "normalizedName": "test-drive---part-2",
-      "name": "Test Drive - Part 2",
-      "nameEn": "Test Drive - Part 2",
+      "normalizedName": "power-of-persuasion",
+      "name": "Power of Persuasion",
+      "nameEn": "Power of Persuasion",
       "nameKo": "시범운용 - 파트 2",
-      "nameJa": "Test Drive - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_2",
+      "nameJa": "Power of Persuasion",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Power_of_Persuasion",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov",
@@ -36048,17 +36201,20 @@
           "descriptionKo": "Eliminate PMCs using an MP5SD on Streets of Tarkov, Ground Zero, or Interchange"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Test Drive - Part 2"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXN0X0RyaXZlXy1fUGFydF8z",
       "bsgId": "64f5deac39e45b527a7c4232",
-      "normalizedName": "test-drive---part-3",
-      "name": "Test Drive - Part 3",
-      "nameEn": "Test Drive - Part 3",
+      "normalizedName": "job-for-a-patriot",
+      "name": "Job for a Patriot",
+      "nameEn": "Job for a Patriot",
       "nameKo": "시범운용 - 파트 3",
-      "nameJa": "Test Drive - Part 3",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_3",
+      "nameJa": "Job for a Patriot",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Job_for_a_Patriot",
       "trader": "Prapor",
       "locations": [
         "Lighthouse",
@@ -36095,7 +36251,10 @@
           "descriptionKo": "등대(Lighthouse), 세관(Customs), 또는 리저브(Reserve)에서 소음기와 Valday PS-320 1/6x 조준경을 장착한 AK-12를 사용하여 PMC 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Test Drive - Part 3"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXN0X0RyaXZlXy1fUGFydF80",
@@ -36522,12 +36681,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfQmxvb2Rfb2ZfV2FyXy1fUGFydF8x",
       "bsgId": "5ae448f286f77448d73c0131",
-      "normalizedName": "the-blood-of-war---part-1",
-      "name": "The Blood of War - Part 1",
-      "nameEn": "The Blood of War - Part 1",
+      "normalizedName": "fuel-crisis",
+      "name": "Fuel Crisis",
+      "nameEn": "Fuel Crisis",
       "nameKo": "전쟁의 피 - 파트 1",
-      "nameJa": "The Blood of War - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Blood_of_War_-_Part_1",
+      "nameJa": "Fuel Crisis",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Fuel_Crisis",
       "trader": "Ragman",
       "locations": [
         "Interchange"
@@ -36655,6 +36814,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "The Blood of War - Part 1"
       ]
     },
     {
@@ -36827,17 +36989,20 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "The Blood of War - Part 3"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfQnVua2VyXy1fUGFydF8x",
       "bsgId": "5ede55112c95834b583f052a",
-      "normalizedName": "the-bunker---part-1",
-      "name": "The Bunker - Part 1",
-      "nameEn": "The Bunker - Part 1",
+      "normalizedName": "the-bunker",
+      "name": "The Bunker",
+      "nameEn": "The Bunker",
       "nameKo": "벙커 - 파트 1",
-      "nameJa": "The Bunker - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Bunker_-_Part_1",
+      "nameJa": "The Bunker",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Bunker",
       "trader": "Prapor",
       "locations": [
         "Reserve"
@@ -36898,7 +37063,10 @@
           "descriptionKo": "살아서 탈출하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "The Bunker - Part 1"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfQnVua2VyXy1fUGFydF8y",
@@ -38363,12 +38531,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0VyYXNlcl8tX1BhcnRfMQ==",
       "bsgId": "5d25e44f86f77443e625e385",
-      "normalizedName": "the-huntsman-path---eraser---part-1",
-      "name": "The Huntsman Path - Eraser - Part 1",
-      "nameEn": "The Huntsman Path - Eraser - Part 1",
+      "normalizedName": "the-huntsman-path-eraser",
+      "name": "The Huntsman Path - Eraser",
+      "nameEn": "The Huntsman Path - Eraser",
       "nameKo": "사냥꾼의 길 - 말살자 - 파트 1",
-      "nameJa": "The Huntsman Path - Eraser - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Eraser_-_Part_1",
+      "nameJa": "The Huntsman Path - Eraser",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Eraser",
       "trader": "Jaeger",
       "locations": [
         "Reserve"
@@ -38401,17 +38569,20 @@
           "descriptionKo": "글루하 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "The Huntsman Path - Eraser - Part 1"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0VyYXNlcl8tX1BhcnRfMg==",
       "bsgId": "5d25e45e86f77408251c4bfa",
-      "normalizedName": "the-huntsman-path---eraser---part-2",
-      "name": "The Huntsman Path - Eraser - Part 2",
-      "nameEn": "The Huntsman Path - Eraser - Part 2",
+      "normalizedName": "the-huntsman-path-liberation",
+      "name": "The Huntsman Path - Liberation",
+      "nameEn": "The Huntsman Path - Liberation",
       "nameKo": "사냥꾼의 길 - 말살자 - 파트 2",
-      "nameJa": "The Huntsman Path - Eraser - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Eraser_-_Part_2",
+      "nameJa": "The Huntsman Path - Liberation",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Liberation",
       "trader": "Jaeger",
       "locations": [
         "Labs",
@@ -38448,7 +38619,10 @@
           "descriptionKo": "레이더 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "The Huntsman Path - Eraser - Part 2"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0V2aWxfV2F0Y2htYW4=",
@@ -42504,12 +42678,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9WaXRhbWluc18tX1BhcnRfMQ==",
       "bsgId": "5b478eca86f7744642012254",
-      "normalizedName": "vitamins---part-1",
-      "name": "Vitamins - Part 1",
-      "nameEn": "Vitamins - Part 1",
+      "normalizedName": "vitamins",
+      "name": "Vitamins",
+      "nameEn": "Vitamins",
       "nameKo": "비타민 - 파트 1",
-      "nameJa": "Vitamins - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Vitamins_-_Part_1",
+      "nameJa": "Vitamins",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Vitamins",
       "trader": "Skier",
       "locations": [
         "Shoreline",
@@ -42664,17 +42838,20 @@
           "requirementType": "Handover",
           "sortOrder": 4
         }
+      ],
+      "nameAliases": [
+        "Vitamins - Part 1"
       ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9WaXRhbWluc18tX1BhcnRfMg==",
       "bsgId": "5b478ff486f7744d184ecbbf",
-      "normalizedName": "vitamins---part-2",
-      "name": "Vitamins - Part 2",
-      "nameEn": "Vitamins - Part 2",
+      "normalizedName": "supplements",
+      "name": "Supplements",
+      "nameEn": "Supplements",
       "nameKo": "비타민 - 파트 2",
-      "nameJa": "Vitamins - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Vitamins_-_Part_2",
+      "nameJa": "Supplements",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Supplements",
       "trader": "Skier",
       "locations": [],
       "minLevel": 22,
@@ -42759,6 +42936,9 @@
           "requirementType": "Handover",
           "sortOrder": 1
         }
+      ],
+      "nameAliases": [
+        "Vitamins - Part 2"
       ]
     },
     {

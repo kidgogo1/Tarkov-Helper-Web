@@ -55,7 +55,7 @@ function parseSession(value: unknown): ClientLifecycleSession | null {
     typeof value.timeoutMs !== "number" ||
     !Number.isSafeInteger(value.timeoutMs) ||
     value.timeoutMs < value.heartbeatIntervalMs * 2 ||
-    value.timeoutMs > 60_000
+    value.timeoutMs > 600_000
   ) {
     return null;
   }
@@ -152,4 +152,3 @@ export function startClientLifecycle(
 
   return closeLease;
 }
-

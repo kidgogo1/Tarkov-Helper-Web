@@ -12,6 +12,7 @@ import {
   alternateQuestDisplayName,
   objectiveDisplayText,
   questDisplayName,
+  questLegacyNames,
   type QuestLanguage,
 } from "./quest-language";
 
@@ -197,6 +198,9 @@ export function QuestDetail({
               {alternateQuestDisplayName(quest, language)}
             </p>
           ) : null}
+          {questLegacyNames(quest).map((name) => (
+            <p className="quest-legacy-name" key={name}>이전 이름: {name}</p>
+          ))}
         </div>
         <div className="quest-detail-actions">
           <button

@@ -19,6 +19,7 @@ import { QuestDetail } from "./QuestDetail";
 import {
   alternateQuestDisplayName,
   questDisplayName,
+  questLegacyNames,
   questSearchText,
   type QuestLanguage,
 } from "./quest-language";
@@ -456,6 +457,11 @@ export function QuestsPage({
                           {alternateQuestDisplayName(quest, language) ? (
                             <small>{alternateQuestDisplayName(quest, language)}</small>
                           ) : null}
+                          {questLegacyNames(quest).map((name) => (
+                            <small className="quest-legacy-name" key={name}>
+                              이전 이름: {name}
+                            </small>
+                          ))}
                         </span>
                         <span className="quest-list-meta">
                           <span>{quest.trader}</span>

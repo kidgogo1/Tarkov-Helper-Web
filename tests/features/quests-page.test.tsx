@@ -32,6 +32,7 @@ const mainQuest = quest("q-main", {
   normalizedName: "operation-aquarius",
   name: "Operation Aquarius",
   nameEn: "Operation Aquarius",
+  nameAliases: ["Old Operation Aquarius"],
   nameKo: "물병자리 작전",
   wikiPageLink: "https://example.test/wiki/operation-aquarius",
   trader: "Therapist",
@@ -277,6 +278,17 @@ describe("QuestsPage", () => {
         { name: /Preparation/ },
       ),
     ).toBeInTheDocument();
+  });
+
+  it("finds quests by the stored legacy name and shows that alias in the result", () => {
+    renderPage();
+
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "Old Operation Aquarius" },
+    });
+
+    expect(screen.getByRole("button", { name: /Operation Aquarius/ })).toBeInTheDocument();
+    expect(screen.getAllByText(/Old Operation Aquarius/).length).toBeGreaterThan(0);
   });
 
   it("clears active filters when a recommendation is opened", () => {

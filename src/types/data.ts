@@ -74,6 +74,8 @@ export interface QuestData {
   normalizedName: string;
   name: string;
   nameEn: string;
+  /** Older app/wiki titles retained for backwards-compatible search. */
+  nameAliases?: string[];
   nameKo?: string;
   nameJa?: string;
   wikiPageLink?: string;

@@ -24,6 +24,13 @@ export function alternateQuestDisplayName(
     : undefined;
 }
 
+/** Legacy app/wiki titles that should remain visible when a quest was renamed. */
+export function questLegacyNames(quest: QuestData): string[] {
+  return [...new Set((quest.nameAliases ?? [])
+    .map((name) => name.trim())
+    .filter(Boolean))];
+}
+
 export function objectiveDisplayText(
   objective: QuestObjective,
   language: QuestLanguage,
@@ -38,6 +45,7 @@ export function questSearchText(quest: QuestData): string {
   return [
     quest.name,
     quest.nameEn,
+    ...(quest.nameAliases ?? []),
     quest.nameKo,
     quest.nameJa,
     quest.normalizedName,

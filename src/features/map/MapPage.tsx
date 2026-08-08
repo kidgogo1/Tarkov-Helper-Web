@@ -302,6 +302,7 @@ function questSearchText(quest: QuestData): string {
     localQuestName(quest),
     quest.name,
     quest.nameEn,
+    ...(quest.nameAliases ?? []),
     quest.normalizedName,
     quest.trader,
     ...quest.objectives.map((objective) => objective.description),

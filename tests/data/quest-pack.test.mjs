@@ -158,6 +158,7 @@ describe("quest pack refresh", () => {
       normalizedName: "a-big-loss",
       wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/A_Big_Loss",
     });
+    expect(refreshed.quests[0].nameAliases).toContain("Database - Part 2");
   });
 
   it("keeps saved ids while following the wiki rename to Small Things, Big Help", () => {
@@ -181,6 +182,31 @@ describe("quest pack refresh", () => {
       normalizedName: "small-things-big-help",
       wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Small_Things,_Big_Help",
     });
+    expect(refreshed.quests[0].nameAliases).toContain("The Blood of War - Part 3");
+  });
+
+  it("follows a current Fandom redirect while retaining the app's old name", () => {
+    const legacy = {
+      ...baseQuest,
+      id: "legacy-gunsmith-part-1",
+      name: "Gunsmith - Part 1",
+      nameEn: "Gunsmith - Part 1",
+      normalizedName: "gunsmith---part-1",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_1",
+    };
+    const refreshed = mergeQuestSources(
+      { ...emptyPack, quests: [legacy] },
+      { meta: { generated: "now", count: 0 }, quests: [] },
+    );
+
+    expect(refreshed.quests[0]).toMatchObject({
+      id: "legacy-gunsmith-part-1",
+      name: "Gunsmith - MP-133",
+      nameEn: "Gunsmith - MP-133",
+      normalizedName: "gunsmith-mp-133",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_MP-133",
+    });
+    expect(refreshed.quests[0].nameAliases).toContain("Gunsmith - Part 1");
   });
 
   it("creates safe app defaults for a remote quest without map locations", () => {
