@@ -737,18 +737,15 @@ export function MapMiniMap(props: MapMiniMapProps) {
       openAttemptRef.current += 1;
       clearPictureInPictureLifecycle();
       void detachCurrentNativeOverlay(true);
-      // PiP can disappear when the browser or native crop bridge tears down
-      // the auxiliary window. Keep the feature usable by switching to the
-      // in-page fallback; an explicit closeMiniMap() clears the lifecycle
-      // listener first, so intentional closes still stay closed.
+      // A user-closed PiP window is a complete close. Do not silently switch
+      // to the in-page fallback: reopening is an explicit action from the
+      // main page, just like closing the mini-map with its toggle button.
       if (mountedRef.current && !closingRef.current) {
         setPictureInPicture((current) =>
           current?.window === pipWindow ? null : current,
         );
-        setFallbackNotice(
-          "브라우저 미니맵 창이 닫혀 페이지 안 미니맵으로 전환했습니다.",
-        );
-        setFallbackOpen(true);
+        setFallbackNotice("");
+        setFallbackOpen(false);
         setNativeNotice(null);
       }
     };

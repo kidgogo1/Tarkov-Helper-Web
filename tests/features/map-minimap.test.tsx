@@ -940,7 +940,12 @@ describe("MapMiniMap", () => {
       const detachCall = pageHideApi.request.mock.calls.find(([, init]) => init?.method === "DELETE");
       expect(detachCall?.[1]).toMatchObject({ keepalive: true });
     });
-    expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
+    expect(screen.queryByTestId("map-minimap-fallback")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Customs 미니맵" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "미니맵 열기" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(pageHideApi.eventSignals.every((signal) => signal.aborted)).toBe(true);
     firstView.unmount();
 
