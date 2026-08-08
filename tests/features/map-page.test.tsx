@@ -1077,6 +1077,18 @@ describe("MapPage", () => {
     expect(screen.queryByRole("button", { name: "보스 마커 Reshala" })).not.toBeInTheDocument();
   });
 
+  it("offers a separate full-map marker settings menu", () => {
+    renderPage({ focusQuestId: "quest-customs" }, true);
+
+    fireEvent.click(screen.getByRole("button", { name: "전체 지도 마커 설정" }));
+    expect(screen.getByRole("checkbox", { name: "전체 지도 퀘스트 마커" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "전체 지도 PMC 탈출구" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "전체 지도 PMC 탈출구" }));
+    expect(settingsState().map.showPmcExtracts).toBe(false);
+    expect(settingsState().map.miniMapShowPmcExtracts).toBe(true);
+  });
+
   it("tracks objective progress and selects its corresponding marker", () => {
     renderPage({ focusQuestId: "quest-customs" }, true);
 

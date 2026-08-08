@@ -841,6 +841,7 @@ export function MapPage({
     state: "CHECKING",
   });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullMapMarkerMenuOpen, setFullMapMarkerMenuOpen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState("");
   const [editor, setEditor] = useState<MarkerEditorState>();
   const [deleteCandidate, setDeleteCandidate] = useState<CustomMapMarker>();
@@ -1297,12 +1298,14 @@ export function MapPage({
 
   const customMarkers = useMemo(
     () =>
-      profile.customMarkers.filter(
-        (marker) =>
-          mapMatches(config, marker.mapKey) &&
-          markerFloorVisible(marker.floorId, selectedFloor),
-      ),
-    [config, profile.customMarkers, selectedFloor],
+      mapSettings.showCustomMarkers
+        ? profile.customMarkers.filter(
+            (marker) =>
+              mapMatches(config, marker.mapKey) &&
+              markerFloorVisible(marker.floorId, selectedFloor),
+          )
+        : [],
+    [config, mapSettings.showCustomMarkers, profile.customMarkers, selectedFloor],
   );
 
   const miniMapCustomMarkers = useMemo(
@@ -2032,6 +2035,90 @@ export function MapPage({
           <span aria-live="polite" className="map-zoom-value" data-testid="zoom-value">
             {Math.round(view.scale * 100)}%
           </span>
+          <div className="map-marker-settings-popover">
+            <button
+              aria-expanded={fullMapMarkerMenuOpen}
+              aria-label="전체 지도 마커 설정"
+              className="map-settings-button"
+              onClick={() => setFullMapMarkerMenuOpen((open) => !open)}
+              title="전체 지도에 표시할 마커 분류 선택"
+              type="button"
+            >
+              <Settings2 aria-hidden="true" size={16} />
+              <span>전체 지도 마커</span>
+            </button>
+            {fullMapMarkerMenuOpen ? (
+              <div
+                aria-label="전체 지도 마커 표시 설정"
+                className="map-marker-settings-menu"
+                role="group"
+              >
+                <label>
+                  <input
+                    checked={mapSettings.showQuestMarkers}
+                    onChange={(event) => updateMapSettings({ showQuestMarkers: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>전체 지도 퀘스트 마커</span>
+                </label>
+                <label>
+                  <input
+                    checked={mapSettings.showExtractMarkers}
+                    onChange={(event) => updateMapSettings({ showExtractMarkers: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>전체 지도 탈출구</span>
+                </label>
+                <label>
+                  <input
+                    checked={mapSettings.showPmcExtracts}
+                    onChange={(event) => updateMapSettings({ showPmcExtracts: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>전체 지도 PMC 탈출구</span>
+                </label>
+                <label>
+                  <input
+                    checked={mapSettings.showScavExtracts}
+                    onChange={(event) => updateMapSettings({ showScavExtracts: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>전체 지도 스캐브 탈출구</span>
+                </label>
+                <label>
+                  <input
+                    checked={mapSettings.showTransits}
+                    onChange={(event) => updateMapSettings({ showTransits: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>전체 지도 트랜짓</span>
+                </label>
+                <label>
+                  <input
+                    checked={mapSettings.showCustomMarkers}
+                    onChange={(event) => updateMapSettings({ showCustomMarkers: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>전체 지도 사용자 마커</span>
+                </label>
+                {basicMarkerTypes.map((type) => (
+                  <label key={`full-map-menu-${type}`}>
+                    <input
+                      checked={!hiddenBasicTypes.has(type)}
+                      onChange={(event) => {
+                        const next = new Set(hiddenBasicTypes);
+                        if (event.target.checked) next.delete(type);
+                        else next.add(type);
+                        updateMapSettings({ hiddenMarkerTypes: [...next] });
+                      }}
+                      type="checkbox"
+                    />
+                    <span>전체 지도 {markerLabel(type)}</span>
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <MapMiniMap
             config={config}
             markerLegend={miniMapMarkerLegend}

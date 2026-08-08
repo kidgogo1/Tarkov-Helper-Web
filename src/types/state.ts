@@ -54,6 +54,7 @@ export interface MapDisplaySettings {
   showPmcExtracts: boolean;
   showScavExtracts: boolean;
   showTransits: boolean;
+  showCustomMarkers: boolean;
   showCompletedObjectives: boolean;
   hiddenMarkerTypes: string[];
   questMarkerStyle: "icon" | "circle" | "iconWithName" | "circleWithName";

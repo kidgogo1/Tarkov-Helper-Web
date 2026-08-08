@@ -84,6 +84,7 @@ function createDefaultMapSettings(): MapDisplaySettings {
     showPmcExtracts: true,
     showScavExtracts: true,
     showTransits: true,
+    showCustomMarkers: true,
     showCompletedObjectives: true,
     hiddenMarkerTypes: [],
     questMarkerStyle: "iconWithName",
@@ -261,6 +262,9 @@ function normalizeMapSettings(
       next.miniMapHiddenMarkerTypes,
       current.miniMapHiddenMarkerTypes,
     ),
+    showCustomMarkers: typeof next.showCustomMarkers === "boolean"
+      ? next.showCustomMarkers
+      : current.showCustomMarkers,
   };
 }
 
@@ -425,6 +429,7 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "showPmcExtracts",
     "showScavExtracts",
     "showTransits",
+    "showCustomMarkers",
     "showCompletedObjectives",
     "miniMapKeyboardShortcutsEnabled",
     "miniMapShowQuestMarkers",

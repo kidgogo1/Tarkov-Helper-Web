@@ -199,6 +199,50 @@
   margin-left: auto;
 }
 
+.map-marker-settings-popover {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.map-marker-settings-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 7px);
+  right: 0;
+  display: grid;
+  min-width: 218px;
+  max-height: min(70vh, 430px);
+  gap: 2px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, var(--accent), var(--line) 55%);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 14px 30px rgb(0 0 0 / 48%);
+  padding: 7px;
+}
+
+.map-marker-settings-menu label {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 5px;
+  color: var(--text);
+  padding: 4px 7px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.map-marker-settings-menu label:hover {
+  background: var(--accent-soft);
+}
+
+.map-marker-settings-menu input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
 .map-view-actions button,
 .map-position-actions button,
 .map-canvas-topline > button,
