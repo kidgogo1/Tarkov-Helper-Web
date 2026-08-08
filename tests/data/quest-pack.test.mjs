@@ -51,7 +51,9 @@ describe("quest pack refresh", () => {
     expect(pack.meta.sources).toMatchObject({
       tarkovDataQuestCount: 501,
       wikiQuestCount: 516,
-      refreshMode: "preserve-local-enriched-append-tarkovdata",
+      refreshMode: "preserve-local-enriched-append-tarkovdata-wiki-rewards",
+      wikiRewardQuestCount: 441,
+      wikiRewardItemCount: 713,
     });
   });
 

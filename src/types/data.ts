@@ -14,6 +14,9 @@ export interface DataMeta {
     koreanLocalizationSource?: string;
     koreanLocalizedQuests?: number;
     koreanLocalizedObjectives?: number;
+    wikiRewardQuestCount?: number;
+    wikiRewardItemCount?: number;
+    wikiRewardUnmappedLineCount?: number;
   };
   counts: {
     quests: number;
@@ -51,6 +54,16 @@ export interface QuestRewardItem {
   requiresFir?: boolean;
   requirementType?: string;
   sortOrder: number;
+}
+
+export interface QuestRewardReputation {
+  trader: string;
+  amount: number;
+}
+
+export interface QuestRewardSkill {
+  skill: string;
+  levels: number;
 }
 
 export interface WorldPoint {
@@ -106,6 +119,12 @@ export interface QuestData {
   objectives: QuestObjective[];
   requiredItems: QuestItemRequirement[];
   rewardItems?: QuestRewardItem[];
+  rewardXp?: number;
+  rewardRoubles?: number;
+  rewardReputation?: QuestRewardReputation[];
+  rewardSkills?: QuestRewardSkill[];
+  rewardUnlocks?: string[];
+  rewardText?: string[];
 }
 
 export interface ItemData {

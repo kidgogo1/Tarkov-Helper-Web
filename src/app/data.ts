@@ -48,15 +48,21 @@ function validateTarkovData(value: unknown): asserts value is TarkovData {
   );
   for (const quest of data.quests as unknown[]) {
     if (typeof quest !== "object" || quest === null) continue;
+    const invalidReference = (requirements: unknown): boolean => {
+      if (!Array.isArray(requirements)) return false;
+      return requirements.some((requirement) => {
+        if (typeof requirement !== "object" || requirement === null) return true;
+        const itemId = (requirement as { itemId?: unknown }).itemId;
+        return typeof itemId !== "string" || !itemId || !itemIds.has(itemId);
+      });
+    };
     const requiredItems = (quest as { requiredItems?: unknown }).requiredItems;
-    if (!Array.isArray(requiredItems)) continue;
-    const invalidReference = requiredItems.some((requirement) => {
-      if (typeof requirement !== "object" || requirement === null) return true;
-      const itemId = (requirement as { itemId?: unknown }).itemId;
-      return typeof itemId !== "string" || !itemId || !itemIds.has(itemId);
-    });
-    if (invalidReference) {
+    if (invalidReference(requiredItems)) {
       throw new Error("퀘스트 필수 아이템 참조가 번들 아이템 데이터와 일치하지 않습니다.");
+    }
+    const rewardItems = (quest as { rewardItems?: unknown }).rewardItems;
+    if (invalidReference(rewardItems)) {
+      throw new Error("보상 아이템 참조가 번들 아이템 데이터와 일치하지 않습니다.");
     }
   }
 }
