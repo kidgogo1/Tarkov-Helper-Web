@@ -295,6 +295,41 @@
   list-style: none;
 }
 
+.map-global-search-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 280px;
+}
+
+.map-global-search-list {
+  display: grid;
+  max-height: 260px;
+  gap: 4px;
+  overflow: auto;
+  margin: 9px -4px 0;
+  padding: 0 4px;
+  list-style: none;
+}
+
+.map-global-search-list li {
+  min-width: 0;
+}
+
+.map-reward-item-list {
+  max-height: 220px;
+}
+
+.map-search-note,
+.map-search-limit {
+  margin: 8px 1px 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.map-reward-item-button strong {
+  color: var(--accent-strong);
+}
+
 .map-region-quest-button {
   display: flex;
   width: 100%;

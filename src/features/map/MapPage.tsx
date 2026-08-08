@@ -102,6 +102,12 @@ interface ObjectiveEntry {
   objective: QuestObjective;
 }
 
+interface RewardItemSearchResult {
+  item: TarkovData["items"][number];
+  quests: QuestData[];
+  source: "reward" | "required";
+}
+
 interface PendingMapFocus {
   mapKey: string;
   screen: ScreenPoint;
@@ -305,8 +311,30 @@ function questSearchText(quest: QuestData): string {
     ...(quest.nameAliases ?? []),
     quest.normalizedName,
     quest.trader,
+    ...quest.locations,
+    ...quest.objectives.map((objective) => objective.descriptionKo),
+    ...quest.objectives.map((objective) => objective.mapName),
+    ...quest.objectives.map((objective) => objective.locationName),
     ...quest.objectives.map((objective) => objective.description),
   ].join(" "));
+}
+
+function itemSearchText(item: TarkovData["items"][number]): string {
+  return normalized([
+    item.name,
+    item.nameEn,
+    item.nameKo,
+    item.nameJa,
+    item.shortNameEn,
+    item.shortNameKo,
+    item.shortNameJa,
+    item.category,
+    ...item.categories,
+  ].join(" "));
+}
+
+function rewardItemsForQuest(quest: QuestData) {
+  return quest.rewardItems ?? [];
 }
 
 function objectiveAppliesToMap(entry: ObjectiveEntry, config: MapConfig): boolean {
@@ -748,6 +776,8 @@ export function MapPage({
     useState<ObjectiveStatusFilter>("all");
   const [objectiveTypeFilter, setObjectiveTypeFilter] = useState("all");
   const [regionQuestQuery, setRegionQuestQuery] = useState("");
+  const [allQuestQuery, setAllQuestQuery] = useState("");
+  const [rewardItemQuery, setRewardItemQuery] = useState("");
   const [currentMapObjectivesOnly, setCurrentMapObjectivesOnly] = useState(true);
   const [groupObjectivesByQuest, setGroupObjectivesByQuest] = useState(true);
   const [playerPositions, setPlayerPositions] = useState<PlayerMapPosition[]>([]);
@@ -982,11 +1012,66 @@ export function MapPage({
         localQuestName(left).localeCompare(localQuestName(right), "ko-KR")),
     [config, data.quests],
   );
+  const allQuests = useMemo(
+    () => [...data.quests].sort((left, right) =>
+      localQuestName(left).localeCompare(localQuestName(right), "ko-KR")),
+    [data.quests],
+  );
   const filteredRegionQuests = useMemo(() => {
     const needle = normalized(regionQuestQuery);
     if (!needle) return regionQuests;
     return regionQuests.filter((quest) => questSearchText(quest).includes(needle));
   }, [regionQuestQuery, regionQuests]);
+  const filteredAllQuests = useMemo(() => {
+    const needle = normalized(allQuestQuery);
+    if (!needle) return allQuests;
+    return allQuests.filter((quest) => questSearchText(quest).includes(needle));
+  }, [allQuestQuery, allQuests]);
+  const hasExplicitRewardItems = useMemo(
+    () => data.quests.some((quest) => rewardItemsForQuest(quest).length > 0),
+    [data.quests],
+  );
+
+  const rewardItemResults = useMemo<RewardItemSearchResult[]>(() => {
+    const itemById = new Map(data.items.map((item) => [item.id, item]));
+    const resultByItem = new Map<string, RewardItemSearchResult>();
+    const hasExplicitRewards = data.quests.some((quest) => rewardItemsForQuest(quest).length > 0);
+
+    for (const quest of data.quests) {
+      const sources = hasExplicitRewards
+        ? rewardItemsForQuest(quest).map((requirement) => ({
+            itemId: requirement.itemId,
+            source: "reward" as const,
+          }))
+        : quest.requiredItems.map((requirement) => ({
+            itemId: requirement.itemId,
+            source: "required" as const,
+          }));
+
+      for (const source of sources) {
+        const item = itemById.get(source.itemId);
+        if (!item) continue;
+        const existing = resultByItem.get(item.id);
+        if (existing) {
+          if (!existing.quests.some((candidate) => candidate.id === quest.id)) {
+            existing.quests.push(quest);
+          }
+          continue;
+        }
+        resultByItem.set(item.id, { item, quests: [quest], source: source.source });
+      }
+    }
+
+    const needle = normalized(rewardItemQuery);
+    return [...resultByItem.values()]
+      .filter(({ item }) => !needle || itemSearchText(item).includes(needle))
+      .sort((left, right) =>
+        (left.item.nameKo || left.item.nameEn || left.item.name).localeCompare(
+          right.item.nameKo || right.item.nameEn || right.item.name,
+          "ko-KR",
+        ),
+      );
+  }, [data.items, data.quests, rewardItemQuery]);
 
   const questPoints = useMemo(
     () =>
@@ -1932,6 +2017,107 @@ export function MapPage({
               </ul>
             ) : (
               <p className="map-empty-copy">검색 조건에 맞는 지역 퀘스트가 없습니다.</p>
+            )}
+          </section>
+
+          <section aria-labelledby="map-all-quests-title" className="map-side-section map-global-search-section">
+            <div className="map-section-heading">
+              <div>
+                <p className="map-eyebrow">전체 데이터</p>
+                <h2 id="map-all-quests-title">전체 퀘스트 검색</h2>
+              </div>
+              <span className="badge">{filteredAllQuests.length}/{allQuests.length}</span>
+            </div>
+            <label className="map-region-quest-search">
+              <Search aria-hidden="true" size={15} />
+              <span className="sr-only">전체 퀘스트 검색</span>
+              <input
+                aria-label="전체 퀘스트 검색"
+                onChange={(event) => setAllQuestQuery(event.target.value)}
+                placeholder="퀘스트·상인·맵·목표 검색"
+                type="search"
+                value={allQuestQuery}
+              />
+            </label>
+            {allQuestQuery.trim() && filteredAllQuests.length > 0 ? (
+              <ul className="map-global-search-list">
+                {filteredAllQuests.slice(0, 100).map((quest) => (
+                  <li key={quest.id}>
+                    <button
+                      aria-label={`${localQuestName(quest)} 지도 목표로 이동`}
+                      className="map-region-quest-button"
+                      onClick={() => focusRegionQuest(quest)}
+                      type="button"
+                    >
+                      <span>
+                        <strong>{localQuestName(quest)}</strong>
+                        <small>
+                          {quest.trader} · {quest.locations.join(", ") || "맵 미지정"} · {quest.objectives.length}개 목표
+                        </small>
+                      </span>
+                      <span aria-hidden="true">›</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : allQuestQuery.trim() ? (
+              <p className="map-empty-copy">검색 조건에 맞는 퀘스트가 없습니다.</p>
+            ) : (
+              <p className="map-search-note">검색어를 입력하면 모든 맵의 퀘스트를 검색할 수 있습니다.</p>
+            )}
+            {allQuestQuery.trim() && filteredAllQuests.length > 100 ? (
+              <p className="map-search-limit">검색 결과가 많습니다. 검색어를 더 입력하면 전체 목록을 좁힐 수 있습니다.</p>
+            ) : null}
+          </section>
+
+          <section aria-labelledby="map-reward-items-title" className="map-side-section map-global-search-section">
+            <div className="map-section-heading">
+              <div>
+                <p className="map-eyebrow">아이템 인덱스</p>
+                <h2 id="map-reward-items-title">보상 아이템 검색</h2>
+              </div>
+              <span className="badge">{rewardItemResults.length}</span>
+            </div>
+            <label className="map-region-quest-search">
+              <Search aria-hidden="true" size={15} />
+              <span className="sr-only">보상 아이템 검색</span>
+              <input
+                aria-label="보상 아이템 검색"
+                onChange={(event) => setRewardItemQuery(event.target.value)}
+                placeholder="아이템명·영문명·분류 검색"
+                type="search"
+                value={rewardItemQuery}
+              />
+            </label>
+            {!hasExplicitRewardItems ? (
+              <p className="map-search-note">
+                현재 데이터 팩에 보상 필드가 없어 퀘스트 제출 아이템을 보조 검색 대상으로 표시합니다.
+              </p>
+            ) : null}
+            {rewardItemResults.length > 0 ? (
+              <ul className="map-global-search-list map-reward-item-list">
+                {rewardItemResults.slice(0, 100).map(({ item, quests, source }) => (
+                  <li key={item.id}>
+                    <button
+                      aria-label={`${item.nameKo || item.nameEn || item.name} ${quests.map(localQuestName).join(", ")}`}
+                      className="map-region-quest-button map-reward-item-button"
+                      onClick={() => focusRegionQuest(quests[0])}
+                      type="button"
+                    >
+                      <span>
+                        <strong>{item.nameKo || item.nameEn || item.name}</strong>
+                        <small>
+                          {item.nameEn || item.name} · {source === "reward" ? "보상" : "제출"} · {quests.slice(0, 2).map(localQuestName).join(", ")}
+                          {quests.length > 2 ? ` 외 ${quests.length - 2}개` : ""}
+                        </small>
+                      </span>
+                      <span aria-hidden="true">›</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="map-empty-copy">검색 조건에 맞는 보상 아이템이 없습니다.</p>
             )}
           </section>
 

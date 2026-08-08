@@ -42,6 +42,17 @@ export interface QuestItemRequirement {
   dogtagFaction?: string;
 }
 
+/** An item granted when a quest is turned in. Older data packs may omit this. */
+export interface QuestRewardItem {
+  id: string;
+  itemId: string;
+  itemName: string;
+  count: number;
+  requiresFir?: boolean;
+  requirementType?: string;
+  sortOrder: number;
+}
+
 export interface WorldPoint {
   x: number;
   y: number;
@@ -94,6 +105,7 @@ export interface QuestData {
   followUpQuestIds: string[];
   objectives: QuestObjective[];
   requiredItems: QuestItemRequirement[];
+  rewardItems?: QuestRewardItem[];
 }
 
 export interface ItemData {

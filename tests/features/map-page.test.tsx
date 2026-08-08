@@ -221,10 +221,11 @@ function StoreHarness() {
 function renderPage(
   props: Partial<React.ComponentProps<typeof MapPage>> = {},
   includeHarness = false,
+  pageData: TarkovData = data,
 ) {
   return render(
     <AppStoreProvider>
-      <MapPage data={data} {...props} />
+      <MapPage data={pageData} {...props} />
       {includeHarness ? <StoreHarness /> : null}
     </AppStoreProvider>,
   );
@@ -300,6 +301,56 @@ function mockMapViewport(initialWidth: number, initialHeight: number) {
 }
 
 describe("MapPage", () => {
+  it("searches every quest across maps and filters the quest reward item index", () => {
+    const rewardItem = {
+      id: "reward-item",
+      name: "Golden Keycard",
+      nameEn: "Golden Keycard",
+      nameKo: "황금 키카드",
+      categories: ["Keys"],
+      isDogtagItem: false,
+    };
+    const woodsRewardQuest = {
+      ...woodsQuest,
+      id: "quest-woods-reward",
+      name: "Woods Reward",
+      nameEn: "Woods Reward",
+      nameKo: "숲 보상",
+      rewardItems: [
+        {
+          id: "reward-link",
+          itemId: rewardItem.id,
+          itemName: rewardItem.name,
+          count: 1,
+          requiresFir: false,
+          requirementType: "Reward",
+          sortOrder: 0,
+        },
+      ],
+    } as QuestData;
+    const pageData: TarkovData = {
+      ...data,
+      quests: [...data.quests, woodsRewardQuest],
+      items: [rewardItem],
+      meta: {
+        ...data.meta,
+        counts: { ...data.meta.counts, quests: data.quests.length + 1, items: 1 },
+      },
+    };
+    renderPage({}, false, pageData);
+
+    const allQuestSearch = screen.getByRole("searchbox", { name: "전체 퀘스트 검색" });
+    fireEvent.change(allQuestSearch, { target: { value: "Woods Reward" } });
+    const allQuestResult = screen.getByRole("button", { name: "숲 보상 지도 목표로 이동" });
+    expect(allQuestResult).toBeInTheDocument();
+    fireEvent.click(allQuestResult);
+    expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Woods");
+
+    const rewardSearch = screen.getByRole("searchbox", { name: "보상 아이템 검색" });
+    fireEvent.change(rewardSearch, { target: { value: "Golden Keycard" } });
+    expect(screen.getByRole("button", { name: "황금 키카드 숲 보상" })).toBeInTheDocument();
+  });
+
   it("opens independent mini-map settings from the map selector and searches every quest in the selected region", () => {
     const onOpenMiniMapSettings = vi.fn();
     const onOpenQuest = vi.fn();
