@@ -994,6 +994,14 @@ describe("MapPage", () => {
     const marker = screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" });
     fireEvent.click(marker);
     expect(marker).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(marker);
+    expect(marker).toHaveAttribute("aria-pressed", "false");
+
+    const extraction = screen.getByRole("button", { name: "탈출구 마커 Crossroads" });
+    fireEvent.click(extraction);
+    expect(extraction).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(extraction);
+    expect(extraction).toHaveAttribute("aria-pressed", "false");
   });
 
   it("lists every active objective with progress, grouping, filters, and cross-map focus", () => {

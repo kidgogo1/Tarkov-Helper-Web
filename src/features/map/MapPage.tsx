@@ -1601,9 +1601,12 @@ export function MapPage({
     ],
   );
 
-  const openExistingMarkerEditor = (marker: CustomMapMarker) => {
+  const openExistingMarkerEditor = (
+    marker: CustomMapMarker,
+    shouldFocus = true,
+  ) => {
     rememberEditorOpener();
-    focusCustomMarker(marker);
+    if (shouldFocus) focusCustomMarker(marker);
     setEditor({ marker: { ...marker }, isNew: false });
   };
 
@@ -2270,9 +2273,14 @@ export function MapPage({
                 return (
                   <button
                     aria-label={`${extract ? "탈출구" : markerLabel(marker.markerType)} 마커 ${name}`}
+                    aria-pressed={selectedMarkerId === marker.id}
                     className={`map-marker map-data-marker ${extract ? "extract" : "basic"}`}
                     key={marker.id}
                     onClick={() => {
+                      if (selectedMarkerId === marker.id) {
+                        setSelectedMarkerId(undefined);
+                        return;
+                      }
                       setSelectedMarkerId(marker.id);
                       centerOnPoint(screen);
                     }}
@@ -2306,6 +2314,10 @@ export function MapPage({
                           className={`map-marker map-quest-marker ${point.isOptional ? "optional" : ""} ${completed ? "completed" : ""} ${selectedMarkerId === point.id ? "selected" : ""}`}
                           key={point.id}
                           onClick={() => {
+                            if (selectedMarkerId === point.id) {
+                              setSelectedMarkerId(undefined);
+                              return;
+                            }
                             if (point.floorId) setSelectedFloor(point.floorId);
                             setSelectedMarkerId(point.id);
                             const viewport = viewportRef.current;
@@ -2353,7 +2365,14 @@ export function MapPage({
                     aria-pressed={selectedMarkerId === marker.id}
                     className="map-marker map-custom-marker"
                     key={marker.id}
-                    onClick={() => openExistingMarkerEditor(marker)}
+                    onClick={() => {
+                      if (selectedMarkerId === marker.id) {
+                        setSelectedMarkerId(undefined);
+                      } else {
+                        focusCustomMarker(marker);
+                      }
+                      openExistingMarkerEditor(marker, false);
+                    }}
                     onPointerDown={(event) => event.stopPropagation()}
                     style={{
                       left: screen.x,
