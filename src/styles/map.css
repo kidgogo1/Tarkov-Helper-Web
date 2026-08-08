@@ -58,7 +58,11 @@
 }
 
 .map-minimap-settings-dialog {
-  min-width: min(560px, 72vw);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .map-minimap-settings-dialog h3 {
@@ -68,12 +72,14 @@
 
 .map-minimap-settings-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
+  min-width: 0;
 }
 
 .map-minimap-settings-grid > label,
 .map-minimap-settings-grid > .settings-field {
+  min-width: 0;
   display: grid;
   align-content: start;
   gap: 6px;
@@ -88,7 +94,71 @@
 .map-minimap-settings-grid input[type="range"],
 .map-minimap-settings-grid select,
 .map-minimap-settings-grid .quantity-stepper {
+  box-sizing: border-box;
+  min-width: 0;
   width: 100%;
+}
+
+.map-minimap-shortcuts {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  margin: 18px 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.map-minimap-shortcuts legend {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.map-minimap-shortcuts-toggle {
+  margin: 0;
+}
+
+.map-minimap-shortcuts .settings-help {
+  margin: 0;
+}
+
+.map-minimap-shortcut-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.map-minimap-shortcut-grid .settings-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.map-minimap-shortcut-button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.settings-key-capture-status {
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+
+@media (min-width: 680px) {
+  .map-minimap-settings-grid,
+  .map-minimap-shortcut-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .map-floor-tabs {

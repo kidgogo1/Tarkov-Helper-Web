@@ -21,6 +21,11 @@ import {
 } from "../../domain/map";
 import type { MapConfig, MapFloor } from "../../types/data";
 import {
+  DEFAULT_MINI_MAP_ZOOM_IN_KEY,
+  DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
+  matchesMiniMapShortcut,
+} from "./minimap-shortcuts";
+import {
   NativeOverlayApiError,
   NATIVE_OVERLAY_HOTKEY_EVENT,
   attachNativeMiniMap,
@@ -248,6 +253,12 @@ function MiniMapSurface({
     : getMapDirectionAngle(player.angle, config.key, config.mapRotation);
   const markerSize = Math.max(1, playerMarkerSize)
     * mapSettings.miniMapPlayerMarkerScale;
+  const nativeShortcutsCompatible = Boolean(
+    nativeGlobalHotkeysAvailable &&
+    mapSettings.miniMapKeyboardShortcutsEnabled &&
+    mapSettings.miniMapZoomInKey === DEFAULT_MINI_MAP_ZOOM_IN_KEY &&
+    mapSettings.miniMapZoomOutKey === DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
+  );
 
   useEffect(() => {
     zoomRef.current = mapSettings.miniMapZoom;
@@ -260,32 +271,28 @@ function MiniMapSurface({
   }, [updateMapSettings]);
 
   useEffect(() => {
-    if (nativeGlobalHotkeysAvailable) return;
+    if (!mapSettings.miniMapKeyboardShortcutsEnabled || nativeShortcutsCompatible) return;
     const surfaceDocument = surfaceRef.current?.ownerDocument;
     if (!surfaceDocument) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        !event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        isEditableTarget(event.target)
-      ) {
-        return;
-      }
-      const zoomIn = event.key === "+" || event.code === "NumpadAdd" ||
-        (event.code === "Equal" && event.shiftKey);
-      const zoomOut = event.key === "-" || event.code === "Minus" ||
-        event.code === "NumpadSubtract";
+      if (isEditableTarget(event.target)) return;
+      const zoomIn = matchesMiniMapShortcut(event, mapSettings.miniMapZoomInKey);
+      const zoomOut = matchesMiniMapShortcut(event, mapSettings.miniMapZoomOutKey);
       if (!zoomIn && !zoomOut) return;
       event.preventDefault();
       zoomBy(zoomIn ? 1 : -1);
     };
     surfaceDocument.addEventListener("keydown", handleKeyDown);
     return () => surfaceDocument.removeEventListener("keydown", handleKeyDown);
-  }, [nativeGlobalHotkeysAvailable, zoomBy]);
+  }, [mapSettings.miniMapKeyboardShortcutsEnabled, mapSettings.miniMapZoomInKey,
+    mapSettings.miniMapZoomOutKey, nativeShortcutsCompatible, zoomBy]);
 
   useEffect(() => {
+    if (
+      !mapSettings.miniMapKeyboardShortcutsEnabled ||
+      (nativeGlobalHotkeysAvailable === true && !nativeShortcutsCompatible)
+    ) return;
     const handleNativeHotkey = (event: Event) => {
       const action = nativeHotkeyAction(event);
       if (!action) return;
@@ -293,7 +300,8 @@ function MiniMapSurface({
     };
     window.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, handleNativeHotkey);
     return () => window.removeEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, handleNativeHotkey);
-  }, [zoomBy]);
+  }, [mapSettings.miniMapKeyboardShortcutsEnabled, nativeGlobalHotkeysAvailable,
+    nativeShortcutsCompatible, zoomBy]);
 
   const syncFloor = useCallback(() => {
     try {
@@ -402,7 +410,7 @@ function MiniMapSurface({
 
   return (
     <section
-      aria-keyshortcuts="Alt+Shift+= Alt+-"
+      aria-keyshortcuts={`${mapSettings.miniMapZoomInKey} ${mapSettings.miniMapZoomOutKey}`}
       aria-label={`${config.displayName} 미니맵`}
       className={`map-minimap map-minimap--${presentation}`}
       data-native-overlay={nativeOverlayMode ?? undefined}

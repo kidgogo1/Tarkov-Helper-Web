@@ -9,14 +9,16 @@ import {
 } from "react";
 
 import type { ProfileType } from "../types/data";
-import type {
-  CustomMapMarker,
-  InventoryAmount,
-  MapDisplaySettings,
-  PersistedAppState,
-  ProfileState,
-  SavedQuestStatus,
-  SharedSettings,
+import {
+  DEFAULT_MINI_MAP_ZOOM_IN_KEY,
+  DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
+  type CustomMapMarker,
+  type InventoryAmount,
+  type MapDisplaySettings,
+  type PersistedAppState,
+  type ProfileState,
+  type SavedQuestStatus,
+  type SharedSettings,
 } from "../types/state";
 
 export const APP_STATE_VERSION = 1 as const;
@@ -93,6 +95,9 @@ function createDefaultMapSettings(): MapDisplaySettings {
     miniMapViewMode: "playerTracking",
     miniMapWindowSize: 300,
     miniMapZoom: 1,
+    miniMapKeyboardShortcutsEnabled: true,
+    miniMapZoomInKey: DEFAULT_MINI_MAP_ZOOM_IN_KEY,
+    miniMapZoomOutKey: DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
     miniMapOpacity: 0.8,
     miniMapPlayerMarkerScale: 1,
     miniMapOffsetX: 0,
@@ -124,6 +129,25 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function clampInteger(value: number, minimum: number, maximum: number): number {
   return Math.round(clamp(value, minimum, maximum));
+}
+
+function sanitizeShortcut(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const parts = value.split("+");
+  const key = parts.pop();
+  const modifiers = new Set(parts);
+  const validModifiers = ["Ctrl", "Alt", "Shift", "Meta"];
+  const validKey = typeof key === "string" &&
+    /^(?:Plus|Minus|NumpadAdd|NumpadSubtract|[A-Z0-9])$/.test(key);
+  if (
+    !validKey ||
+    modifiers.size !== parts.length ||
+    parts.length === 0 ||
+    parts.some((modifier) => !validModifiers.includes(modifier))
+  ) {
+    return fallback;
+  }
+  return value;
 }
 
 function sanitizeHiddenMarkerTypes(
@@ -181,6 +205,17 @@ function normalizeMapSettings(
     miniMapZoom: Number.isFinite(next.miniMapZoom)
       ? clamp(next.miniMapZoom, 0.01, 15)
       : current.miniMapZoom,
+    miniMapKeyboardShortcutsEnabled: typeof next.miniMapKeyboardShortcutsEnabled === "boolean"
+      ? next.miniMapKeyboardShortcutsEnabled
+      : current.miniMapKeyboardShortcutsEnabled,
+    miniMapZoomInKey: sanitizeShortcut(
+      next.miniMapZoomInKey,
+      current.miniMapZoomInKey,
+    ),
+    miniMapZoomOutKey: sanitizeShortcut(
+      next.miniMapZoomOutKey,
+      current.miniMapZoomOutKey,
+    ),
     miniMapOpacity: Number.isFinite(next.miniMapOpacity)
       ? clamp(next.miniMapOpacity, 0.1, 1)
       : current.miniMapOpacity,
@@ -352,6 +387,7 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "showScavExtracts",
     "showTransits",
     "showCompletedObjectives",
+    "miniMapKeyboardShortcutsEnabled",
   ] as const) {
     if (typeof rawMap[key] === "boolean") mapPatch[key] = rawMap[key];
   }
@@ -369,6 +405,9 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "miniMapOffsetY",
   ] as const) {
     if (typeof rawMap[key] === "number") mapPatch[key] = rawMap[key];
+  }
+  for (const key of ["miniMapZoomInKey", "miniMapZoomOutKey"] as const) {
+    if (typeof rawMap[key] === "string") mapPatch[key] = rawMap[key];
   }
   if (
     rawMap.questMarkerStyle === "icon" ||

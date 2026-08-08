@@ -9,6 +9,9 @@ export type QuestStatus =
   | "done"
   | "failed";
 
+export const DEFAULT_MINI_MAP_ZOOM_IN_KEY = "Alt+Plus";
+export const DEFAULT_MINI_MAP_ZOOM_OUT_KEY = "Alt+Minus";
+
 export interface InventoryAmount {
   fir: number;
   nonFir: number;
@@ -62,6 +65,9 @@ export interface MapDisplaySettings {
   miniMapViewMode: "fixed" | "playerTracking";
   miniMapWindowSize: number;
   miniMapZoom: number;
+  miniMapKeyboardShortcutsEnabled: boolean;
+  miniMapZoomInKey: string;
+  miniMapZoomOutKey: string;
   miniMapOpacity: number;
   miniMapPlayerMarkerScale: number;
   miniMapOffsetX: number;

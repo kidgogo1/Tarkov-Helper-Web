@@ -368,6 +368,28 @@ describe("MapMiniMap", () => {
     expect(world.style.transform).toBe("translate(120px, 90px) scale(0.3)");
   });
 
+  it("uses the configured zoom keys in the fallback", async () => {
+    persistMapSettings({
+      miniMapZoomInKey: "Ctrl+Z",
+      miniMapZoomOutKey: "Ctrl+X",
+    });
+    renderMiniMap();
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const world = await screen.findByTestId("map-minimap-world");
+    const zoomIn = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyZ",
+      ctrlKey: true,
+      key: "z",
+    });
+
+    fireEvent(document, zoomIn);
+
+    expect(zoomIn.defaultPrevented).toBe(true);
+    expect(world.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
+  });
+
   it("handles Alt zoom in the PiP document and validated native hotkey events", async () => {
     const pipWindow = createPictureInPictureWindow();
     setPictureInPictureController({

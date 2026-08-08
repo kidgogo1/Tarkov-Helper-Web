@@ -1,5 +1,13 @@
+import { useEffect, useState } from "react";
+
 import { Dialog } from "../../components/Dialog";
 import { QuantityStepper } from "../../components/QuantityStepper";
+import {
+  DEFAULT_MINI_MAP_ZOOM_IN_KEY,
+  DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
+  describeMiniMapShortcut,
+  formatMiniMapShortcut,
+} from "./minimap-shortcuts";
 import type { MapDisplaySettings } from "../../types/state";
 
 interface MapMiniMapSettingsDialogProps {
@@ -15,6 +23,31 @@ export function MapMiniMapSettingsDialog({
   onClose,
   onUpdateMapSettings,
 }: MapMiniMapSettingsDialogProps) {
+  const [capturing, setCapturing] = useState<"in" | "out" | null>(null);
+
+  useEffect(() => {
+    if (!capturing) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setCapturing(null);
+        return;
+      }
+      const shortcut = formatMiniMapShortcut(event);
+      if (!shortcut) return;
+      event.preventDefault();
+      onUpdateMapSettings(capturing === "in"
+        ? { miniMapZoomInKey: shortcut }
+        : { miniMapZoomOutKey: shortcut });
+      setCapturing(null);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [capturing, onUpdateMapSettings]);
+
+  const zoomInKey = describeMiniMapShortcut(mapSettings.miniMapZoomInKey);
+  const zoomOutKey = describeMiniMapShortcut(mapSettings.miniMapZoomOutKey);
+
   return (
     <Dialog
       description="미니맵의 창 크기와 지도 표시 방식을 따로 설정합니다."
@@ -97,6 +130,64 @@ export function MapMiniMapSettingsDialog({
             />
           </label>
         </div>
+
+        <fieldset className="map-minimap-shortcuts">
+          <legend>미니맵 확대/축소 키</legend>
+          <label className="check-row map-minimap-shortcuts-toggle">
+            <input
+              aria-label="미니맵 키 확대/축소 사용"
+              checked={mapSettings.miniMapKeyboardShortcutsEnabled}
+              onChange={(event) => onUpdateMapSettings({
+                miniMapKeyboardShortcutsEnabled: event.target.checked,
+              })}
+              type="checkbox"
+            />
+            <span>키보드 단축키 사용</span>
+          </label>
+          <p className="settings-help">
+            Ctrl, Alt, Shift 또는 Win과 함께 원하는 키를 누르면 미니맵을 확대하거나 축소합니다.
+          </p>
+          <div className="map-minimap-shortcut-grid">
+            <div className="settings-field">
+              <span>확대 키</span>
+              <button
+                aria-label="확대 키 설정"
+                className="map-minimap-shortcut-button"
+                onClick={() => setCapturing("in")}
+                type="button"
+              >
+                {capturing === "in" ? "키를 누르세요…" : zoomInKey}
+              </button>
+            </div>
+            <div className="settings-field">
+              <span>축소 키</span>
+              <button
+                aria-label="축소 키 설정"
+                className="map-minimap-shortcut-button"
+                onClick={() => setCapturing("out")}
+                type="button"
+              >
+                {capturing === "out" ? "키를 누르세요…" : zoomOutKey}
+              </button>
+            </div>
+          </div>
+          <div className="settings-option-actions">
+            <button
+              onClick={() => onUpdateMapSettings({
+                miniMapZoomInKey: DEFAULT_MINI_MAP_ZOOM_IN_KEY,
+                miniMapZoomOutKey: DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
+              })}
+              type="button"
+            >
+              기본 키로 초기화
+            </button>
+          </div>
+          {capturing ? (
+            <p aria-live="polite" className="settings-key-capture-status">
+              조합 키를 누르세요. 취소하려면 Esc를 누르세요.
+            </p>
+          ) : null}
+        </fieldset>
 
         <div className="settings-option-actions">
           <button

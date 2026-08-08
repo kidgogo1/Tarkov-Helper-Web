@@ -37,4 +37,31 @@ describe("MapMiniMapSettingsDialog", () => {
     expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapZoom: 1.8 });
     expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapViewMode: "fixed" });
   });
+
+  it("records custom zoom shortcuts and allows keyboard zoom to be disabled", () => {
+    const settings = createDefaultState().settings.map;
+    const onUpdateMapSettings = vi.fn();
+
+    render(
+      <AppStoreProvider>
+        <MapMiniMapSettingsDialog
+          mapSettings={settings}
+          onClose={vi.fn()}
+          onUpdateMapSettings={onUpdateMapSettings}
+          open
+        />
+      </AppStoreProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "확대 키 설정" }));
+    fireEvent.keyDown(document, {
+      code: "KeyZ",
+      ctrlKey: true,
+      key: "z",
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "미니맵 키 확대/축소 사용" }));
+
+    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapZoomInKey: "Ctrl+Z" });
+    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapKeyboardShortcutsEnabled: false });
+  });
 });
