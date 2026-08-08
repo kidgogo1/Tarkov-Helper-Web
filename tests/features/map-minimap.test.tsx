@@ -384,6 +384,7 @@ describe("MapMiniMap", () => {
 
   it("uses the configured zoom keys in the fallback", async () => {
     persistMapSettings({
+      miniMapZoomStep: 0.1,
       miniMapZoomInKey: "Ctrl+Z",
       miniMapZoomOutKey: "Ctrl+X",
     });
@@ -401,7 +402,7 @@ describe("MapMiniMap", () => {
     fireEvent(document, zoomIn);
 
     expect(zoomIn.defaultPrevented).toBe(true);
-    expect(world.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
+    expect(world.style.transform).toBe("translate(117px, 84px) scale(0.33)");
   });
 
   it("handles Alt zoom in the PiP document and validated native hotkey events", async () => {

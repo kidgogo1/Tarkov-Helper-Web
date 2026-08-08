@@ -103,6 +103,21 @@ export function MapMiniMapSettingsDialog({
           </label>
 
           <label>
+            <span>키 확대/축소 단위 {Math.round(mapSettings.miniMapZoomStep * 100)}%</span>
+            <input
+              aria-label="키 확대/축소 단위"
+              max="100"
+              min="1"
+              onChange={(event) => onUpdateMapSettings({
+                miniMapZoomStep: Number(event.target.value) / 100,
+              })}
+              step="1"
+              type="range"
+              value={Math.round(mapSettings.miniMapZoomStep * 100)}
+            />
+          </label>
+
+          <label>
             <span>미니맵 투명도 {Math.round(mapSettings.miniMapOpacity * 100)}%</span>
             <input
               aria-label="미니맵 투명도"

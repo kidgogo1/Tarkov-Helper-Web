@@ -65,6 +65,8 @@ export interface MapDisplaySettings {
   miniMapViewMode: "fixed" | "playerTracking";
   miniMapWindowSize: number;
   miniMapZoom: number;
+  /** Fraction added/removed for each configured keyboard zoom press. */
+  miniMapZoomStep: number;
   miniMapKeyboardShortcutsEnabled: boolean;
   miniMapZoomInKey: string;
   miniMapZoomOutKey: string;

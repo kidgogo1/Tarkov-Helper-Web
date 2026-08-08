@@ -29,12 +29,18 @@ describe("MapMiniMapSettingsDialog", () => {
     fireEvent.change(zoom, {
       target: { value: "180" },
     });
+    const keyZoomStep = screen.getByRole("slider", { name: "키 확대/축소 단위" });
+    expect(keyZoomStep).toHaveAttribute("max", "100");
+    fireEvent.change(keyZoomStep, {
+      target: { value: "12" },
+    });
     fireEvent.change(screen.getByRole("combobox", { name: "미니맵 화면 방식" }), {
       target: { value: "fixed" },
     });
 
     expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapWindowSize: 480 });
     expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapZoom: 1.8 });
+    expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapZoomStep: 0.12 });
     expect(onUpdateMapSettings).toHaveBeenCalledWith({ miniMapViewMode: "fixed" });
   });
 

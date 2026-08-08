@@ -44,7 +44,6 @@ import "../../styles/minimap.css";
 const MINI_MAP_SIZE = 300;
 const MINI_MAP_MIN_SIZE = 240;
 const MINI_MAP_MAX_SIZE = 1000;
-const ZOOM_STEP = 0.05;
 
 interface DocumentPictureInPictureController {
   requestWindow: (options: { width: number; height: number }) => Promise<Window>;
@@ -269,10 +268,13 @@ function MiniMapSurface({
   }, [mapSettings.miniMapZoom]);
 
   const zoomBy = useCallback((direction: -1 | 1) => {
-    const nextZoom = Math.min(15, Math.max(0.01, zoomRef.current + direction * ZOOM_STEP));
+    const nextZoom = Math.round(
+      Math.min(15, Math.max(0.01, zoomRef.current + direction * mapSettings.miniMapZoomStep))
+      * 10_000,
+    ) / 10_000;
     zoomRef.current = nextZoom;
     updateMapSettings({ miniMapZoom: nextZoom });
-  }, [updateMapSettings]);
+  }, [mapSettings.miniMapZoomStep, updateMapSettings]);
 
   useEffect(() => {
     if (!mapSettings.miniMapKeyboardShortcutsEnabled || nativeShortcutsCompatible) return;

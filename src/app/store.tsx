@@ -95,6 +95,7 @@ function createDefaultMapSettings(): MapDisplaySettings {
     miniMapViewMode: "playerTracking",
     miniMapWindowSize: 300,
     miniMapZoom: 1,
+    miniMapZoomStep: 0.05,
     miniMapKeyboardShortcutsEnabled: true,
     miniMapZoomInKey: DEFAULT_MINI_MAP_ZOOM_IN_KEY,
     miniMapZoomOutKey: DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
@@ -205,6 +206,9 @@ function normalizeMapSettings(
     miniMapZoom: Number.isFinite(next.miniMapZoom)
       ? clamp(next.miniMapZoom, 0.01, 15)
       : current.miniMapZoom,
+    miniMapZoomStep: Number.isFinite(next.miniMapZoomStep)
+      ? clamp(next.miniMapZoomStep, 0.01, 1)
+      : current.miniMapZoomStep,
     miniMapKeyboardShortcutsEnabled: typeof next.miniMapKeyboardShortcutsEnabled === "boolean"
       ? next.miniMapKeyboardShortcutsEnabled
       : current.miniMapKeyboardShortcutsEnabled,
@@ -399,6 +403,7 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "customMarkerOpacity",
     "miniMapWindowSize",
     "miniMapZoom",
+    "miniMapZoomStep",
     "miniMapOpacity",
     "miniMapPlayerMarkerScale",
     "miniMapOffsetX",
