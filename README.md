@@ -26,6 +26,21 @@ PVP/PVE 분리·지도·커스텀 마커 변경을 브라우저에서 실행하�
 진행도 보존을 위해 `http://127.0.0.1:41753/`을 고정으로 사용합니다. 종료할 때는
 `Tarkov Helper 종료.vbs`를 더블클릭하세요. 자세한 내용은 배포본의 `사용 안내.txt`를 참고하세요.
 
+공개 GitHub 릴리스에 연결된 바로 실행 배포본은 시작할 때 새 버전을 자동 확인합니다.
+`설정 > 데이터 > 프로그램 업데이트`에서 다시 확인하고, 새 버전이 있으면 다운로드·검증할 수 있습니다.
+검증 완료 후 Tarkov Helper 탭을 닫고 `Tarkov Helper 실행.vbs`를 다시 실행하면 전체 앱과 데이터가
+교체됩니다. 새 버전이 정상 기동하지 않으면 실행기가 이전 버전으로 자동 복원합니다.
+
+이 업데이트 기능은 **Windows 바로 실행 배포본 전용**입니다. 일반 정적 웹 배포에는 로컬 파일을
+교체할 권한이 없으므로 표시되지 않습니다. 공개 릴리스를 익명으로 읽기 때문에 이용자는 계정,
+라이선스 키, GitHub 토큰 또는 별도 권한을 입력하지 않습니다. 업데이트 확인·다운로드에는 인터넷
+연결이 필요합니다.
+
+업데이터가 없던 기존 배포본은 스스로 업데이트할 수 없습니다. 업데이터가 포함된 첫 번째 바로 실행
+버전만 한 번 수동으로 내려받아 기존 폴더 대신 설치해야 하며, 그 다음 버전부터 앱 안에서 갱신할 수
+있습니다. 진행도와 설정은 고정 주소의 브라우저 로컬 저장소에 있고 실행 상태는 배포 폴더 밖에
+보관되므로, 같은 브라우저 프로필과 `127.0.0.1:41753`을 유지하면 업데이트 후에도 그대로 남습니다.
+
 최신 `dist`에서 바로 실행 폴더를 생성하려면 다음 명령을 사용합니다. 출력 폴더가 이미 있으면 덮어쓰지 않고 중단합니다.
 
 ```bash
@@ -66,10 +81,54 @@ pnpm test:e2e
 Windows에서는 설치된 Edge 또는 Chrome을 자동으로 사용합니다. macOS/Linux에 Chromium이 없다면
 E2E 실행 전에 `pnpm exec playwright install chromium`을 한 번 실행하세요.
 
+## 공개 GitHub 릴리스 설정
+
+공개 저장소의 `.github/workflows/release.yml`은 `package.json`의 안정 버전 태그가 푸시되면
+테스트, 세 가지 ZIP 생성, SHA-256 검증, RSA 서명, GitHub 증명(attestation), 릴리스 게시 순서로
+실행됩니다. 사용자 배포본에는 공개키만 들어가며 개인키나 GitHub 토큰은 들어가지 않습니다.
+
+최초 설정 요약:
+
+1. 저장소에서 immutable releases를 활성화합니다.
+2. `main`과 `v*` 태그를 ruleset으로 보호하고 강제 푸시와 삭제를 막습니다. `main`에는 CI 통과를
+   필수로 설정합니다.
+3. `github-release` Environment를 만들고 required reviewers를 지정합니다.
+4. 이 Environment에 `UPDATE_SIGNING_PRIVATE_KEY`와 `IMMUTABLE_RELEASES_READ_TOKEN` secret을
+   추가합니다. 후자는 해당 저장소의 **Administration: read**만 허용한 fine-grained token입니다.
+5. Repository Actions variable `UPDATE_SIGNING_PUBLIC_KEY`에 SPKI PEM 공개키를 추가합니다.
+
+RSA-3072 키는 네트워크에 연결되지 않은 안전한 환경에서 다음처럼 생성할 수 있습니다. 개인키 파일은
+저장소에 복사하거나 커밋하지 말고, `github-release` Environment secret에만 등록합니다.
+
+```powershell
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out update-signing-private.pem
+openssl pkey -in update-signing-private.pem -pubout -out update-signing-public.pem
+openssl pkey -pubin -in update-signing-public.pem -outform DER -out update-signing-public.der
+openssl dgst -sha256 update-signing-public.der
+```
+
+마지막 명령의 64자리 소문자 해시 앞에 `sha256:`을 붙인 값이 `keyId`입니다. 릴리스 도구도 SPKI DER에
+대해 같은 방식으로 계산하며, 개인키와 공개키가 다르거나 RSA 키가 3072비트 미만이면 중단합니다.
+
+릴리스할 때는 `package.json`의 `version`을 먼저 `x.y.z` 형식으로 올리고 변경을 보호된 `main`에
+병합합니다. CI가 끝난 정확한 커밋에 같은 버전의 태그를 붙여 푸시합니다.
+
+```powershell
+git tag -a v1.2.3 -m "Tarkov Helper v1.2.3"
+git push origin v1.2.3
+```
+
+태그는 반드시 `v<package.json version>`과 같아야 합니다. 워크플로는 태그 커밋이 기본 브랜치에
+포함됐는지 재확인하고, 검증된 draft에 자산을 올린 뒤 서명 메타데이터와 GitHub 자산 ID·digest를
+결합합니다. 모든 검증이 끝나야 stable/latest 릴리스로 게시하며, 실패하면 draft를 남기고 기존 최신
+릴리스는 바꾸지 않습니다. 자세한 결정과 키 교체 원칙은
+[ADR-001](./docs/decisions/001-public-github-updates.md)을 참고하세요.
+
 ## 데이터
 
 생성된 `public/data/tarkov-data.json`과 모든 필수 지도·아이콘이 이미 포함되어 있어
-일반 실행에는 원본 저장소나 네트워크가 필요하지 않습니다.
+앱 기능 자체에는 원본 저장소나 네트워크가 필요하지 않습니다. 단, 공개 릴리스 업데이트 확인과
+다운로드, 사용자가 직접 여는 위키 링크에는 인터넷을 사용합니다.
 
 정확한 참고 저장소 체크아웃에서 데이터를 다시 생성하려면 다음처럼 실행합니다.
 
