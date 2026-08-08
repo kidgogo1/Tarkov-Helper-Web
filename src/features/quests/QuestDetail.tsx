@@ -8,6 +8,12 @@ import {
 } from "../../domain/quests";
 import type { QuestData, QuestRequirement, TarkovData } from "../../types/data";
 import type { ProfileState, QuestStatus } from "../../types/state";
+import {
+  alternateQuestDisplayName,
+  objectiveDisplayText,
+  questDisplayName,
+  type QuestLanguage,
+} from "./quest-language";
 
 interface QuestDetailProps {
   data: TarkovData;
@@ -15,6 +21,7 @@ interface QuestDetailProps {
   quest: QuestData;
   status: QuestStatus;
   statusResolver: QuestStatusResolver;
+  language: QuestLanguage;
   onComplete: (quest: QuestData) => void;
   onObjectiveChange: (objectiveId: string, completed: boolean) => void;
   onOpenItem: (itemId: string) => void;
@@ -31,10 +38,6 @@ const STATUS_LABELS: Record<QuestStatus, string> = {
   done: "완료",
   failed: "실패",
 };
-
-function questName(quest: QuestData): string {
-  return quest.nameKo || quest.name || quest.nameEn;
-}
 
 function requirementLabel(requirement: QuestRequirement): string {
   const type = requirement.requirementType.toLocaleLowerCase("en-US");
@@ -63,10 +66,12 @@ function canCompleteQuest(status: QuestStatus): boolean {
 function RelatedQuestList({
   data,
   ids,
+  language,
   onOpenQuest,
 }: {
   data: TarkovData;
   ids: readonly string[];
+  language: QuestLanguage;
   onOpenQuest: (questId: string) => void;
 }) {
   return (
@@ -83,7 +88,7 @@ function RelatedQuestList({
                 onClick={() => onOpenQuest(related.id)}
                 type="button"
               >
-                {questName(related)}
+                {questDisplayName(related, language)}
               </button>
             ) : id}
           </li>
@@ -95,10 +100,12 @@ function RelatedQuestList({
 
 function PrerequisiteList({
   data,
+  language,
   onOpenQuest,
   requirements,
 }: {
   data: TarkovData;
+  language: QuestLanguage;
   onOpenQuest: (questId: string) => void;
   requirements: readonly QuestRequirement[];
 }) {
@@ -119,7 +126,7 @@ function PrerequisiteList({
                 onClick={() => onOpenQuest(related.id)}
                 type="button"
               >
-                {questName(related)}
+                {questDisplayName(related, language)}
               </button>
             ) : (
               <span>{requirement.questId}</span>
@@ -155,6 +162,7 @@ export function QuestDetail({
   quest,
   status,
   statusResolver,
+  language,
   onComplete,
   onObjectiveChange,
   onOpenItem,
@@ -183,9 +191,11 @@ export function QuestDetail({
             {quest.kappaRequired ? <span className="badge kappa">KAPPA</span> : null}
             <span className="badge">{quest.trader}</span>
           </div>
-          <h2>{questName(quest)}</h2>
-          {quest.nameEn && quest.nameEn !== questName(quest) ? (
-            <p className="quest-english-name">{quest.nameEn}</p>
+          <h2>{questDisplayName(quest, language)}</h2>
+          {alternateQuestDisplayName(quest, language) ? (
+            <p className="quest-english-name">
+              {alternateQuestDisplayName(quest, language)}
+            </p>
           ) : null}
         </div>
         <div className="quest-detail-actions">
@@ -255,7 +265,7 @@ export function QuestDetail({
                         }
                         type="checkbox"
                       />
-                      <span>{objective.description}</span>
+                      <span>{objectiveDisplayText(objective, language)}</span>
                     </label>
                     <span className="quest-objective-meta">
                       {objective.mapName ? <small>{objective.mapName}</small> : null}
@@ -299,8 +309,10 @@ export function QuestDetail({
                       onClick={() => onOpenItem(requirement.itemId)}
                       type="button"
                     >
-                      <strong>{item?.nameKo || requirement.itemName}</strong>
-                      {item?.nameEn && item.nameEn !== item.nameKo ? (
+                      <strong>{language === "ko"
+                        ? item?.nameKo || requirement.itemName
+                        : item?.nameEn || item?.name || requirement.itemName}</strong>
+                      {item && language === "ko" && item.nameEn && item.nameEn !== item.nameKo ? (
                         <small>{item.nameEn}</small>
                       ) : null}
                       {dogtagCondition ? (
@@ -324,6 +336,7 @@ export function QuestDetail({
           <h3>선행 퀘스트</h3>
           <PrerequisiteList
             data={data}
+            language={language}
             onOpenQuest={onOpenQuest}
             requirements={directRequirements}
           />
@@ -338,6 +351,7 @@ export function QuestDetail({
               <small>그룹 {group.groupId} 중 하나</small>
               <PrerequisiteList
                 data={data}
+                language={language}
                 onOpenQuest={onOpenQuest}
                 requirements={group.requirements}
               />
@@ -353,6 +367,7 @@ export function QuestDetail({
             <RelatedQuestList
               data={data}
               ids={quest.alternativeQuestIds}
+              language={language}
               onOpenQuest={onOpenQuest}
             />
           </section>
@@ -363,6 +378,7 @@ export function QuestDetail({
             <RelatedQuestList
               data={data}
               ids={quest.followUpQuestIds}
+              language={language}
               onOpenQuest={onOpenQuest}
             />
           </section>

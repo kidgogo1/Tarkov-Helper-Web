@@ -16,6 +16,12 @@ import type { QuestData, TarkovData } from "../../types/data";
 import type { QuestStatus, SavedQuestStatus } from "../../types/state";
 import "../../styles/quests.css";
 import { QuestDetail } from "./QuestDetail";
+import {
+  alternateQuestDisplayName,
+  questDisplayName,
+  questSearchText,
+  type QuestLanguage,
+} from "./quest-language";
 
 interface QuestsPageProps {
   data: TarkovData;
@@ -51,10 +57,6 @@ const COMPLETABLE_STATUSES = new Set<QuestStatus>([
 
 function canCompleteQuest(status: QuestStatus | undefined): boolean {
   return status !== undefined && COMPLETABLE_STATUSES.has(status);
-}
-
-function questName(quest: QuestData): string {
-  return quest.nameKo || quest.name || quest.nameEn;
 }
 
 function normalize(value: string): string {
@@ -101,9 +103,8 @@ export function QuestsPage({
   const [traderFilter, setTraderFilter] = useState("all");
   const [mapFilter, setMapFilter] = useState("all");
   const focusedQuest = findQuest(data.quests, focusQuestId);
-  const [statusFilter, setStatusFilter] = useState<QuestStatus | "all">(
-    focusedQuest ? "all" : "active",
-  );
+  const [statusFilter, setStatusFilter] = useState<QuestStatus | "all">("all");
+  const [language, setLanguage] = useState<QuestLanguage>("ko");
   const [pendingCompletion, setPendingCompletion] = useState<{
     quest: QuestData;
     alternatives: QuestData[];
@@ -173,16 +174,7 @@ export function QuestsPage({
   const filteredQuests = useMemo(() => {
     const needle = normalize(query);
     return data.quests.filter((quest) => {
-      const searchable = normalize(
-        [
-          questName(quest),
-          quest.nameEn,
-          quest.name,
-          quest.normalizedName,
-          quest.trader,
-          ...questMaps(quest),
-        ].join(" "),
-      );
+      const searchable = normalize(questSearchText(quest));
       return (
         (!needle || searchable.includes(needle)) &&
         (!kappaOnly || quest.kappaRequired) &&
@@ -299,6 +291,24 @@ export function QuestsPage({
             BEAR
           </button>
         </div>
+        <div aria-label="퀘스트 언어" className="faction-switch quest-language-switch" role="group">
+          <button
+            aria-pressed={language === "ko"}
+            className={language === "ko" ? "active" : ""}
+            onClick={() => setLanguage("ko")}
+            type="button"
+          >
+            한국어
+          </button>
+          <button
+            aria-pressed={language === "en"}
+            className={language === "en" ? "active" : ""}
+            onClick={() => setLanguage("en")}
+            type="button"
+          >
+            English
+          </button>
+        </div>
       </header>
 
       <section aria-label="추천 퀘스트" className="quest-recommendations panel">
@@ -319,7 +329,10 @@ export function QuestsPage({
               <span className="badge">
                 {RECOMMENDATION_LABELS[recommendation.type]}
               </span>
-              <strong>{questName(recommendation.quest)}</strong>
+              <strong>{questDisplayName(recommendation.quest, language)}</strong>
+              {alternateQuestDisplayName(recommendation.quest, language) ? (
+                <small>{alternateQuestDisplayName(recommendation.quest, language)}</small>
+              ) : null}
               <small>{recommendation.quest.trader}</small>
             </button>
           ))}
@@ -439,9 +452,9 @@ export function QuestsPage({
                         type="button"
                       >
                         <span className="quest-list-main">
-                          <strong>{questName(quest)}</strong>
-                          {quest.nameEn && quest.nameEn !== questName(quest) ? (
-                            <small>{quest.nameEn}</small>
+                          <strong>{questDisplayName(quest, language)}</strong>
+                          {alternateQuestDisplayName(quest, language) ? (
+                            <small>{alternateQuestDisplayName(quest, language)}</small>
                           ) : null}
                         </span>
                         <span className="quest-list-meta">
@@ -478,6 +491,7 @@ export function QuestsPage({
             quest={selectedQuest}
             status={statuses.get(selectedQuest.id) ?? "active"}
             statusResolver={statusResolver}
+            language={language}
           />
         ) : (
           <div className="quest-detail panel quest-detail-empty" role="status">
@@ -512,7 +526,7 @@ export function QuestsPage({
       >
         <ul className="quest-completion-warning-list">
           {pendingCompletion?.alternatives.map((alternative) => (
-            <li key={alternative.id}>{questName(alternative)}</li>
+            <li key={alternative.id}>{questDisplayName(alternative, language)}</li>
           ))}
         </ul>
       </Dialog>

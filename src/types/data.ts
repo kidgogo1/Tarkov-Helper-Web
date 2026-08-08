@@ -11,6 +11,9 @@ export interface DataMeta {
     wikiQuestCount?: number;
     wikiRevisionTimestamp?: string | null;
     refreshMode?: string;
+    koreanLocalizationSource?: string;
+    koreanLocalizedQuests?: number;
+    koreanLocalizedObjectives?: number;
   };
   counts: {
     quests: number;
@@ -51,6 +54,7 @@ export interface QuestObjective {
   sortOrder: number;
   objectiveType: string;
   description: string;
+  descriptionKo?: string;
   targetType?: string;
   targetCount?: number;
   itemId?: string;

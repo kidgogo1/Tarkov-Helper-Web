@@ -195,7 +195,7 @@ describe("QuestsPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "퀘스트" })).toBeInTheDocument();
     expect(
       within(screen.getByRole("article", { name: "퀘스트 상세" })).getByText(
-        "Preparation",
+        "물병자리 작전",
       ),
     ).toBeInTheDocument();
 
@@ -207,7 +207,7 @@ describe("QuestsPage", () => {
     expect(within(statistics).getByText("7")).toBeInTheDocument();
 
     const list = screen.getByRole("region", { name: "퀘스트 목록" });
-    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("active");
+    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("all");
     fireEvent.change(screen.getByRole("combobox", { name: "상태" }), {
       target: { value: "all" },
     });
@@ -245,6 +245,38 @@ describe("QuestsPage", () => {
       target: { value: "Woods" },
     });
     expect(within(list).getByRole("button", { name: /쉬운 임무 B/ })).toBeInTheDocument();
+  });
+
+  it("switches quest names between Korean and English while searching both languages", () => {
+    renderPage();
+
+    const language = screen.getByRole("group", { name: "퀘스트 언어" });
+    expect(within(language).getByRole("button", { name: "한국어" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(within(language).getByRole("button", { name: "English" }));
+
+    expect(screen.getByRole("heading", { name: "Operation Aquarius" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "Preparation" },
+    });
+    expect(
+      within(screen.getByRole("region", { name: "퀘스트 목록" })).getByRole(
+        "button",
+        { name: /Preparation/ },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "사전 작업" },
+    });
+    expect(
+      within(screen.getByRole("region", { name: "퀘스트 목록" })).getByRole(
+        "button",
+        { name: /Preparation/ },
+      ),
+    ).toBeInTheDocument();
   });
 
   it("clears active filters when a recommendation is opened", () => {
@@ -330,12 +362,12 @@ describe("QuestsPage", () => {
     expect(readProfile().faction).toBe("bear");
   });
 
-  it("starts with active quests and hides only the opposite faction after a faction is selected", () => {
+  it("starts with all quest statuses and hides only the opposite faction after a faction is selected", () => {
     renderPage();
 
     const list = screen.getByRole("region", { name: "퀘스트 목록" });
-    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("active");
-    expect(within(list).queryByRole("button", { name: /물병자리 작전/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("all");
+    expect(within(list).getByRole("button", { name: /물병자리 작전/ })).toBeInTheDocument();
     expect(within(list).getByRole("button", { name: /쉬운 임무 A/ })).toBeInTheDocument();
     expect(within(list).getByRole("button", { name: /쉬운 임무 B/ })).toBeInTheDocument();
 
@@ -351,9 +383,7 @@ describe("QuestsPage", () => {
   it("shows the first filtered quest instead of keeping a selection outside the result", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { name: "사전 작업" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "물병자리 작전" })).not.toBeInTheDocument();
-
+    expect(screen.getByRole("heading", { name: "물병자리 작전" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
       target: { value: "결과 없음" },
     });
