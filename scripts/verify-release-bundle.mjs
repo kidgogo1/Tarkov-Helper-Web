@@ -295,8 +295,16 @@ export async function verifyReleaseBundle(options) {
   }
 
   const archives = {};
+  const directContents = new Set([
+    `${roots.direct}/SHA256SUMS.txt`,
+    `${roots.direct}/PACKAGE_INFO.txt`,
+    `${roots.direct}/app/version.json`,
+    `${roots.direct}/${config.updater.configFile}`,
+  ]);
   for (const kind of ["direct", "static", "source"]) {
-    archives[kind] = await readZipArchive(path.join(bundle, filenames[kind]));
+    archives[kind] = await readZipArchive(path.join(bundle, filenames[kind]), {}, {
+      retainContents: (entryPath) => kind === "direct" && directContents.has(entryPath),
+    });
   }
   const direct = verifyDirectArchive(archives.direct, roots.direct, context, config, signing, updaterEnabled);
   const staticArchive = verifyStaticArchive(archives.static, roots.static);

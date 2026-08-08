@@ -91,6 +91,30 @@ test("ZIP reader enforces archive, entry, total, and regular-file bounds before 
   }
 });
 
+test("ZIP reader can discard verified payloads that later checks do not need", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "tarkov-zip-retention-"));
+  const input = path.join(parent, "input");
+  const archive = path.join(parent, "fixture.zip");
+  try {
+    await mkdir(input);
+    await writeFile(path.join(input, "keep.txt"), "kept payload");
+    await writeFile(path.join(input, "discard.txt"), "discarded payload");
+    await createZipFromDirectory({ directory: input, filename: archive, rootDirectory: "root" });
+
+    const verified = await readZipArchive(archive, {}, {
+      retainContents: (entryPath) => entryPath === "root/keep.txt",
+    });
+    const kept = verified.entries.find((entry) => entry.path === "root/keep.txt");
+    const discarded = verified.entries.find((entry) => entry.path === "root/discard.txt");
+    assert.equal(kept?.contents.toString("utf8"), "kept payload");
+    assert.equal(Object.hasOwn(discarded ?? {}, "contents"), false);
+    assert.match(discarded?.sha256 ?? "", /^[0-9a-f]{64}$/);
+    assert.equal(discarded?.size, Buffer.byteLength("discarded payload"));
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
 test("ZIP reader rejects dangerous flags, corrupt identity, and trailing records", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "tarkov-zip-malicious-"));
   const input = path.join(parent, "input");

@@ -23,11 +23,11 @@ const ZIP_DEFLATE = 8;
 const MAX_ZIP_32 = 0xffffffff;
 const MAX_ZIP_ENTRIES = 0xffff;
 export const DEFAULT_ZIP_LIMITS = Object.freeze({
-  maxArchiveBytes: 512 * 1024 * 1024,
+  maxArchiveBytes: 128 * 1024 * 1024,
   maxEntries: 10_000,
   maxEntryCompressedBytes: 128 * 1024 * 1024,
-  maxEntryUncompressedBytes: 256 * 1024 * 1024,
-  maxTotalUncompressedBytes: 1024 * 1024 * 1024,
+  maxEntryUncompressedBytes: 128 * 1024 * 1024,
+  maxTotalUncompressedBytes: 256 * 1024 * 1024,
   maxCompressionRatio: 200,
 });
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(?:\.|$)/i;
@@ -626,8 +626,18 @@ export async function readFileBounded(filename, maxBytes, label = "File") {
   }
 }
 
-export async function readZipArchive(filename, limitOverrides = {}) {
+export async function readZipArchive(filename, limitOverrides = {}, options = {}) {
   const limits = validatedZipLimits(limitOverrides);
+  if (
+    options === null ||
+    typeof options !== "object" ||
+    Array.isArray(options) ||
+    Object.keys(options).some((key) => key !== "retainContents") ||
+    (options.retainContents !== undefined && typeof options.retainContents !== "function")
+  ) {
+    throw new Error("Invalid ZIP reader options");
+  }
+  const retainContents = options.retainContents ?? (() => true);
   const contents = await readFileBounded(filename, limits.maxArchiveBytes, "ZIP archive");
   if (contents.length < 22) throw new Error("ZIP file is truncated");
   const endOffset = findZipEnd(contents);
@@ -783,7 +793,11 @@ export async function readZipArchive(filename, limitOverrides = {}) {
     if (entry.directory && data.length !== 0) throw new Error(`ZIP directory entry contains data: ${entry.path}`);
     actualTotal += data.length;
     if (actualTotal > limits.maxTotalUncompressedBytes) throw new Error(`ZIP total uncompressed size limit exceeded at: ${entry.path}`);
-    entries.push({ contents: data, directory: entry.directory, path: entry.path, sha256: sha256(data), size: data.length });
+    const retain = retainContents(entry.path, entry.directory);
+    if (typeof retain !== "boolean") throw new Error(`ZIP retainContents must return a boolean: ${entry.path}`);
+    const record = { directory: entry.directory, path: entry.path, sha256: sha256(data), size: data.length };
+    if (retain) record.contents = data;
+    entries.push(record);
   }
   const comment = contents.subarray(endOffset + 22, endOffset + 22 + commentLength).toString("utf8");
   return { comment, entries, sha256: sha256(contents), size: contents.length };

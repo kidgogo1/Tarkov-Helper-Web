@@ -263,7 +263,10 @@ async function writeFinalMetadata({ config, context, filenames, output, releaseI
   const archives = {};
   for (const kind of ["direct", "static", "source"]) {
     records[kind] = await fileRecord(path.join(output, filenames[kind]), filenames[kind]);
-    archives[kind] = await readZipArchive(path.join(output, filenames[kind]));
+    const packageInfoPath = `${roots.direct}/PACKAGE_INFO.txt`;
+    archives[kind] = await readZipArchive(path.join(output, filenames[kind]), {}, {
+      retainContents: (entryPath) => kind === "direct" && entryPath === packageInfoPath,
+    });
   }
   const packageInfo = packageInfoFromArchive(archives.direct, roots.direct);
   const manifest = {
