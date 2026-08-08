@@ -34,7 +34,7 @@ export function PublicUpdatePanel({
           <h3 id="public-update-title">프로그램 업데이트</h3>
           <p>공개 GitHub 릴리스에서 검증된 전체 앱·데이터 패키지를 확인합니다.</p>
         </div>
-        {status && status.state !== "DISABLED" ? (
+        {status && status.state !== "DISABLED" && status.state !== "READY_TO_RESTART" ? (
           <button disabled={busy !== null} onClick={onCheck} type="button">
             <RefreshCw aria-hidden="true" className={busy === "CHECK" ? "spin" : undefined} size={15} />
             다시 확인

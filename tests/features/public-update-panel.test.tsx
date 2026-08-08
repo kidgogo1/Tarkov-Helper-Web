@@ -169,5 +169,6 @@ describe("public update settings", () => {
       />,
     );
     expect(screen.getByText(/탭을 닫은 다음.*Tarkov Helper 실행\.vbs.*다시 실행/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 확인" })).not.toBeInTheDocument();
   });
 });
