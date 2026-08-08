@@ -15,12 +15,15 @@ import type {
   ProfileState,
   SharedSettings,
 } from "../../types/state";
+import { PublicUpdatePanel } from "./PublicUpdatePanel";
+import type { PublicUpdateController } from "./usePublicUpdate";
 
 interface SettingsDialogProps {
   open: boolean;
   profile: ProfileState;
   settings: SharedSettings;
   dataMeta: DataMeta;
+  publicUpdate?: PublicUpdateController;
   logImportError?: string | null;
   onClose: () => void;
   onUpdateProfile: (patch: ProfilePatch) => void;
@@ -58,6 +61,7 @@ export function SettingsDialog({
   profile,
   settings,
   dataMeta,
+  publicUpdate,
   logImportError,
   onClose,
   onUpdateProfile,
@@ -425,6 +429,17 @@ export function SettingsDialog({
                 <div><dt>기본 마커</dt><dd>{dataMeta.counts.mapMarkers.toLocaleString()}개</dd></div>
               </dl>
               <button onClick={() => window.location.reload()} type="button">포함 데이터 다시 불러오기</button>
+              {publicUpdate ? (
+                <PublicUpdatePanel
+                  busy={publicUpdate.busy}
+                  clientError={publicUpdate.clientError}
+                  initializing={publicUpdate.initializing}
+                  onCheck={publicUpdate.check}
+                  onStage={publicUpdate.stage}
+                  session={publicUpdate.session}
+                  status={publicUpdate.status}
+                />
+              ) : null}
             </section>
           ) : null}
         </div>

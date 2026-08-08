@@ -226,6 +226,87 @@
   margin-top: 14px;
 }
 
+.public-update-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.public-update-heading,
+.update-available-card,
+.update-actions,
+.update-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.public-update-heading,
+.update-available-card {
+  justify-content: space-between;
+}
+
+.public-update-heading > div,
+.update-available-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.public-update-heading p,
+.update-available-card span {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.public-update-heading button,
+.update-actions button,
+.update-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.update-available-card,
+.update-status {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 12px 14px;
+}
+
+.update-actions {
+  flex: 0 0 auto;
+}
+
+.update-actions a {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.update-status {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.update-status.muted {
+  color: var(--text-muted);
+}
+
+.update-status.success {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--line));
+  color: var(--success);
+}
+
+.update-status.error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger);
+}
+
 .in-progress-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.35fr);
@@ -334,6 +415,13 @@
   }
 
   .manual-quest-sync-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .public-update-heading,
+  .update-available-card,
+  .update-actions {
     align-items: stretch;
     flex-direction: column;
   }

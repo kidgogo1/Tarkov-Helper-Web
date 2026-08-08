@@ -22,6 +22,7 @@ import { MapMiniMapSettingsDialog } from "../features/map/MapMiniMapSettingsDial
 import { QuestsPage } from "../features/quests/QuestsPage";
 import { InProgressQuestDialog } from "../features/settings/InProgressQuestDialog";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
+import { usePublicUpdate } from "../features/settings/usePublicUpdate";
 import type { ProfileType, TarkovData } from "../types/data";
 import type { SavedQuestStatus } from "../types/state";
 import { AppShell, type AppTab } from "./AppShell";
@@ -95,6 +96,7 @@ function defaultAlternativeSelections(
 
 export function App() {
   const store = useAppStore();
+  const publicUpdate = usePublicUpdate();
   const [data, setData] = useState<TarkovData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(tabFromHash);
@@ -336,6 +338,7 @@ export function App() {
         onUpdateSettings={store.updateSettings}
         open={settingsOpen}
         profile={store.profile}
+        publicUpdate={publicUpdate}
         settings={store.settings}
       />
 
