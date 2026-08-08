@@ -137,6 +137,29 @@ describe("quest pack refresh", () => {
     expect(repeated.meta.sources.localExportedAt).toBe("2026-05-06T18:03:23Z");
   });
 
+  it("keeps saved ids while following the wiki rename to A Big Loss", () => {
+    const legacy = {
+      ...baseQuest,
+      id: "legacy-database-part-2",
+      name: "Database - Part 2",
+      nameEn: "Database - Part 2",
+      nameKo: "데이터베이스 - 파트 2",
+      normalizedName: "database---part-2",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Database_-_Part_2",
+    };
+    const pack = { ...emptyPack, quests: [legacy] };
+    const refreshed = mergeQuestSources(pack, { meta: { generated: "now", count: 0 }, quests: [] });
+
+    expect(refreshed.quests[0]).toMatchObject({
+      id: "legacy-database-part-2",
+      name: "A Big Loss",
+      nameEn: "A Big Loss",
+      nameKo: "큰 손실",
+      normalizedName: "a-big-loss",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/A_Big_Loss",
+    });
+  });
+
   it("creates safe app defaults for a remote quest without map locations", () => {
     const result = toAppQuest({
       id: "no-map",

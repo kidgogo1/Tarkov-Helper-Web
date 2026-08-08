@@ -14,6 +14,31 @@ const MAP_NAMES = new Map([
   ["woods", "Woods"],
 ]);
 
+// The wiki retired the old Database - Part 2 title and now exposes the same
+// in-game quest as A Big Loss. Keep the existing opaque id so saved progress
+// remains compatible while refreshes follow the current wiki title.
+const WIKI_QUEST_RENAMES = new Map([
+  ["https://escapefromtarkov.fandom.com/wiki/Database_-_Part_2", {
+    name: "A Big Loss",
+    nameKo: "큰 손실",
+    normalizedName: "a-big-loss",
+    wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/A_Big_Loss",
+  }],
+]);
+
+export function applyWikiQuestRenames(quests) {
+  return quests.map((quest) => {
+    const rename = WIKI_QUEST_RENAMES.get(quest?.wikiPageLink);
+    if (!rename) return quest;
+    return {
+      ...quest,
+      ...rename,
+      nameEn: rename.name,
+      nameJa: rename.name,
+    };
+  });
+}
+
 export function extractWikiQuestMeta(wikitext, revisionTimestamp = null) {
   const source = String(wikitext ?? "");
   const listStart = source.indexOf("==List of Quests==");
@@ -141,7 +166,7 @@ export function mergeQuestSources(localPack, tarkovData, wikiMeta = {}) {
     .filter((quest) => !hasLocalMatch(localQuests, quest, localByBsgId, localByName))
     .map(toAppQuest)
     .sort((left, right) => left.name.localeCompare(right.name));
-  const quests = [...preservedQuests, ...additions];
+  const quests = applyWikiQuestRenames([...preservedQuests, ...additions]);
   const localMeta = localPack?.meta ?? {};
   const remoteGenerated = tarkovData?.meta?.generated;
   const sources = {
