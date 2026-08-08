@@ -320,6 +320,124 @@ test("prepares ZIPs without a private key and finalizes them on a separate signi
   }
 });
 
+test("finalizes an unsigned release manifest without exposing a private key", async () => {
+  const fixture = await createFixture();
+  const prepared = path.join(fixture.parent, "prepared-unsigned-zips");
+  const unsigned = path.join(fixture.parent, "unsigned-release-first");
+  const unsignedSecond = path.join(fixture.parent, "unsigned-release-second");
+  const repository = "example-owner/example-repository";
+  try {
+    const prepare = run(createScript, createArguments(fixture, prepared, [
+      "--repository", repository,
+      "--prepare-only",
+    ]), { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey, UPDATE_SIGNING_PRIVATE_KEY: "" });
+    assert.equal(prepare.status, 0, `${prepare.stdout}\n${prepare.stderr}`);
+
+    for (const output of [unsigned, unsignedSecond]) {
+      const finalize = run(createScript, [
+        "--project-root", fixture.project,
+        "--prepared", prepared,
+        "--finalize-unsigned",
+        "--output", output,
+        "--tag", "v1.2.3",
+        "--commit", fixture.commit,
+        "--repository", repository,
+        "--release-id", "101",
+        "--direct-asset-id", "201",
+        "--static-asset-id", "202",
+        "--source-asset-id", "203",
+      ], { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey, UPDATE_SIGNING_PRIVATE_KEY: "must-not-be-read" });
+      assert.equal(finalize.status, 0, `${finalize.stdout}\n${finalize.stderr}`);
+    }
+    const expectedUnsignedFiles = [
+      "tarkov-helper-web-direct-v1.2.3.zip",
+      "tarkov-helper-web-source-v1.2.3.zip",
+      "tarkov-helper-web-static-v1.2.3.zip",
+      "update-manifest-v1.json",
+    ];
+    assert.deepEqual((await readdir(unsigned)).sort(), expectedUnsignedFiles);
+    assert.deepEqual((await readdir(unsignedSecond)).sort(), expectedUnsignedFiles);
+    for (const filename of expectedUnsignedFiles) {
+      assert.equal(
+        sha256(await readFile(path.join(unsigned, filename))),
+        sha256(await readFile(path.join(unsignedSecond, filename))),
+        `${filename} must be deterministic before signing`,
+      );
+    }
+
+    const verification = run(verifyScript, [
+      "--project-root", fixture.project,
+      "--bundle", unsigned,
+      "--tag", "v1.2.3",
+      "--commit", fixture.commit,
+      "--repository", repository,
+      "--release-id", "101",
+      "--direct-asset-id", "201",
+      "--static-asset-id", "202",
+      "--source-asset-id", "203",
+      "--unsigned-finalized",
+    ], { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey });
+    assert.equal(verification.status, 0, `${verification.stdout}\n${verification.stderr}`);
+    assert.equal(JSON.parse(verification.stdout).unsignedFinalized, true);
+
+    const manifestPath = path.join(unsigned, "update-manifest-v1.json");
+    const manifestText = await readFile(manifestPath, "utf8");
+    const forgedTree = JSON.parse(manifestText);
+    forgedTree.artifacts.direct.unpacked.treeSha256 = "0".repeat(64);
+    await writeFile(manifestPath, `${JSON.stringify(forgedTree, null, 2)}\n`);
+    const rejectedTreeClaim = run(verifyScript, [
+      "--project-root", fixture.project,
+      "--bundle", unsigned,
+      "--tag", "v1.2.3",
+      "--commit", fixture.commit,
+      "--repository", repository,
+      "--release-id", "101",
+      "--direct-asset-id", "201",
+      "--static-asset-id", "202",
+      "--source-asset-id", "203",
+      "--unsigned-finalized",
+    ], { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey });
+    assert.notEqual(rejectedTreeClaim.status, 0);
+    assert.match(`${rejectedTreeClaim.stdout}\n${rejectedTreeClaim.stderr}`, /unpacked metadata mismatch/i);
+
+    const forgedPackage = JSON.parse(manifestText);
+    forgedPackage.artifacts.direct.package.appFiles += 1;
+    await writeFile(manifestPath, `${JSON.stringify(forgedPackage, null, 2)}\n`);
+    const rejectedPackageClaim = run(verifyScript, [
+      "--project-root", fixture.project,
+      "--bundle", unsigned,
+      "--tag", "v1.2.3",
+      "--commit", fixture.commit,
+      "--repository", repository,
+      "--release-id", "101",
+      "--direct-asset-id", "201",
+      "--static-asset-id", "202",
+      "--source-asset-id", "203",
+      "--unsigned-finalized",
+    ], { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey });
+    assert.notEqual(rejectedPackageClaim.status, 0);
+    assert.match(`${rejectedPackageClaim.stdout}\n${rejectedPackageClaim.stderr}`, /package metadata mismatch/i);
+
+    await writeFile(manifestPath, manifestText.replace(repository, "attacker/forged-release"));
+    const tampered = run(verifyScript, [
+      "--project-root", fixture.project,
+      "--bundle", unsigned,
+      "--tag", "v1.2.3",
+      "--commit", fixture.commit,
+      "--repository", repository,
+      "--release-id", "101",
+      "--direct-asset-id", "201",
+      "--static-asset-id", "202",
+      "--source-asset-id", "203",
+      "--unsigned-finalized",
+    ], { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey });
+    assert.notEqual(tampered.status, 0);
+    assert.match(`${tampered.stdout}\n${tampered.stderr}`, /release identity mismatch/i);
+  } finally {
+    await rm(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 test("verification rejects a tampered release asset", async () => {
   const fixture = await createFixture();
   const output = path.join(fixture.parent, "release-tampered");

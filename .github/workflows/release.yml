@@ -152,17 +152,13 @@ jobs:
           compression-level: 0
           overwrite: true
 
-  publish:
-    name: Sign, attest, and publish
+  finalize:
+    name: Bind unsigned manifest to verified draft
     needs: package
     runs-on: windows-2025
     timeout-minutes: 30
-    environment: github-release
     permissions:
       contents: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
     steps:
       - name: Check out the tagged revision without credentials
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -175,7 +171,7 @@ jobs:
         with:
           node-version: 22.22.2
 
-      - name: Download prepared ZIPs into the fresh protected runner
+      - name: Download prepared ZIPs
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: release-seed-${{ github.sha }}
@@ -203,19 +199,6 @@ jobs:
           $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
           node scripts/verify-release-bundle.mjs --bundle $seedRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --prepared-only
           if ($LASTEXITCODE -ne 0) { throw "Prepared release verification failed on the protected runner" }
-
-      - name: Require immutable releases
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
-            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) permission"
-          }
-          $settings = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/immutable-releases" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $settings.enabled -ne $true) {
-            throw "Immutable releases must be enabled before publishing"
-          }
 
       - name: Create or safely reuse the verified draft
         shell: pwsh
@@ -287,17 +270,14 @@ jobs:
             }
           }
 
-      - name: Finalize signed metadata on the protected runner
+      - name: Finalize unsigned metadata bound to GitHub IDs
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          SIGNING_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
           UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY_PEM)) { throw "The update signing private key is required" }
-          [Environment]::SetEnvironmentVariable(("UPDATE_SIGNING_" + "PRIVATE_KEY"), $env:SIGNING_KEY_PEM)
           $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
-          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets-unsigned"
           $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0 -or -not $release.draft) { throw "Unable to resolve the draft release" }
           function Get-AssetId([string]$name) {
@@ -309,8 +289,10 @@ jobs:
           $directId = Get-AssetId "tarkov-helper-web-direct-v$version.zip"
           $staticId = Get-AssetId "tarkov-helper-web-static-v$version.zip"
           $sourceId = Get-AssetId "tarkov-helper-web-source-v$version.zip"
-          node scripts/create-release-bundle.mjs --prepared $seedRoot --output $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
-          if ($LASTEXITCODE -ne 0) { throw "Final signed release bundle creation failed" }
+          node scripts/create-release-bundle.mjs --prepared $seedRoot --finalize-unsigned --output $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
+          if ($LASTEXITCODE -ne 0) { throw "Unsigned release manifest finalization failed" }
+          node scripts/verify-release-bundle.mjs --bundle $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId --unsigned-finalized
+          if ($LASTEXITCODE -ne 0) { throw "Unsigned release manifest verification failed" }
           foreach ($zip in Get-ChildItem -LiteralPath $bundleRoot -File -Filter "*.zip") {
             $seed = Join-Path $seedRoot $zip.Name
             if (-not (Test-Path -LiteralPath $seed -PathType Leaf)) { throw "Seed ZIP missing: $($zip.Name)" }
@@ -318,6 +300,928 @@ jobs:
               throw "ZIP changed after GitHub asset ID assignment: $($zip.Name)"
             }
           }
+
+      - name: Transfer unsigned release assets to the isolated signer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-unsigned-${{ github.sha }}
+          path: ${{ runner.temp }}/release-assets-unsigned/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+  sign:
+    name: Validate and sign on an isolated runner
+    needs: finalize
+    runs-on: windows-2025
+    timeout-minutes: 15
+    environment: github-release
+    permissions:
+      contents: read
+    steps:
+      - name: Download only the unsigned finalized assets
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-unsigned-${{ github.sha }}
+          path: ${{ runner.temp }}/release-assets
+
+      - name: Require immutable releases before signing
+        shell: pwsh
+        env:
+          IMMUTABLE_SETTINGS_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:IMMUTABLE_SETTINGS_TOKEN)) {
+            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) permission"
+          }
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $($env:IMMUTABLE_SETTINGS_TOKEN)"
+            "X-GitHub-Api-Version" = "2026-03-10"
+          }
+          $uri = "https://api.github.com/repos/$($env:RELEASE_REPOSITORY)/immutable-releases"
+          $settings = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers -MaximumRedirection 0
+          if ($settings.enabled -ne $true) { throw "Immutable releases must be enabled before signing" }
+
+      - name: Independently validate and sign the raw manifest
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SIGNING_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+          if ($env:RELEASE_TAG -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw "Stable release tag is invalid" }
+          if ($env:RELEASE_COMMIT -notmatch '^[0-9a-f]{40}$') { throw "Release commit must be a full lowercase SHA-1" }
+          if ($env:RELEASE_REPOSITORY -notmatch '^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$') { throw "Repository identity is invalid" }
+          if ([string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { throw "GitHub token is required" }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY_PEM)) { throw "The update signing private key is required" }
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PUBLIC_KEY)) { throw "The update signing public key is required" }
+          if (-not ("System.IO.Compression.ZipFile" -as [type])) { Add-Type -AssemblyName System.IO.Compression.FileSystem }
+
+          $version = $env:RELEASE_TAG.Substring(1)
+          $assetRoot = Join-Path $env:RUNNER_TEMP "release-assets"
+          $manifestName = "update-manifest-v1.json"
+          $signatureName = "update-manifest-v1.sig"
+          $directName = "tarkov-helper-web-direct-v$version.zip"
+          $staticName = "tarkov-helper-web-static-v$version.zip"
+          $sourceName = "tarkov-helper-web-source-v$version.zip"
+          $unsignedNames = [string[]]@($directName, $staticName, $sourceName, $manifestName)
+          [Array]::Sort($unsignedNames, [StringComparer]::Ordinal)
+          $entries = @(Get-ChildItem -LiteralPath $assetRoot -Force)
+          if ($entries.Count -ne $unsignedNames.Count) { throw "Unsigned artifact file set mismatch" }
+          $actualNames = [string[]]@($entries | ForEach-Object { $_.Name })
+          [Array]::Sort($actualNames, [StringComparer]::Ordinal)
+          if (-not [string]::Equals([string]::Join("`0", $actualNames), [string]::Join("`0", $unsignedNames), [StringComparison]::Ordinal)) {
+            throw "Unsigned artifact names do not match the release contract"
+          }
+          foreach ($entry in $entries) {
+            if (-not ($entry -is [IO.FileInfo]) -or (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+              throw "Unsigned artifact contains a non-regular file"
+            }
+          }
+
+          $zipValidatorSource = @'
+          using System;
+          using System.Collections.Generic;
+          using System.Globalization;
+          using System.IO;
+          using System.IO.Compression;
+          using System.Linq;
+          using System.Security.Cryptography;
+          using System.Text;
+          using System.Text.RegularExpressions;
+
+          public sealed class IsolatedZipRecord {
+            public string Path { get; set; }
+            public long Size { get; set; }
+            public string Sha256 { get; set; }
+          }
+
+          public sealed class IsolatedZipReport {
+            public long FileCount { get; set; }
+            public long Bytes { get; set; }
+            public string TreeSha256 { get; set; }
+            public long AppFileCount { get; set; }
+            public long AppBytes { get; set; }
+            public string AppTreeSha256 { get; set; }
+            public string Comment { get; set; }
+            public Dictionary<string, byte[]> Captured { get; set; }
+          }
+
+          public static class IsolatedZipValidator {
+            private const long MaxArchiveBytes = 128L * 1024 * 1024;
+            private const long MaxEntryBytes = 128L * 1024 * 1024;
+            private const long MaxTotalBytes = 256L * 1024 * 1024;
+            private const int MaxEntries = 10000;
+            private const double MaxCompressionRatio = 200.0;
+            private const int MaxCapturedBytes = 4 * 1024 * 1024;
+            private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+            private static readonly Regex ReservedName = new Regex(
+              @"^(?:con|prn|aux|nul|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(?:\.|$)",
+              RegexOptions.IgnoreCase | RegexOptions.CultureInvariant
+            );
+            private static readonly uint[] CrcTable = CreateCrcTable();
+            private static readonly string[] RequiredDirectPaths = new string[] {
+              "launcher.ps1",
+              "app-update-worker.ps1",
+              "app-update-broker.ps1",
+              "UPDATE_CONFIG.json",
+              "PACKAGE_INFO.txt",
+              "SHA256SUMS.txt",
+              "app/index.html",
+              "app/version.json"
+            };
+
+            private sealed class CentralEntry {
+              public ushort VersionNeeded;
+              public ushort Flags;
+              public ushort Method;
+              public uint Crc;
+              public long CompressedSize;
+              public long Size;
+              public string Name;
+              public byte[] NameBytes;
+              public bool Directory;
+              public long LocalOffset;
+              public string Relative;
+            }
+
+            private sealed class PathNode {
+              public string Original;
+              public bool File;
+            }
+
+            public static IsolatedZipReport Validate(string filename, string rootDirectory, string[] capturedNames, bool strictDirect) {
+              if (String.IsNullOrEmpty(rootDirectory) || rootDirectory.IndexOf('/') >= 0 || rootDirectory.IndexOf('\\') >= 0) {
+                throw new InvalidDataException("ZIP root directory is invalid");
+              }
+              HashSet<string> captures = new HashSet<string>(capturedNames ?? new string[0], StringComparer.Ordinal);
+              using (FileStream stream = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                if (stream.Length < 22 || stream.Length > MaxArchiveBytes) throw new InvalidDataException("ZIP archive size limit exceeded");
+                long eocdOffset;
+                byte[] commentBytes;
+                long centralOffset;
+                long centralSize;
+                int entryCount;
+                ReadEnd(stream, out eocdOffset, out centralOffset, out centralSize, out entryCount, out commentBytes);
+                if (strictDirect && (entryCount == 0 || commentBytes.Length != 0)) throw new InvalidDataException("Direct ZIP entry count or archive comment mismatch");
+                List<CentralEntry> metadata = ReadCentral(stream, eocdOffset, centralOffset, centralSize, entryCount, rootDirectory, strictDirect);
+                ValidateCollisions(metadata);
+                ValidateLocalLayout(stream, centralOffset, metadata, strictDirect);
+                string comment = StrictUtf8.GetString(commentBytes);
+
+                Dictionary<string, IsolatedZipRecord> files = new Dictionary<string, IsolatedZipRecord>(StringComparer.Ordinal);
+                Dictionary<string, byte[]> captured = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                long actualTotal = 0;
+                stream.Position = 0;
+                using (ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, true)) {
+                  if (archive.Entries.Count != metadata.Count) throw new InvalidDataException("ZIP entry count changed after preflight");
+                  Dictionary<string, ZipArchiveEntry> archiveEntries = new Dictionary<string, ZipArchiveEntry>(StringComparer.Ordinal);
+                  foreach (ZipArchiveEntry item in archive.Entries) {
+                    if (archiveEntries.ContainsKey(item.FullName)) throw new InvalidDataException("Duplicate ZIP entry name");
+                    archiveEntries.Add(item.FullName, item);
+                  }
+                  foreach (CentralEntry item in metadata) {
+                    ZipArchiveEntry archiveEntry;
+                    if (!archiveEntries.TryGetValue(item.Name, out archiveEntry)) throw new InvalidDataException("ZIP entry disappeared after preflight");
+                    if (archiveEntry.Length != item.Size || archiveEntry.CompressedLength != item.CompressedSize) {
+                      throw new InvalidDataException("ZIP entry sizes changed after preflight");
+                    }
+                    if (item.Directory) continue;
+                    long actualSize = 0;
+                    uint crc = 0xffffffffU;
+                    byte[] digest;
+                    MemoryStream capture = captures.Contains(item.Relative) ? new MemoryStream() : null;
+                    try {
+                      using (SHA256 sha = SHA256.Create()) {
+                        using (CryptoStream hashing = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write)) {
+                          using (Stream input = archiveEntry.Open()) {
+                            byte[] buffer = new byte[1024 * 1024];
+                            while (true) {
+                              int read = input.Read(buffer, 0, buffer.Length);
+                              if (read == 0) break;
+                              actualSize = checked(actualSize + read);
+                              actualTotal = checked(actualTotal + read);
+                              if (actualSize > item.Size || actualSize > MaxEntryBytes || actualTotal > MaxTotalBytes) {
+                                throw new InvalidDataException("ZIP inflation size limit exceeded");
+                              }
+                              hashing.Write(buffer, 0, read);
+                              crc = UpdateCrc(crc, buffer, read);
+                              if (capture != null) {
+                                if (capture.Length + read > MaxCapturedBytes) throw new InvalidDataException("Captured ZIP metadata size limit exceeded");
+                                capture.Write(buffer, 0, read);
+                              }
+                            }
+                          }
+                          hashing.FlushFinalBlock();
+                          digest = (byte[])sha.Hash.Clone();
+                        }
+                      }
+                      if (actualSize != item.Size || (crc ^ 0xffffffffU) != item.Crc) throw new InvalidDataException("ZIP CRC-32 or length mismatch");
+                      IsolatedZipRecord record = new IsolatedZipRecord {
+                        Path = item.Relative,
+                        Size = actualSize,
+                        Sha256 = Hex(digest)
+                      };
+                      files.Add(record.Path, record);
+                      if (capture != null) captured.Add(record.Path, capture.ToArray());
+                    } finally {
+                      if (capture != null) capture.Dispose();
+                    }
+                  }
+                }
+
+                foreach (string requested in captures) {
+                  if (!captured.ContainsKey(requested)) throw new InvalidDataException("Required ZIP metadata entry is missing: " + requested);
+                }
+                if (strictDirect) {
+                  foreach (string required in RequiredDirectPaths) {
+                    if (!files.ContainsKey(required)) throw new InvalidDataException("Required Direct ZIP entry is missing: " + required);
+                  }
+                }
+                if (captured.ContainsKey("SHA256SUMS.txt")) ValidateInternalChecksums(captured["SHA256SUMS.txt"], files);
+                List<IsolatedZipRecord> all = files.Values.ToList();
+                long allBytes = all.Sum(record => record.Size);
+                if (all.Count < 1 || all.Count > MaxEntries || allBytes < 1 || allBytes > MaxTotalBytes) {
+                  throw new InvalidDataException("ZIP report exceeds client unpacked bounds");
+                }
+                List<IsolatedZipRecord> app = files.Values
+                  .Where(record => record.Path.StartsWith("app/", StringComparison.Ordinal))
+                  .Select(record => new IsolatedZipRecord { Path = record.Path.Substring(4), Size = record.Size, Sha256 = record.Sha256 })
+                  .ToList();
+                return new IsolatedZipReport {
+                  FileCount = all.Count,
+                  Bytes = allBytes,
+                  TreeSha256 = TreeHash(all),
+                  AppFileCount = app.Count,
+                  AppBytes = app.Sum(record => record.Size),
+                  AppTreeSha256 = TreeHash(app),
+                  Comment = comment,
+                  Captured = captured
+                };
+              }
+            }
+
+            private static void ReadEnd(
+              FileStream stream,
+              out long eocdOffset,
+              out long centralOffset,
+              out long centralSize,
+              out int entryCount,
+              out byte[] comment
+            ) {
+              int tailLength = (int)Math.Min(stream.Length, 65557L);
+              byte[] tail = new byte[tailLength];
+              stream.Position = stream.Length - tailLength;
+              ReadFully(stream, tail, 0, tail.Length);
+              int found = -1;
+              for (int index = tail.Length - 22; index >= 0; index -= 1) {
+                if (ReadUInt32(tail, index) != 0x06054b50U) continue;
+                int commentLength = ReadUInt16(tail, index + 20);
+                if (index + 22 + commentLength == tail.Length) { found = index; break; }
+              }
+              if (found < 0) throw new InvalidDataException("ZIP end-of-central-directory record is missing or has trailing data");
+              if (ReadUInt16(tail, found + 4) != 0 || ReadUInt16(tail, found + 6) != 0) throw new InvalidDataException("Multi-disk ZIP is not supported");
+              int diskEntries = ReadUInt16(tail, found + 8);
+              entryCount = ReadUInt16(tail, found + 10);
+              if (entryCount == 65535 || diskEntries != entryCount || entryCount > MaxEntries) throw new InvalidDataException("ZIP64 or excessive entry count is not supported");
+              centralSize = ReadUInt32(tail, found + 12);
+              centralOffset = ReadUInt32(tail, found + 16);
+              eocdOffset = stream.Length - tailLength + found;
+              if (centralOffset < 0 || centralSize < 0 || centralOffset + centralSize != eocdOffset) {
+                throw new InvalidDataException("ZIP central directory layout is invalid");
+              }
+              int length = ReadUInt16(tail, found + 20);
+              comment = new byte[length];
+              Buffer.BlockCopy(tail, found + 22, comment, 0, length);
+            }
+
+            private static List<CentralEntry> ReadCentral(
+              FileStream stream,
+              long eocdOffset,
+              long centralOffset,
+              long centralSize,
+              int entryCount,
+              string rootDirectory,
+              bool strictDirect
+            ) {
+              List<CentralEntry> result = new List<CentralEntry>(entryCount);
+              long declaredTotal = 0;
+              stream.Position = centralOffset;
+              using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true)) {
+                for (int index = 0; index < entryCount; index += 1) {
+                  if (reader.ReadUInt32() != 0x02014b50U) throw new InvalidDataException("ZIP central entry signature is invalid");
+                  ushort versionMadeBy = reader.ReadUInt16();
+                  ushort versionNeeded = reader.ReadUInt16();
+                  ushort flags = reader.ReadUInt16();
+                  ushort method = reader.ReadUInt16();
+                  reader.ReadUInt16(); reader.ReadUInt16();
+                  uint crc = reader.ReadUInt32();
+                  long compressedSize = reader.ReadUInt32();
+                  long size = reader.ReadUInt32();
+                  int nameLength = reader.ReadUInt16();
+                  int extraLength = reader.ReadUInt16();
+                  int entryCommentLength = reader.ReadUInt16();
+                  ushort diskStart = reader.ReadUInt16();
+                  reader.ReadUInt16();
+                  uint externalAttributes = reader.ReadUInt32();
+                  long localOffset = reader.ReadUInt32();
+                  if (versionNeeded > 20 || diskStart != 0) throw new InvalidDataException("ZIP64 or unsupported ZIP version is not allowed");
+                  if ((flags & 0x0001) != 0 || (flags & 0x0008) != 0 || (flags & ~0x0800) != 0) throw new InvalidDataException("Unsupported ZIP entry flags");
+                  if (method != 0 && method != 8) throw new InvalidDataException("Unsupported ZIP compression method");
+                  if (nameLength == 0 || entryCommentLength != 0) throw new InvalidDataException("ZIP entry name or comment is invalid");
+                  if (strictDirect && (flags != 0x0800 || extraLength != 0 || entryCommentLength != 0 || nameLength > 1024)) {
+                    throw new InvalidDataException("Direct ZIP flags, extra fields, comments, or path length do not match the worker contract");
+                  }
+                  byte[] nameBytes = reader.ReadBytes(nameLength);
+                  if (nameBytes.Length != nameLength) throw new EndOfStreamException();
+                  byte[] extra = reader.ReadBytes(extraLength);
+                  if (extra.Length != extraLength) throw new EndOfStreamException();
+                  if (reader.ReadBytes(entryCommentLength).Length != entryCommentLength) throw new EndOfStreamException();
+                  ValidateExtra(extra);
+                  string name = DecodeName(nameBytes, (flags & 0x0800) != 0);
+                  bool directory = name.EndsWith("/", StringComparison.Ordinal);
+                  ValidatePath(name, directory);
+                  if (strictDirect && directory) throw new InvalidDataException("Explicit directory entries are not allowed in a Direct ZIP");
+                  if (strictDirect) {
+                    if (externalAttributes != 0x81a40000U) throw new InvalidDataException("Direct ZIP external attributes do not match the worker contract");
+                  } else {
+                    ValidateAttributes(versionMadeBy, externalAttributes, directory);
+                  }
+                  if (compressedSize > MaxEntryBytes || size > MaxEntryBytes) throw new InvalidDataException("ZIP entry size limit exceeded");
+                  declaredTotal = checked(declaredTotal + size);
+                  if (declaredTotal > MaxTotalBytes) throw new InvalidDataException("ZIP total uncompressed size limit exceeded");
+                  if (size > 1024 * 1024 && (compressedSize == 0 || ((double)size / compressedSize) > MaxCompressionRatio)) {
+                    throw new InvalidDataException("ZIP compression ratio limit exceeded");
+                  }
+                  if (directory && (size != 0 || compressedSize != 0 || crc != 0)) throw new InvalidDataException("ZIP directory payload is invalid");
+                  string prefix = rootDirectory + "/";
+                  string relative;
+                  if (directory && String.Equals(name, prefix, StringComparison.Ordinal)) relative = null;
+                  else if (name.StartsWith(prefix, StringComparison.Ordinal) && name.Length > prefix.Length) relative = name.Substring(prefix.Length);
+                  else throw new InvalidDataException("ZIP entry is outside the expected root directory");
+                  result.Add(new CentralEntry {
+                    VersionNeeded = versionNeeded,
+                    Flags = flags,
+                    Method = method,
+                    Crc = crc,
+                    CompressedSize = compressedSize,
+                    Size = size,
+                    Name = name,
+                    NameBytes = nameBytes,
+                    Directory = directory,
+                    LocalOffset = localOffset,
+                    Relative = relative
+                  });
+                }
+              }
+              if (stream.Position != centralOffset + centralSize || stream.Position != eocdOffset) {
+                throw new InvalidDataException("ZIP central directory entry count is invalid");
+              }
+              return result;
+            }
+
+            private static void ValidateLocalLayout(FileStream stream, long centralOffset, List<CentralEntry> metadata, bool strictDirect) {
+              List<CentralEntry> ordered = metadata.OrderBy(entry => entry.LocalOffset).ToList();
+              long expectedOffset = 0;
+              using (BinaryReader reader = new BinaryReader(stream, Encoding.UTF8, true)) {
+                foreach (CentralEntry entry in ordered) {
+                  if (entry.LocalOffset != expectedOffset || entry.LocalOffset >= centralOffset) throw new InvalidDataException("ZIP local entries are not contiguous");
+                  stream.Position = entry.LocalOffset;
+                  if (reader.ReadUInt32() != 0x04034b50U) throw new InvalidDataException("ZIP local entry signature is invalid");
+                  ushort versionNeeded = reader.ReadUInt16();
+                  ushort flags = reader.ReadUInt16();
+                  ushort method = reader.ReadUInt16();
+                  reader.ReadUInt16(); reader.ReadUInt16();
+                  uint crc = reader.ReadUInt32();
+                  long compressedSize = reader.ReadUInt32();
+                  long size = reader.ReadUInt32();
+                  int nameLength = reader.ReadUInt16();
+                  int extraLength = reader.ReadUInt16();
+                  byte[] name = reader.ReadBytes(nameLength);
+                  byte[] extra = reader.ReadBytes(extraLength);
+                  if (name.Length != nameLength || extra.Length != extraLength) throw new EndOfStreamException();
+                  if (strictDirect && (flags != 0x0800 || extraLength != 0 || nameLength > 1024)) {
+                    throw new InvalidDataException("Direct ZIP local flags, extra fields, or path length do not match the worker contract");
+                  }
+                  if (
+                    versionNeeded != entry.VersionNeeded || flags != entry.Flags || method != entry.Method || crc != entry.Crc ||
+                    compressedSize != entry.CompressedSize || size != entry.Size || !name.SequenceEqual(entry.NameBytes)
+                  ) throw new InvalidDataException("ZIP local and central metadata differ");
+                  ValidateExtra(extra);
+                  long dataEnd = checked(stream.Position + entry.CompressedSize);
+                  if (dataEnd > centralOffset) throw new InvalidDataException("ZIP entry data overlaps the central directory");
+                  expectedOffset = dataEnd;
+                }
+              }
+              if (expectedOffset != centralOffset) throw new InvalidDataException("ZIP local data and central directory are not contiguous");
+            }
+
+            private static void ValidateCollisions(List<CentralEntry> metadata) {
+              Dictionary<string, PathNode> nodes = new Dictionary<string, PathNode>(StringComparer.Ordinal);
+              foreach (CentralEntry entry in metadata) {
+                string trimmed = entry.Name.EndsWith("/", StringComparison.Ordinal) ? entry.Name.Substring(0, entry.Name.Length - 1) : entry.Name;
+                string[] segments = trimmed.Split('/');
+                List<string> canonical = new List<string>();
+                List<string> original = new List<string>();
+                for (int index = 0; index < segments.Length; index += 1) {
+                  canonical.Add(segments[index].Normalize(NormalizationForm.FormC).ToLowerInvariant());
+                  original.Add(segments[index]);
+                  string key = String.Join("/", canonical.ToArray());
+                  string display = String.Join("/", original.ToArray());
+                  bool final = index == segments.Length - 1;
+                  bool file = final && !entry.Directory;
+                  PathNode existing;
+                  if (nodes.TryGetValue(key, out existing)) {
+                    if (!String.Equals(existing.Original, display, StringComparison.Ordinal)) throw new InvalidDataException("Case-insensitive or Unicode-normalized ZIP path collision");
+                    if (existing.File && (!file || !final)) throw new InvalidDataException("ZIP file and directory hierarchy overlap");
+                    if (final && file) throw new InvalidDataException("Duplicate ZIP file path");
+                  } else {
+                    nodes.Add(key, new PathNode { Original = display, File = file });
+                  }
+                }
+              }
+            }
+
+            private static void ValidatePath(string path, bool directory) {
+              if (String.IsNullOrEmpty(path) || path.IndexOf('\\') >= 0 || path.IndexOf('\0') >= 0 || path.StartsWith("/", StringComparison.Ordinal) || Regex.IsMatch(path, @"^[A-Za-z]:")) {
+                throw new InvalidDataException("Unsafe ZIP path");
+              }
+              if (directory != path.EndsWith("/", StringComparison.Ordinal)) throw new InvalidDataException("ZIP directory marker is invalid");
+              string normalized = directory ? path.Substring(0, path.Length - 1) : path;
+              if (normalized.Length > 1024) throw new InvalidDataException("ZIP path length limit exceeded");
+              foreach (string component in normalized.Split('/')) {
+                if (component.Length == 0 || component == "." || component == ".." || component.EndsWith(".", StringComparison.Ordinal) || component.EndsWith(" ", StringComparison.Ordinal)) {
+                  throw new InvalidDataException("Unsafe ZIP path component");
+                }
+                if (component.Length > 255 || component.IndexOfAny(new char[] { '<', '>', ':', '"', '|', '?', '*' }) >= 0 || component.Any(character => character < 0x20) || ReservedName.IsMatch(component)) {
+                  throw new InvalidDataException("Windows-unsafe ZIP path component");
+                }
+              }
+            }
+
+            private static void ValidateAttributes(ushort versionMadeBy, uint attributes, bool directory) {
+              int platform = versionMadeBy >> 8;
+              if (platform == 3) {
+                uint type = (attributes >> 16) & 0xf000U;
+                uint expected = directory ? 0x4000U : 0x8000U;
+                if (type != expected) throw new InvalidDataException("Non-regular ZIP entry is not allowed");
+              } else {
+                uint dos = attributes & 0xffffU;
+                uint allowed = directory ? 0x37U : 0x27U;
+                if ((dos & ~allowed) != 0 || (directory ? (dos & 0x10U) == 0 : (dos & 0x10U) != 0)) {
+                  throw new InvalidDataException("Non-regular ZIP entry is not allowed");
+                }
+              }
+            }
+
+            private static void ValidateExtra(byte[] extra) {
+              HashSet<ushort> seen = new HashSet<ushort>();
+              int cursor = 0;
+              while (cursor < extra.Length) {
+                if (cursor + 4 > extra.Length) throw new InvalidDataException("Malformed ZIP extra field");
+                ushort identifier = ReadUInt16(extra, cursor);
+                int length = ReadUInt16(extra, cursor + 2);
+                cursor += 4;
+                if (cursor + length > extra.Length || !seen.Add(identifier)) throw new InvalidDataException("Malformed or duplicate ZIP extra field");
+                if (identifier != 0x5455 || (length != 5 && length != 9 && length != 13)) throw new InvalidDataException("Unsupported ZIP extra field");
+                byte flags = extra[cursor];
+                int expected = 1 + ((flags & 1) != 0 ? 4 : 0) + ((flags & 2) != 0 ? 4 : 0) + ((flags & 4) != 0 ? 4 : 0);
+                if ((flags & ~7) != 0 || length != expected) throw new InvalidDataException("Malformed ZIP timestamp extra field");
+                cursor += length;
+              }
+            }
+
+            private static void ValidateInternalChecksums(byte[] checksumBytes, Dictionary<string, IsolatedZipRecord> files) {
+              string text = StrictUtf8.GetString(checksumBytes);
+              if (!text.EndsWith("\n", StringComparison.Ordinal) || text.IndexOf('\r') >= 0) throw new InvalidDataException("Direct SHA256SUMS.txt is not canonical LF text");
+              string[] lines = text.Substring(0, text.Length - 1).Split('\n');
+              List<IsolatedZipRecord> expected = new List<IsolatedZipRecord>();
+              string previous = null;
+              Regex linePattern = new Regex(@"^([0-9a-f]{64}) {2}(0|[1-9]\d*) {2}(.+)$", RegexOptions.CultureInvariant);
+              foreach (string line in lines) {
+                Match match = linePattern.Match(line);
+                if (!match.Success) throw new InvalidDataException("Malformed Direct SHA256SUMS.txt line");
+                string recordPath = match.Groups[3].Value;
+                ValidatePath(recordPath, false);
+                if (previous != null && StringComparer.Ordinal.Compare(previous, recordPath) >= 0) throw new InvalidDataException("Direct SHA256SUMS.txt order or duplicate mismatch");
+                long size;
+                if (!Int64.TryParse(match.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out size)) throw new InvalidDataException("Direct SHA256SUMS.txt size is invalid");
+                expected.Add(new IsolatedZipRecord { Path = recordPath, Size = size, Sha256 = match.Groups[1].Value });
+                previous = recordPath;
+              }
+              List<IsolatedZipRecord> actual = files.Values.Where(record => record.Path != "SHA256SUMS.txt").OrderBy(record => record.Path, StringComparer.Ordinal).ToList();
+              if (expected.Count != actual.Count) throw new InvalidDataException("Direct internal checksum file count mismatch");
+              for (int index = 0; index < expected.Count; index += 1) {
+                if (
+                  expected[index].Path != actual[index].Path || expected[index].Size != actual[index].Size ||
+                  !String.Equals(expected[index].Sha256, actual[index].Sha256, StringComparison.Ordinal)
+                ) throw new InvalidDataException("Direct internal checksum mismatch");
+              }
+            }
+
+            private static string TreeHash(IEnumerable<IsolatedZipRecord> records) {
+              StringBuilder text = new StringBuilder();
+              foreach (IsolatedZipRecord record in records.OrderBy(item => item.Path, StringComparer.Ordinal)) {
+                text.Append(record.Sha256).Append("  ").Append(record.Size.ToString(CultureInfo.InvariantCulture)).Append("  ").Append(record.Path).Append('\n');
+              }
+              using (SHA256 sha = SHA256.Create()) return Hex(sha.ComputeHash(Encoding.UTF8.GetBytes(text.ToString())));
+            }
+
+            private static string DecodeName(byte[] bytes, bool utf8) {
+              if (!utf8 && bytes.Any(value => value > 0x7f)) throw new InvalidDataException("Non-ASCII ZIP name must declare UTF-8");
+              return utf8 ? StrictUtf8.GetString(bytes) : Encoding.ASCII.GetString(bytes);
+            }
+
+            private static uint UpdateCrc(uint crc, byte[] bytes, int length) {
+              for (int index = 0; index < length; index += 1) crc = (crc >> 8) ^ CrcTable[(crc ^ bytes[index]) & 0xff];
+              return crc;
+            }
+
+            private static uint[] CreateCrcTable() {
+              uint[] table = new uint[256];
+              for (uint index = 0; index < table.Length; index += 1) {
+                uint value = index;
+                for (int bit = 0; bit < 8; bit += 1) value = (value >> 1) ^ ((value & 1) != 0 ? 0xedb88320U : 0U);
+                table[index] = value;
+              }
+              return table;
+            }
+
+            private static string Hex(byte[] bytes) {
+              StringBuilder result = new StringBuilder(bytes.Length * 2);
+              foreach (byte value in bytes) result.Append(value.ToString("x2", CultureInfo.InvariantCulture));
+              return result.ToString();
+            }
+
+            private static void ReadFully(Stream stream, byte[] buffer, int offset, int count) {
+              while (count > 0) {
+                int read = stream.Read(buffer, offset, count);
+                if (read == 0) throw new EndOfStreamException();
+                offset += read;
+                count -= read;
+              }
+            }
+
+            private static ushort ReadUInt16(byte[] bytes, int offset) {
+              return (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
+            }
+
+            private static uint ReadUInt32(byte[] bytes, int offset) {
+              return (uint)(bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24));
+            }
+          }
+          '@
+          if (-not ("System.IO.Compression.ZipArchive" -as [type])) { Add-Type -AssemblyName System.IO.Compression }
+          $zipReferences = @([IO.Compression.ZipArchive].Assembly.Location)
+          Add-Type -TypeDefinition $zipValidatorSource -Language CSharp -ReferencedAssemblies $zipReferences
+
+          function Assert-ExactKeys([System.Text.Json.JsonElement]$Element, [string[]]$Expected, [string]$Label) {
+            if ($Element.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw "$Label must be an object" }
+            $names = [System.Collections.Generic.List[string]]::new()
+            $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($property in $Element.EnumerateObject()) {
+              if (-not $seen.Add($property.Name)) { throw "$Label contains a duplicate key" }
+              $names.Add($property.Name)
+            }
+            $actual = [string[]]$names.ToArray()
+            $wanted = [string[]]$Expected.Clone()
+            [Array]::Sort($actual, [StringComparer]::Ordinal)
+            [Array]::Sort($wanted, [StringComparer]::Ordinal)
+            if (-not [string]::Equals([string]::Join("`0", $actual), [string]::Join("`0", $wanted), [StringComparison]::Ordinal)) {
+              throw "$Label keys do not match the release contract"
+            }
+          }
+          function Get-JsonProperty([System.Text.Json.JsonElement]$Element, [string]$Name, [string]$Label) {
+            $value = [System.Text.Json.JsonElement]::new()
+            if (-not $Element.TryGetProperty($Name, [ref]$value)) { throw "$Label is missing $Name" }
+            return $value
+          }
+          function Assert-Text([System.Text.Json.JsonElement]$Element, [string]$Expected, [string]$Label) {
+            if (
+              $Element.ValueKind -ne [System.Text.Json.JsonValueKind]::String -or
+              -not [string]::Equals($Element.GetString(), $Expected, [StringComparison]::Ordinal)
+            ) { throw "$Label mismatch" }
+          }
+          function Assert-Int64([System.Text.Json.JsonElement]$Element, [int64]$Expected, [string]$Label) {
+            $value = [int64]0
+            if ($Element.ValueKind -ne [System.Text.Json.JsonValueKind]::Number -or -not $Element.TryGetInt64([ref]$value) -or $value -ne $Expected) {
+              throw "$Label mismatch"
+            }
+          }
+          function Assert-PositiveInt64([System.Text.Json.JsonElement]$Element, [string]$Label) {
+            $value = [int64]0
+            if ($Element.ValueKind -ne [System.Text.Json.JsonValueKind]::Number -or -not $Element.TryGetInt64([ref]$value) -or $value -le 0) {
+              throw "$Label must be a positive integer"
+            }
+          }
+          function Assert-True([System.Text.Json.JsonElement]$Element, [string]$Label) {
+            if ($Element.ValueKind -ne [System.Text.Json.JsonValueKind]::True) { throw "$Label must be true" }
+          }
+          function Get-Sha256Hex([string]$Path) {
+            return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function Get-CapturedText([object]$Report, [string]$Name, [string]$Label) {
+            if (-not $Report.Captured.ContainsKey($Name)) { throw "$Label was not captured from the verified ZIP" }
+            return ([Text.UTF8Encoding]::new($false, $true)).GetString($Report.Captured[$Name])
+          }
+          function Parse-CapturedJson([object]$Report, [string]$Name, [string]$Label) {
+            return [System.Text.Json.JsonDocument]::Parse((Get-CapturedText $Report $Name $Label))
+          }
+          function Get-PackageValue([string]$Text, [string]$Name, [string]$Pattern) {
+            $matches = [regex]::Matches($Text, "(?m)^$([regex]::Escape($Name)): ($Pattern)$")
+            if ($matches.Count -ne 1) { throw "PACKAGE_INFO.txt field mismatch: $Name" }
+            return $matches[0].Groups[1].Value
+          }
+          function Invoke-GitHub([string]$Uri) {
+            $headers = @{
+              Accept = "application/vnd.github+json"
+              Authorization = "Bearer $($env:GITHUB_TOKEN)"
+              "X-GitHub-Api-Version" = "2026-03-10"
+            }
+            return Invoke-RestMethod -Method Get -Uri $Uri -Headers $headers -MaximumRedirection 0
+          }
+
+          $manifestPath = Join-Path $assetRoot $manifestName
+          $manifestInfo = Get-Item -LiteralPath $manifestPath
+          if ($manifestInfo.Length -le 1 -or $manifestInfo.Length -gt 1048576) { throw "Update manifest size is invalid" }
+          $manifestBytes = [IO.File]::ReadAllBytes($manifestPath)
+          if ($manifestBytes.Length -ge 3 -and $manifestBytes[0] -eq 0xef -and $manifestBytes[1] -eq 0xbb -and $manifestBytes[2] -eq 0xbf) {
+            throw "Update manifest must not contain a UTF-8 BOM"
+          }
+          $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+          $manifestText = $strictUtf8.GetString($manifestBytes)
+          if (-not $manifestText.EndsWith("`n", [StringComparison]::Ordinal) -or $manifestText.Contains("`r")) {
+            throw "Update manifest must use canonical LF text"
+          }
+          $manifestDocument = [System.Text.Json.JsonDocument]::Parse($manifestText)
+          try {
+            $manifest = $manifestDocument.RootElement
+            Assert-ExactKeys $manifest @("schemaVersion", "product", "channel", "repository", "version", "tag", "commit", "createdAt", "releaseId", "updater", "artifacts") "Update manifest"
+            Assert-Int64 (Get-JsonProperty $manifest "schemaVersion" "Update manifest") 1 "schemaVersion"
+            Assert-Text (Get-JsonProperty $manifest "product" "Update manifest") "tarkov-helper-web" "product"
+            Assert-Text (Get-JsonProperty $manifest "channel" "Update manifest") "stable" "channel"
+            Assert-Text (Get-JsonProperty $manifest "repository" "Update manifest") $env:RELEASE_REPOSITORY "repository"
+            Assert-Text (Get-JsonProperty $manifest "version" "Update manifest") $version "version"
+            Assert-Text (Get-JsonProperty $manifest "tag" "Update manifest") $env:RELEASE_TAG "tag"
+            Assert-Text (Get-JsonProperty $manifest "commit" "Update manifest") $env:RELEASE_COMMIT "commit"
+            $releaseIdElement = Get-JsonProperty $manifest "releaseId" "Update manifest"
+            Assert-PositiveInt64 $releaseIdElement "releaseId"
+            $releaseId = $releaseIdElement.GetInt64()
+
+            $publicRsa = [Security.Cryptography.RSA]::Create()
+            try {
+              $publicRsa.ImportFromPem($env:UPDATE_SIGNING_PUBLIC_KEY)
+              if ($publicRsa.KeySize -lt 3072) { throw "Update signing RSA key must be at least 3072 bits" }
+              $publicDer = $publicRsa.ExportSubjectPublicKeyInfo()
+              $keyId = "sha256:$([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($publicDer)).ToLowerInvariant())"
+
+              $updater = Get-JsonProperty $manifest "updater" "Update manifest"
+              Assert-ExactKeys $updater @("protocolVersion", "configFile", "manifestAsset", "signatureAsset", "requireImmutableRelease", "signing") "Update manifest updater"
+              Assert-Int64 (Get-JsonProperty $updater "protocolVersion" "Update manifest updater") 1 "updater protocolVersion"
+              Assert-Text (Get-JsonProperty $updater "configFile" "Update manifest updater") "UPDATE_CONFIG.json" "updater configFile"
+              Assert-Text (Get-JsonProperty $updater "manifestAsset" "Update manifest updater") $manifestName "updater manifestAsset"
+              Assert-Text (Get-JsonProperty $updater "signatureAsset" "Update manifest updater") $signatureName "updater signatureAsset"
+              Assert-True (Get-JsonProperty $updater "requireImmutableRelease" "Update manifest updater") "updater requireImmutableRelease"
+              $signing = Get-JsonProperty $updater "signing" "Update manifest updater"
+              Assert-ExactKeys $signing @("algorithm", "keyId") "Update manifest signing"
+              Assert-Text (Get-JsonProperty $signing "algorithm" "Update manifest signing") "RSA-SHA256" "signing algorithm"
+              Assert-Text (Get-JsonProperty $signing "keyId" "Update manifest signing") $keyId "signing keyId"
+
+              $apiRoot = "https://api.github.com/repos/$($env:RELEASE_REPOSITORY)"
+              $release = Invoke-GitHub "$apiRoot/releases/$releaseId"
+              if ([int64]$release.id -ne $releaseId -or $release.draft -ne $true -or $release.prerelease -eq $true) { throw "Draft release identity mismatch" }
+              if (-not [string]::Equals([string]$release.tag_name, $env:RELEASE_TAG, [StringComparison]::Ordinal)) { throw "Draft release tag mismatch" }
+              $allowedReleaseNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+              @($directName, $staticName, $sourceName, $manifestName, $signatureName, "SHA256SUMS.txt") | ForEach-Object { [void]$allowedReleaseNames.Add($_) }
+              if (@($release.assets | Where-Object { -not $allowedReleaseNames.Contains([string]$_.name) }).Count -ne 0) {
+                throw "Draft release contains unexpected assets"
+              }
+              $remoteCommit = Invoke-GitHub "$apiRoot/commits/$([uri]::EscapeDataString($env:RELEASE_TAG))"
+              if (-not [string]::Equals([string]$remoteCommit.sha, $env:RELEASE_COMMIT, [StringComparison]::Ordinal)) { throw "Remote tag commit mismatch" }
+              $createdAtText = (Get-JsonProperty $manifest "createdAt" "Update manifest").GetString()
+              $createdAt = [DateTimeOffset]::Parse($createdAtText, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+              $commitAt = [DateTimeOffset]::Parse([string]$remoteCommit.commit.committer.date, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+              if ($createdAt.ToUniversalTime().Ticks -ne $commitAt.ToUniversalTime().Ticks) { throw "Manifest commit timestamp mismatch" }
+
+              $artifacts = Get-JsonProperty $manifest "artifacts" "Update manifest"
+              Assert-ExactKeys $artifacts @("direct", "static", "source") "Update manifest artifacts"
+              function Assert-Artifact([string]$Kind, [string]$Filename, [string]$RootDirectory, [string[]]$Keys, [object]$ZipReport) {
+                $artifact = Get-JsonProperty $artifacts $Kind "Update manifest artifacts"
+                Assert-ExactKeys $artifact $Keys "$Kind artifact"
+                Assert-Text (Get-JsonProperty $artifact "filename" "$Kind artifact") $Filename "$Kind filename"
+                Assert-Text (Get-JsonProperty $artifact "format" "$Kind artifact") "zip" "$Kind format"
+                Assert-Text (Get-JsonProperty $artifact "rootDirectory" "$Kind artifact") $RootDirectory "$Kind rootDirectory"
+                Assert-Int64 (Get-JsonProperty $artifact "stripComponents" "$Kind artifact") 1 "$Kind stripComponents"
+                $file = Get-Item -LiteralPath (Join-Path $assetRoot $Filename)
+                if ($file.Length -le 0 -or $file.Length -gt 134217728) { throw "$Kind archive size limit exceeded" }
+                Assert-Int64 (Get-JsonProperty $artifact "bytes" "$Kind artifact") $file.Length "$Kind bytes"
+                $fileHash = Get-Sha256Hex $file.FullName
+                Assert-Text (Get-JsonProperty $artifact "sha256" "$Kind artifact") $fileHash "$Kind sha256"
+                $assetIdElement = Get-JsonProperty $artifact "assetId" "$Kind artifact"
+                Assert-PositiveInt64 $assetIdElement "$Kind assetId"
+                $assetId = $assetIdElement.GetInt64()
+                $matches = @($release.assets | Where-Object { [string]::Equals([string]$_.name, $Filename, [StringComparison]::Ordinal) })
+                if ($matches.Count -ne 1 -or [int64]$matches[0].id -ne $assetId -or [int64]$matches[0].size -ne $file.Length) { throw "$Kind GitHub asset identity mismatch" }
+                if (-not [string]::Equals([string]$matches[0].state, "uploaded", [StringComparison]::Ordinal)) { throw "$Kind GitHub asset is not uploaded" }
+                if (-not [string]::Equals([string]$matches[0].digest, "sha256:$fileHash", [StringComparison]::Ordinal)) { throw "$Kind GitHub asset digest mismatch" }
+                $unpacked = Get-JsonProperty $artifact "unpacked" "$Kind artifact"
+                Assert-ExactKeys $unpacked @("fileCount", "bytes", "treeSha256") "$Kind unpacked metadata"
+                if ($ZipReport.FileCount -lt 1 -or $ZipReport.FileCount -gt 10000 -or $ZipReport.Bytes -lt 1 -or $ZipReport.Bytes -gt 268435456) {
+                  throw "$Kind ZIP report exceeds client unpacked bounds"
+                }
+                Assert-Int64 (Get-JsonProperty $unpacked "fileCount" "$Kind unpacked metadata") $ZipReport.FileCount "$Kind unpacked fileCount"
+                Assert-Int64 (Get-JsonProperty $unpacked "bytes" "$Kind unpacked metadata") $ZipReport.Bytes "$Kind unpacked bytes"
+                Assert-Text (Get-JsonProperty $unpacked "treeSha256" "$Kind unpacked metadata") $ZipReport.TreeSha256 "$Kind unpacked tree hash"
+                return $artifact
+              }
+              $directRootElement = Get-JsonProperty (Get-JsonProperty $artifacts "direct" "Update manifest artifacts") "rootDirectory" "direct artifact"
+              if ($directRootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::String) { throw "Direct root directory must be text" }
+              $directRoot = $directRootElement.GetString()
+              if (
+                $directRoot.Length -gt 120 -or
+                -not $directRoot.StartsWith("Tarkov Helper ", [StringComparison]::Ordinal) -or
+                -not $directRoot.EndsWith(" v$version", [StringComparison]::Ordinal) -or
+                $directRoot.IndexOfAny([char[]]@('/', '\', ':')) -ge 0 -or
+                $directRoot -match '[\x00-\x1f]'
+              ) { throw "Direct root directory is unsafe or does not match the release version" }
+              $staticRoot = "tarkov-helper-web-static-v$version"
+              $sourceRoot = "tarkov-helper-web-source-v$version"
+              $directPath = Join-Path $assetRoot $directName
+              $directReport = [IsolatedZipValidator]::Validate(
+                $directPath,
+                $directRoot,
+                [string[]]@("SHA256SUMS.txt", "PACKAGE_INFO.txt", "app/version.json", "UPDATE_CONFIG.json"),
+                $true
+              )
+              $staticReport = [IsolatedZipValidator]::Validate((Join-Path $assetRoot $staticName), $staticRoot, [string[]]@(), $false)
+              $sourceReport = [IsolatedZipValidator]::Validate((Join-Path $assetRoot $sourceName), $sourceRoot, [string[]]@(), $false)
+              if (-not [string]::Equals($directReport.Comment, "", [StringComparison]::Ordinal)) { throw "Direct ZIP comment must be empty" }
+              if (-not [string]::Equals($staticReport.Comment, "", [StringComparison]::Ordinal)) { throw "Static ZIP comment must be empty" }
+              if (-not [string]::Equals($sourceReport.Comment.Trim(), $env:RELEASE_COMMIT, [StringComparison]::Ordinal)) { throw "Source ZIP commit provenance mismatch" }
+
+              $directArtifact = Assert-Artifact "direct" $directName $directRoot @("assetId", "filename", "format", "bytes", "sha256", "rootDirectory", "stripComponents", "unpacked", "package") $directReport
+              [void](Assert-Artifact "static" $staticName $staticRoot @("assetId", "filename", "format", "bytes", "sha256", "rootDirectory", "stripComponents", "unpacked") $staticReport)
+              $sourceArtifact = Assert-Artifact "source" $sourceName $sourceRoot @("assetId", "filename", "format", "bytes", "sha256", "rootDirectory", "stripComponents", "unpacked", "commit") $sourceReport
+              Assert-Text (Get-JsonProperty $sourceArtifact "commit" "source artifact") $env:RELEASE_COMMIT "source commit"
+              $package = Get-JsonProperty $directArtifact "package" "direct artifact"
+              Assert-ExactKeys $package @("version", "sourceCommit", "updaterProtocolVersion", "appFiles", "appBytes", "appTreeSha256") "Direct package metadata"
+              Assert-Text (Get-JsonProperty $package "version" "Direct package metadata") $version "package version"
+              Assert-Text (Get-JsonProperty $package "sourceCommit" "Direct package metadata") $env:RELEASE_COMMIT "package commit"
+              Assert-Int64 (Get-JsonProperty $package "updaterProtocolVersion" "Direct package metadata") 1 "package updater protocol"
+              Assert-Int64 (Get-JsonProperty $package "appFiles" "Direct package metadata") $directReport.AppFileCount "package appFiles"
+              Assert-Int64 (Get-JsonProperty $package "appBytes" "Direct package metadata") $directReport.AppBytes "package appBytes"
+              Assert-Text (Get-JsonProperty $package "appTreeSha256" "Direct package metadata") $directReport.AppTreeSha256 "package app tree hash"
+
+              $packageInfoText = Get-CapturedText $directReport "PACKAGE_INFO.txt" "PACKAGE_INFO.txt"
+              if (-not [string]::Equals((Get-PackageValue $packageInfoText "Version" '(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)'), $version, [StringComparison]::Ordinal)) { throw "PACKAGE_INFO version mismatch" }
+              if (-not [string]::Equals((Get-PackageValue $packageInfoText "Source commit" '[0-9a-f]{40}'), $env:RELEASE_COMMIT, [StringComparison]::Ordinal)) { throw "PACKAGE_INFO commit mismatch" }
+              if ([int64](Get-PackageValue $packageInfoText "Updater protocol" '[1-9]\d*') -ne 1) { throw "PACKAGE_INFO updater protocol mismatch" }
+              if ([int64](Get-PackageValue $packageInfoText "App files" '0|[1-9]\d*') -ne $directReport.AppFileCount) { throw "PACKAGE_INFO app file count mismatch" }
+              if ([int64](Get-PackageValue $packageInfoText "App bytes" '0|[1-9]\d*') -ne $directReport.AppBytes) { throw "PACKAGE_INFO app byte count mismatch" }
+              if (-not [string]::Equals((Get-PackageValue $packageInfoText "App tree SHA-256" '[0-9a-f]{64}'), $directReport.AppTreeSha256, [StringComparison]::Ordinal)) { throw "PACKAGE_INFO app tree hash mismatch" }
+
+              $configDocument = Parse-CapturedJson $directReport "UPDATE_CONFIG.json" "UPDATE_CONFIG.json"
+              try {
+                $updateConfig = $configDocument.RootElement
+                Assert-ExactKeys $updateConfig @("schemaVersion", "updaterEnabled", "protocolVersion", "repository", "releaseApi", "manifestAsset", "signatureAsset", "requireImmutableRelease", "signing") "UPDATE_CONFIG.json"
+                Assert-Int64 (Get-JsonProperty $updateConfig "schemaVersion" "UPDATE_CONFIG.json") 1 "config schemaVersion"
+                Assert-True (Get-JsonProperty $updateConfig "updaterEnabled" "UPDATE_CONFIG.json") "config updaterEnabled"
+                Assert-Int64 (Get-JsonProperty $updateConfig "protocolVersion" "UPDATE_CONFIG.json") 1 "config protocolVersion"
+                Assert-Text (Get-JsonProperty $updateConfig "repository" "UPDATE_CONFIG.json") $env:RELEASE_REPOSITORY "config repository"
+                Assert-Text (Get-JsonProperty $updateConfig "releaseApi" "UPDATE_CONFIG.json") "$apiRoot/releases/latest" "config releaseApi"
+                Assert-Text (Get-JsonProperty $updateConfig "manifestAsset" "UPDATE_CONFIG.json") $manifestName "config manifestAsset"
+                Assert-Text (Get-JsonProperty $updateConfig "signatureAsset" "UPDATE_CONFIG.json") $signatureName "config signatureAsset"
+                Assert-True (Get-JsonProperty $updateConfig "requireImmutableRelease" "UPDATE_CONFIG.json") "config immutable policy"
+                $configSigning = Get-JsonProperty $updateConfig "signing" "UPDATE_CONFIG.json"
+                Assert-ExactKeys $configSigning @("algorithm", "keyId", "publicKeySpkiPem") "UPDATE_CONFIG signing"
+                Assert-Text (Get-JsonProperty $configSigning "algorithm" "UPDATE_CONFIG signing") "RSA-SHA256" "config signing algorithm"
+                Assert-Text (Get-JsonProperty $configSigning "keyId" "UPDATE_CONFIG signing") $keyId "config signing keyId"
+                $configPublicRsa = [Security.Cryptography.RSA]::Create()
+                try {
+                  $configPublicRsa.ImportFromPem((Get-JsonProperty $configSigning "publicKeySpkiPem" "UPDATE_CONFIG signing").GetString())
+                  $configPublicDer = $configPublicRsa.ExportSubjectPublicKeyInfo()
+                  if (-not [Convert]::ToBase64String($configPublicDer).Equals([Convert]::ToBase64String($publicDer), [StringComparison]::Ordinal)) {
+                    throw "Direct package public trust root mismatch"
+                  }
+                } finally { $configPublicRsa.Dispose() }
+              } finally { $configDocument.Dispose() }
+
+              $versionDocument = Parse-CapturedJson $directReport "app/version.json" "app/version.json"
+              try {
+                $versionJson = $versionDocument.RootElement
+                Assert-ExactKeys $versionJson @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion") "app/version.json"
+                Assert-Int64 (Get-JsonProperty $versionJson "schemaVersion" "app/version.json") 1 "version schemaVersion"
+                Assert-Text (Get-JsonProperty $versionJson "product" "app/version.json") "tarkov-helper-web" "version product"
+                Assert-Text (Get-JsonProperty $versionJson "version" "app/version.json") $version "version value"
+                Assert-Text (Get-JsonProperty $versionJson "commit" "app/version.json") $env:RELEASE_COMMIT "version commit"
+                Assert-Int64 (Get-JsonProperty $versionJson "updaterProtocolVersion" "app/version.json") 1 "version updater protocol"
+              } finally { $versionDocument.Dispose() }
+
+              $privateRsa = [Security.Cryptography.RSA]::Create()
+              try {
+                $privatePem = $env:SIGNING_KEY_PEM
+                $privateRsa.ImportFromPem($privatePem)
+                $privatePem = $null
+                $env:SIGNING_KEY_PEM = ""
+                if ($privateRsa.KeySize -lt 3072) { throw "Update signing RSA key must be at least 3072 bits" }
+                $privatePublicDer = $privateRsa.ExportSubjectPublicKeyInfo()
+                if (-not [Convert]::ToBase64String($privatePublicDer).Equals([Convert]::ToBase64String($publicDer), [StringComparison]::Ordinal)) {
+                  throw "Update signing private and public keys do not match"
+                }
+                $signature = $privateRsa.SignData($manifestBytes, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+                if (-not $publicRsa.VerifyData($manifestBytes, $signature, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)) {
+                  throw "Generated manifest signature did not verify"
+                }
+                [IO.File]::WriteAllBytes((Join-Path $assetRoot $signatureName), $signature)
+              } finally {
+                $env:SIGNING_KEY_PEM = ""
+                $privateRsa.Dispose()
+              }
+            } finally { $publicRsa.Dispose() }
+          } finally { $manifestDocument.Dispose() }
+
+          $sumNames = [string[]]@($directName, $staticName, $sourceName, $manifestName, $signatureName)
+          [Array]::Sort($sumNames, [StringComparer]::Ordinal)
+          $sumLines = [System.Collections.Generic.List[string]]::new()
+          foreach ($name in $sumNames) {
+            $file = Get-Item -LiteralPath (Join-Path $assetRoot $name)
+            $sumLines.Add("$(Get-Sha256Hex $file.FullName)  $($file.Length)  $name")
+          }
+          $sumText = [string]::Join("`n", $sumLines) + "`n"
+          [IO.File]::WriteAllText((Join-Path $assetRoot "SHA256SUMS.txt"), $sumText, [Text.UTF8Encoding]::new($false))
+          if (@(Get-ChildItem -LiteralPath $assetRoot -Force).Count -ne 6) { throw "Signed release file set mismatch" }
+
+      - name: Transfer signed assets to the keyless publisher
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-signed-${{ github.sha }}
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    name: Verify, attest, and publish without signing key
+    needs: sign
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the tagged revision without credentials
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js without installing project dependencies
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Download signed release assets
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-signed-${{ github.sha }}
+          path: ${{ runner.temp }}/release-assets
+
+      - name: Revalidate signed bundle against the current draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          git fetch --no-tags origin $env:RELEASE_DEFAULT_BRANCH
+          if ($LASTEXITCODE -ne 0) { throw "Unable to fetch the default branch" }
+          git merge-base --is-ancestor $env:RELEASE_COMMIT "refs/remotes/origin/$env:RELEASE_DEFAULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Release commit is not on the repository default branch" }
+          $tagCommit = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/commits/$env:RELEASE_TAG" --jq .sha
+          if ($LASTEXITCODE -ne 0 -or -not [string]::Equals($tagCommit.Trim(), $env:RELEASE_COMMIT, [System.StringComparison]::Ordinal)) {
+            throw "Remote tag changed before signed bundle verification"
+          }
+          $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $release.draft -or $release.prerelease) { throw "Unable to resolve the verified draft" }
+          function Get-AssetId([string]$name) {
+            $matches = @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
+            if ($matches.Count -ne 1) { throw "Draft asset identity mismatch for $name" }
+            return [int64]$matches[0].id
+          }
+          $version = $env:RELEASE_TAG.Substring(1)
+          $directId = Get-AssetId "tarkov-helper-web-direct-v$version.zip"
+          $staticId = Get-AssetId "tarkov-helper-web-static-v$version.zip"
+          $sourceId = Get-AssetId "tarkov-helper-web-source-v$version.zip"
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
+          node scripts/verify-release-bundle.mjs --bundle $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
+          if ($LASTEXITCODE -ne 0) { throw "Signed manifest is not bound to the current GitHub release and asset IDs" }
 
       - name: Attest every finalized release asset
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -333,12 +1237,40 @@ jobs:
           $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
           $version = $env:RELEASE_TAG.Substring(1)
           $expectedFiles = @(Get-ChildItem -LiteralPath $bundleRoot -File | Sort-Object Name)
+          $manifest = Get-Content -LiteralPath (Join-Path $bundleRoot "update-manifest-v1.json") -Raw | ConvertFrom-Json
+          $expectedReleaseId = [int64]$manifest.releaseId
+          if ($expectedReleaseId -le 0 -or $expectedReleaseId -gt 9007199254740991) { throw "Signed manifest release ID is invalid" }
+          $expectedAssetNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+          @(
+            "tarkov-helper-web-direct-v$version.zip",
+            "tarkov-helper-web-static-v$version.zip",
+            "tarkov-helper-web-source-v$version.zip",
+            "update-manifest-v1.json",
+            "update-manifest-v1.sig",
+            "SHA256SUMS.txt"
+          ) | ForEach-Object { [void]$expectedAssetNames.Add($_) }
+          if ($expectedFiles.Count -ne 6 -or @($expectedFiles | Where-Object { -not $expectedAssetNames.Contains($_.Name) }).Count -ne 0) {
+            throw "Signed publisher input file set mismatch"
+          }
           function Get-ExactAsset([object]$release, [string]$name) {
             return @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
           }
+          function Assert-ExactAssetSet([object]$release, [string]$label) {
+            if (@($release.assets).Count -ne $expectedAssetNames.Count) { throw "$label contains an unexpected asset count" }
+            foreach ($asset in @($release.assets)) {
+              if (-not $expectedAssetNames.Contains([string]$asset.name)) { throw "$label contains an unexpected asset: $($asset.name)" }
+            }
+            foreach ($name in $expectedAssetNames) {
+              if (@(Get-ExactAsset $release $name).Count -ne 1) { throw "$label asset identity mismatch for $name" }
+            }
+          }
           function Read-Draft() {
             $value = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0 -or -not $value.draft) { throw "Unable to read the draft release" }
+            if (
+              $LASTEXITCODE -ne 0 -or -not $value.draft -or $value.prerelease -or
+              [int64]$value.id -ne $expectedReleaseId -or
+              -not [string]::Equals([string]$value.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)
+            ) { throw "Unable to read the exact draft release" }
             return $value
           }
           $release = Read-Draft
@@ -367,7 +1299,7 @@ jobs:
             if ($attempt -eq 6) { throw "GitHub did not report all release asset digests within the bounded wait" }
             Start-Sleep -Seconds 2
           }
-          if (@($release.assets).Count -ne $expectedFiles.Count) { throw "Uploaded release contains unexpected assets" }
+          Assert-ExactAssetSet $release "Uploaded release"
           foreach ($file in $expectedFiles) {
             $matches = @(Get-ExactAsset $release $file.Name)
             $expectedDigest = "sha256:$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
@@ -392,14 +1324,29 @@ jobs:
               throw "A stable release with an equal or newer version already exists"
             }
           }
-          $releaseId = [int64]$release.id
+          $release = Read-Draft
+          Assert-ExactAssetSet $release "Pre-publication draft"
+          foreach ($file in $expectedFiles) {
+            $asset = @(Get-ExactAsset $release $file.Name)
+            $expectedDigest = "sha256:$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+            if ([int64]$asset[0].size -ne $file.Length -or -not [string]::Equals([string]$asset[0].digest, $expectedDigest, [System.StringComparison]::Ordinal)) {
+              throw "Pre-publication asset digest mismatch for $($file.Name)"
+            }
+          }
+          $releaseId = $expectedReleaseId
           gh api --method PATCH -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" -F draft=false -f make_latest=legacy | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Release publication failed; the verified draft was retained"
           }
           for ($attempt = 1; $attempt -le 6; $attempt += 1) {
             $published = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0) { throw "Unable to read the published release by pinned ID" }
-            $publishedReady = -not $published.draft -and $published.immutable -eq $true
+            $publishedReady = (
+              [int64]$published.id -eq $expectedReleaseId -and
+              -not $published.draft -and -not $published.prerelease -and $published.immutable -eq $true -and
+              [string]::Equals([string]$published.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal) -and
+              @($published.assets).Count -eq $expectedAssetNames.Count -and
+              @($published.assets | Where-Object { -not $expectedAssetNames.Contains([string]$_.name) }).Count -eq 0
+            )
             if ($publishedReady) {
               foreach ($file in $expectedFiles) {
                 $asset = @(Get-ExactAsset $published $file.Name)
@@ -410,9 +1357,14 @@ jobs:
             if ($attempt -eq 6) { throw "Published release did not become immutable within the bounded wait" }
             Start-Sleep -Seconds 2
           }
-          if ([int64]$published.id -ne $releaseId) {
-            throw "Published release did not retain the pinned release identity"
+          if (
+            [int64]$published.id -ne $expectedReleaseId -or $published.draft -or $published.prerelease -or
+            $published.immutable -ne $true -or
+            -not [string]::Equals([string]$published.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)
+          ) {
+            throw "Published release did not retain its exact immutable identity"
           }
+          Assert-ExactAssetSet $published "Published immutable release"
           foreach ($file in $expectedFiles) {
             $asset = @(Get-ExactAsset $published $file.Name)
             if ($asset.Count -ne 1) { throw "Published asset identity mismatch for $($file.Name)" }

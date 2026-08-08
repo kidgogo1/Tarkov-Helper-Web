@@ -51,8 +51,12 @@ function parseArguments(argv) {
   ]);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--updater-disabled" || argument === "--prepared-only") {
-      const key = argument === "--updater-disabled" ? "updaterDisabled" : "preparedOnly";
+    if (argument === "--updater-disabled" || argument === "--prepared-only" || argument === "--unsigned-finalized") {
+      const key = argument === "--updater-disabled"
+        ? "updaterDisabled"
+        : argument === "--prepared-only"
+          ? "preparedOnly"
+          : "unsignedFinalized";
       if (values[key]) throw new Error(`Duplicate argument: ${argument}`);
       values[key] = true;
       continue;
@@ -67,6 +71,9 @@ function parseArguments(argv) {
   if (!values.bundle) throw new Error("--bundle is required");
   if (values.updaterDisabled && values.repository) throw new Error("--repository cannot be combined with --updater-disabled");
   if (values.updaterDisabled && values.preparedOnly) throw new Error("--prepared-only cannot be combined with --updater-disabled");
+  if (values.unsignedFinalized && (values.updaterDisabled || values.preparedOnly)) {
+    throw new Error("--unsigned-finalized cannot be combined with prepared/local options");
+  }
   return values;
 }
 
@@ -253,6 +260,7 @@ export async function verifyReleaseBundle(options) {
   const config = await loadReleaseConfig(configPath);
   const updaterEnabled = !options.updaterDisabled;
   const preparedOnly = Boolean(options.preparedOnly);
+  const unsignedFinalized = Boolean(options.unsignedFinalized);
   const context = await assertReleaseContext({
     commit: options.commit,
     projectRoot,
@@ -277,8 +285,11 @@ export async function verifyReleaseBundle(options) {
     static: `${config.product}-static-${versionSuffix}`,
   };
   const expectedNames = [...Object.values(filenames)];
-  if (!preparedOnly) expectedNames.push("SHA256SUMS.txt");
-  if (updaterEnabled && !preparedOnly) expectedNames.push(config.updater.manifestAsset, config.updater.signatureAsset);
+  if (!preparedOnly && !unsignedFinalized) expectedNames.push("SHA256SUMS.txt");
+  if (updaterEnabled && !preparedOnly) {
+    expectedNames.push(config.updater.manifestAsset);
+    if (!unsignedFinalized) expectedNames.push(config.updater.signatureAsset);
+  }
   expectedNames.sort();
 
   const bundleFiles = await collectBundleFiles(bundle);
@@ -286,7 +297,7 @@ export async function verifyReleaseBundle(options) {
   if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
     throw new Error(`Release bundle file set mismatch. Expected ${expectedNames.join(", ")}; received ${actualNames.join(", ")}`);
   }
-  if (!preparedOnly) {
+  if (!preparedOnly && !unsignedFinalized) {
     await requireRegularFile(path.join(bundle, "SHA256SUMS.txt"));
     const sumsText = (await readFileBounded(path.join(bundle, "SHA256SUMS.txt"), MAX_RELEASE_METADATA_BYTES, "SHA256SUMS.txt")).toString("utf8");
     const sumRecords = parseChecksumText(sumsText);
@@ -330,9 +341,11 @@ export async function verifyReleaseBundle(options) {
   if (updaterEnabled) {
     const manifestPath = path.join(bundle, config.updater.manifestAsset);
     const manifestBytes = await readFileBounded(manifestPath, MAX_RELEASE_METADATA_BYTES, "Update manifest");
-    const signature = await readFileBounded(path.join(bundle, config.updater.signatureAsset), MAX_RELEASE_METADATA_BYTES, "Update signature");
-    if (!verifyManifestSignature(manifestBytes, signature, signing.publicKey)) {
-      throw new Error("Update manifest RSA-SHA256 signature is invalid");
+    if (!unsignedFinalized) {
+      const signature = await readFileBounded(path.join(bundle, config.updater.signatureAsset), MAX_RELEASE_METADATA_BYTES, "Update signature");
+      if (!verifyManifestSignature(manifestBytes, signature, signing.publicKey)) {
+        throw new Error("Update manifest RSA-SHA256 signature is invalid");
+      }
     }
     const manifestText = manifestBytes.toString("utf8");
     if (!manifestText.endsWith("\n")) throw new Error("Update manifest must end with a newline");
@@ -397,6 +410,7 @@ export async function verifyReleaseBundle(options) {
     commit: context.commit,
     repository: context.repository,
     updaterEnabled,
+    ...(unsignedFinalized ? { unsignedFinalized: true } : {}),
     archives: {
       direct: { entryCount: direct.entryCount, forwardSlashPaths: true, rootDirectory: roots.direct },
       source: { commit: source.commit, entryCount: source.entryCount, forwardSlashPaths: true, rootDirectory: roots.source },

@@ -41,8 +41,12 @@ function parseArguments(argv) {
   ]);
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (argument === "--updater-disabled" || argument === "--prepare-only") {
-      const key = argument === "--updater-disabled" ? "updaterDisabled" : "prepareOnly";
+    if (argument === "--updater-disabled" || argument === "--prepare-only" || argument === "--finalize-unsigned") {
+      const key = argument === "--updater-disabled"
+        ? "updaterDisabled"
+        : argument === "--prepare-only"
+          ? "prepareOnly"
+          : "finalizeUnsigned";
       if (values[key]) throw new Error(`Duplicate argument: ${argument}`);
       values[key] = true;
       continue;
@@ -57,6 +61,10 @@ function parseArguments(argv) {
   if (!values.output) throw new Error("--output is required");
   if (values.updaterDisabled && values.repository) throw new Error("--repository cannot be combined with --updater-disabled");
   if (values.prepareOnly && values.updaterDisabled) throw new Error("--prepare-only cannot be combined with --updater-disabled");
+  if (values.finalizeUnsigned && !values.prepared) throw new Error("--finalize-unsigned requires --prepared");
+  if (values.finalizeUnsigned && (values.prepareOnly || values.updaterDisabled)) {
+    throw new Error("--finalize-unsigned cannot be combined with prepare/local options");
+  }
   if (values.prepared && (values.prepareOnly || values.direct || values.staticDirectory || values.updaterDisabled)) {
     throw new Error("--prepared cannot be combined with direct/static/prepare/local options");
   }
@@ -258,7 +266,7 @@ function packageInfoFromArchive(archive, rootDirectory) {
   return parsePackageInfo(entry.contents.toString("utf8"));
 }
 
-async function writeFinalMetadata({ config, context, filenames, output, releaseIds, roots, signing }) {
+async function writeFinalMetadata({ config, context, filenames, output, releaseIds, roots, signing, unsigned = false }) {
   const records = {};
   const archives = {};
   for (const kind of ["direct", "static", "source"]) {
@@ -318,8 +326,10 @@ async function writeFinalMetadata({ config, context, filenames, output, releaseI
   };
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   await writeFile(path.join(output, config.updater.manifestAsset), manifestBytes);
-  await writeFile(path.join(output, config.updater.signatureAsset), signManifest(manifestBytes, signing.privateKey));
-  await writeFile(path.join(output, "SHA256SUMS.txt"), checksumText(await collectFiles(output)), "utf8");
+  if (!unsigned) {
+    await writeFile(path.join(output, config.updater.signatureAsset), signManifest(manifestBytes, signing.privateKey));
+    await writeFile(path.join(output, "SHA256SUMS.txt"), checksumText(await collectFiles(output)), "utf8");
+  }
 }
 
 async function finalizePreparedBundle({ config, configPath, context, filenames, options, releaseIds, roots, signing }) {
@@ -344,7 +354,16 @@ async function finalizePreparedBundle({ config, configPath, context, filenames, 
     for (const filename of Object.values(filenames)) {
       await cp(path.join(prepared, filename), path.join(output, filename), { errorOnExist: true });
     }
-    await writeFinalMetadata({ config, context, filenames, output, releaseIds, roots, signing });
+    await writeFinalMetadata({
+      config,
+      context,
+      filenames,
+      output,
+      releaseIds,
+      roots,
+      signing,
+      unsigned: options.finalizeUnsigned,
+    });
     const verification = await verifyReleaseBundle({
       bundle: output,
       commit: context.commit,
@@ -356,6 +375,7 @@ async function finalizePreparedBundle({ config, configPath, context, filenames, 
       sourceAssetId: releaseIds.source,
       staticAssetId: releaseIds.static,
       tag: context.tag,
+      unsignedFinalized: options.finalizeUnsigned,
     });
     return { output, ...verification };
   } catch (error) {
@@ -379,7 +399,7 @@ export async function createReleaseBundle(options) {
   });
   context.projectRoot = projectRoot;
   const signing = updaterEnabled
-    ? options.prepareOnly
+    ? options.prepareOnly || options.finalizeUnsigned
       ? loadPublicSigningKey(process.env.UPDATE_SIGNING_PUBLIC_KEY)
       : loadSigningKeyPair(process.env.UPDATE_SIGNING_PRIVATE_KEY, process.env.UPDATE_SIGNING_PUBLIC_KEY)
     : null;
