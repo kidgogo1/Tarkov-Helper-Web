@@ -52,7 +52,6 @@ $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
 # launcher stop while the user was still using the map, so keep a generous
 # orphan-recovery window; normal tab close still sends /client/close immediately.
 $clientLeaseTimeoutSeconds = 600
-$clientLeaseCloseGraceSeconds = 3
 $clientLeases = @{}
 $clientLifecycleArmed = $false
 
@@ -723,7 +722,16 @@ function Touch-ClientLease {
     )
 
     if (-not $script:clientLeases.ContainsKey($Token)) { return $false }
-    $seconds = if ($Closing) { $script:clientLeaseCloseGraceSeconds } else { $script:clientLeaseTimeoutSeconds }
+    if ($Closing) {
+        # A tab close is the only client-driven shutdown signal. Remove this
+        # lease immediately, but keep other open tabs alive.
+        $script:clientLeases.Remove($Token)
+        if ($script:clientLeases.Count -eq 0) {
+            $script:shutdownRequested = $true
+        }
+        return $true
+    }
+    $seconds = $script:clientLeaseTimeoutSeconds
     $script:clientLeases[$Token] = [DateTime]::UtcNow.AddSeconds($seconds)
     return $true
 }
@@ -736,9 +744,9 @@ function Update-ClientLeases {
             $script:clientLeases.Remove($token)
         }
     }
-    if ($script:clientLeases.Count -eq 0) {
-        $script:shutdownRequested = $true
-    }
+    # Expired heartbeats are discarded, but never stop the server. Browsers
+    # throttle background tabs; only an authenticated /client/close request
+    # from the last open tab may request automatic shutdown.
 }
 
 function Initialize-NativeOverlayBridge {

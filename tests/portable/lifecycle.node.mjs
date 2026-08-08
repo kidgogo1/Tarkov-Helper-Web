@@ -205,6 +205,14 @@ test("the authenticated browser lease shuts the server down after the tab closes
   await assert.rejects(fetch(baseUrl));
 });
 
+test("lease expiry is not an automatic server shutdown mechanism", async () => {
+  const launcher = await readFile(launcherPath, "utf8");
+  const updateFunction = launcher.match(/function Update-ClientLeases[\s\S]*?\n}\r?\n\r?\nfunction Initialize-NativeOverlayBridge/);
+  assert(updateFunction, "Expected the client lease maintenance function.");
+  assert.doesNotMatch(updateFunction[0], /\$script:\s*shutdownRequested\s*=\s*\$true/);
+  assert.match(launcher, /if \(\$Closing\)[\s\S]*?clientLeases\.Remove\(\$Token\)[\s\S]*?clientLeases\.Count -eq 0[\s\S]*?shutdownRequested/);
+});
+
 test("Start preserves a live recorded instance when authenticated health probes time out", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-live-state-"));
   const appRoot = path.join(temporaryRoot, "app");
