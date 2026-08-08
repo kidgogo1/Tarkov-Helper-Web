@@ -239,6 +239,16 @@ export function App() {
     setLogPreview(null);
   };
 
+  const mapPage = data ? (
+    <MapPage
+      data={data}
+      focusQuestId={mapFocusQuestId}
+      onOpenQuest={openQuest}
+      onOpenMiniMapSettings={() => setMiniMapSettingsOpen(true)}
+      onQuestFocusConsumed={() => setMapFocusQuestId(undefined)}
+    />
+  ) : null;
+
   const page = (() => {
     if (!data) return null;
     switch (activeTab) {
@@ -266,15 +276,7 @@ export function App() {
       case "collector":
         return <CollectorPage data={data} />;
       case "map":
-        return (
-          <MapPage
-            data={data}
-            focusQuestId={mapFocusQuestId}
-            onOpenQuest={openQuest}
-            onOpenMiniMapSettings={() => setMiniMapSettingsOpen(true)}
-            onQuestFocusConsumed={() => setMapFocusQuestId(undefined)}
-          />
-        );
+        return null;
     }
   })();
 
@@ -311,7 +313,13 @@ export function App() {
         onSettings={() => setSettingsOpen(true)}
         onTabChange={changeTab}
       >
-        {page}
+        <div
+          aria-hidden={activeTab === "map" ? undefined : true}
+          className={activeTab === "map" ? "app-page-layer" : "app-page-layer app-page-layer--preserved"}
+        >
+          {mapPage}
+        </div>
+        {activeTab !== "map" ? <div className="app-page-layer">{page}</div> : null}
       </AppShell>
 
       <SettingsDialog

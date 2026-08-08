@@ -1090,24 +1090,27 @@ export function MapMiniMap(props: MapMiniMapProps) {
         </div>
       ) : null}
 
-      {fallbackOpen ? (
-        <aside
-          className="map-minimap-fallback"
-          data-testid="map-minimap-fallback"
-          style={fallbackStyle}
-        >
-          {fallbackNotice ? (
-            <p className="map-minimap-fallback-notice" role="status">
-              {fallbackNotice}
-            </p>
-          ) : null}
-          <MiniMapSurface
-            {...props}
-            presentation="fallback"
-            viewport={{ width: miniMapSize, height: miniMapSize }}
-          />
-        </aside>
-      ) : null}
+      {fallbackOpen
+        ? createPortal(
+            <aside
+              className="map-minimap-fallback"
+              data-testid="map-minimap-fallback"
+              style={fallbackStyle}
+            >
+              {fallbackNotice ? (
+                <p className="map-minimap-fallback-notice" role="status">
+                  {fallbackNotice}
+                </p>
+              ) : null}
+              <MiniMapSurface
+                {...props}
+                presentation="fallback"
+                viewport={{ width: miniMapSize, height: miniMapSize }}
+              />
+            </aside>,
+            document.body,
+          )
+        : null}
       {pictureInPicture
         ? createPortal(
             <MiniMapSurface

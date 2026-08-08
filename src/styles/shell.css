@@ -159,8 +159,25 @@
 }
 
 .app-main {
+  position: relative;
   min-height: calc(100vh - var(--header-height));
   padding: 12px;
+}
+
+.app-page-layer {
+  min-height: 100%;
+}
+
+/* Keep the map lifecycle alive so its tracker and independent mini-map do not
+   close when the user switches to quests, items, or another menu. */
+.app-page-layer--preserved {
+  position: absolute;
+  inset: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 @media (max-width: 800px) {
@@ -255,4 +272,3 @@
     padding: 8px 8px 74px;
   }
 }
-
