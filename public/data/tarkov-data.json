@@ -2,13 +2,21 @@
   "meta": {
     "originalCommit": "ef71936bd428f2abb0c1320010a8e7c29c36482f",
     "modifiedCommit": "77ee7343ed0f98dc6aa8610519062c61120535f1",
-    "exportedAt": "2026-05-06T18:03:23Z",
+    "exportedAt": "2026-08-02T09:43:19.569Z",
     "counts": {
-      "quests": 488,
+      "quests": 501,
       "items": 4014,
       "hideoutStations": 26,
       "maps": 12,
       "mapMarkers": 454
+    },
+    "sources": {
+      "localExportedAt": "2026-05-06T18:03:23Z",
+      "tarkovDataGeneratedAt": "2026-08-02T09:43:19.569Z",
+      "tarkovDataQuestCount": 501,
+      "wikiQuestCount": 516,
+      "wikiRevisionTimestamp": "2026-08-07T14:28:05Z",
+      "refreshMode": "preserve-local-enriched-append-tarkovdata"
     }
   },
   "quests": [
@@ -42518,6 +42526,687 @@
           "sortOrder": 2
         }
       ]
+    },
+    {
+      "id": "tarkovdata-arena-business-pvp-zone",
+      "bsgId": "697877e0c639962b2e0cf24f",
+      "normalizedName": "arena-business-pvp-zone",
+      "name": "Arena Business [PVP ZONE]",
+      "nameEn": "Arena Business [PVP ZONE]",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Arena_Business",
+      "trader": "Ref",
+      "locations": [],
+      "minLevel": 10,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69789727f9ef98d604a0a4eb",
+          "sortOrder": 0,
+          "objectiveType": "taskStatus",
+          "description": "Complete the task Professional Fitness - Part 2",
+          "targetType": "taskStatus",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69789737271caeeb3db66e8d",
+          "sortOrder": 1,
+          "objectiveType": "taskStatus",
+          "description": "Complete the task To Great Heights! - Part 6",
+          "targetType": "taskStatus",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6978973c2834db5eb178fdc8",
+          "sortOrder": 2,
+          "objectiveType": "taskStatus",
+          "description": "Complete the task Hold the Lead",
+          "targetType": "taskStatus",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-hold-the-lead-pvp-zone",
+      "bsgId": "697895b6c639962b2e0cf268",
+      "normalizedName": "hold-the-lead-pvp-zone",
+      "name": "Hold the Lead [PVP ZONE]",
+      "nameEn": "Hold the Lead [PVP ZONE]",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Hold_the_Lead",
+      "trader": "Ref",
+      "locations": [],
+      "minLevel": 10,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "697895e700201d158bb28f22",
+          "sortOrder": 0,
+          "objectiveType": "visit",
+          "description": "Eliminate 75 enemies in Arena",
+          "targetType": "visit",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-immunity",
+      "bsgId": "6663148ca9290f9e0806cca1",
+      "normalizedName": "immunity",
+      "name": "Immunity",
+      "nameEn": "Immunity",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Immunity",
+      "trader": "Fence",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "666719fc7c5ae40e6adcf43e",
+          "sortOrder": 0,
+          "objectiveType": "extract",
+          "description": "Extract from the location with the \"Unknown toxin\" status effect",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-new-beginning",
+      "bsgId": "6761f28a022f60bb320f3e95",
+      "normalizedName": "new-beginning",
+      "name": "Neuanfang",
+      "nameEn": "Neuanfang",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "trader": "Ragman",
+      "locations": [
+        "TheLab"
+      ],
+      "minLevel": 25,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6761f93bc757eb8c228fa754",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate Scavs",
+          "targetType": "shoot",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761f9d718fa62aac3264ff2",
+          "sortOrder": 1,
+          "objectiveType": "extract",
+          "description": "Survive and extract from The Lab",
+          "targetType": "extract",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761f6f1bacf72169272e381",
+          "sortOrder": 2,
+          "objectiveType": "giveItem",
+          "description": "Hand over any PMC figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761f7d086fd2d9c941b8aa3",
+          "sortOrder": 3,
+          "objectiveType": "giveItem",
+          "description": "Hand over any Scav figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761f7f87b309912d6b5f2a9",
+          "sortOrder": 4,
+          "objectiveType": "giveItem",
+          "description": "Hand over any Boss figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761f87227aeff895cef62c5",
+          "sortOrder": 5,
+          "objectiveType": "giveItem",
+          "description": "Hand over any Trader figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-new-beginning-2",
+      "bsgId": "6761ff17cdc36bd66102e9d0",
+      "normalizedName": "new-beginning-2",
+      "name": "Neuanfang",
+      "nameEn": "Neuanfang",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "trader": "Ragman",
+      "locations": [
+        "TheLab"
+      ],
+      "minLevel": 30,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6762015739c53fca8ac51336",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate PMC operatives",
+          "targetType": "shoot",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761ff17cdc36bd66102e9d6",
+          "sortOrder": 1,
+          "objectiveType": "extract",
+          "description": "Survive and extract from The Lab",
+          "targetType": "extract",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761ff17cdc36bd66102e9d8",
+          "sortOrder": 2,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid PMC figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761ff17cdc36bd66102e9d9",
+          "sortOrder": 3,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Scav figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761ff17cdc36bd66102e9da",
+          "sortOrder": 4,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Boss figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6761ff17cdc36bd66102e9e1",
+          "sortOrder": 5,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Trader figurine",
+          "targetType": "giveItem",
+          "mapName": "TheLab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-new-beginning-3",
+      "bsgId": "6848100b00afffa81f09e365",
+      "normalizedName": "new-beginning-3",
+      "name": "Neuanfang",
+      "nameEn": "Neuanfang",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "trader": "Ragman",
+      "locations": [],
+      "minLevel": 35,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6848100b00afffa81f09e369",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate PMC operatives",
+          "targetType": "shoot",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "684812156189183883f13947",
+          "sortOrder": 1,
+          "objectiveType": "shoot",
+          "description": "Eliminate Raiders",
+          "targetType": "shoot",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6848100b00afffa81f09e36b",
+          "sortOrder": 2,
+          "objectiveType": "extract",
+          "description": "Use the transit from The Lab to Streets of Tarkov",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6848116061809d65b8503617",
+          "sortOrder": 3,
+          "objectiveType": "extract",
+          "description": "Survive and extract from Streets of Tarkov",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6848100b00afffa81f09e36d",
+          "sortOrder": 4,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid PMC figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6848100b00afffa81f09e36e",
+          "sortOrder": 5,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Scav figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6848100b00afffa81f09e36f",
+          "sortOrder": 6,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Boss figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6848100b00afffa81f09e376",
+          "sortOrder": 7,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Trader figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-new-beginning-4",
+      "bsgId": "68481881f43abfdda2058369",
+      "normalizedName": "new-beginning-4",
+      "name": "Neuanfang",
+      "nameEn": "Neuanfang",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "trader": "Ragman",
+      "locations": [],
+      "minLevel": 40,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "68481881f43abfdda205836d",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate PMC operatives",
+          "targetType": "shoot",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68481a8eda10b760b3b1a73f",
+          "sortOrder": 1,
+          "objectiveType": "shoot",
+          "description": "Eliminate Rogues",
+          "targetType": "shoot",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68481881f43abfdda205836f",
+          "sortOrder": 2,
+          "objectiveType": "extract",
+          "description": "Use the transit from The Lab to Streets of Tarkov",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68483a05801f8d9e40ac05b1",
+          "sortOrder": 3,
+          "objectiveType": "extract",
+          "description": "Use the transit from Streets of Tarkov to Interchange",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68486a0eda4828c0772e337b",
+          "sortOrder": 4,
+          "objectiveType": "extract",
+          "description": "Survive and extract from Interchange",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68481881f43abfdda2058371",
+          "sortOrder": 5,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid PMC figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68481881f43abfdda2058372",
+          "sortOrder": 6,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Scav figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68481881f43abfdda2058373",
+          "sortOrder": 7,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Boss figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "68481881f43abfdda205837a",
+          "sortOrder": 8,
+          "objectiveType": "giveItem",
+          "description": "Hand over any found in raid Trader figurine",
+          "targetType": "giveItem",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-professional-fitness-part-1-pvp-zone",
+      "bsgId": "69788c2bac719606e40b4e77",
+      "normalizedName": "professional-fitness-part-1-pvp-zone",
+      "name": "Professional Fitness - Part 1 [PVP ZONE]",
+      "nameEn": "Professional Fitness - Part 1 [PVP ZONE]",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Professional_Fitness_-_Part_1",
+      "trader": "Ref",
+      "locations": [],
+      "minLevel": 10,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69788c6d403c43a13a7ba7c2",
+          "sortOrder": 0,
+          "objectiveType": "visit",
+          "description": "Play a match in CheckPoint or Last Hero mode in Arena",
+          "targetType": "visit",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-professional-fitness-part-2-pvp-zone",
+      "bsgId": "69788db3878a4385d10c0718",
+      "normalizedName": "professional-fitness-part-2-pvp-zone",
+      "name": "Professional Fitness - Part 2 [PVP ZONE]",
+      "nameEn": "Professional Fitness - Part 2 [PVP ZONE]",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Professional_Fitness_-_Part_2",
+      "trader": "Ref",
+      "locations": [],
+      "minLevel": 10,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69788fc3dc3074ce1c851e20",
+          "sortOrder": 0,
+          "objectiveType": "visit",
+          "description": "Eliminate 20 enemies in Arena",
+          "targetType": "visit",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-reserve",
+      "bsgId": "5d25e4d586f77443e625e388",
+      "normalizedName": "reserve",
+      "name": "Reserve",
+      "nameEn": "Reserve",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Reserve_(quest)",
+      "trader": "Jaeger",
+      "locations": [
+        "Reserve"
+      ],
+      "minLevel": 20,
+      "kappaRequired": true,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "5d8a05d086f77410b4225d10",
+          "sortOrder": 0,
+          "objectiveType": "visit",
+          "description": "Locate the food storage location on Reserve",
+          "targetType": "visit",
+          "mapName": "Reserve",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "629f1259422dff20ff234b4d",
+          "sortOrder": 1,
+          "objectiveType": "extract",
+          "description": "Survive and extract from the location",
+          "targetType": "extract",
+          "mapName": "Reserve",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-saving-private-roman",
+      "bsgId": "69c27158e350f01390049e77",
+      "normalizedName": "saving-private-roman",
+      "name": "Saving Private Roman",
+      "nameEn": "Saving Private Roman",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Saving_Private_Roman",
+      "trader": "BTR Driver",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69c2740bdbeade0b8e55eeea",
+          "sortOrder": 0,
+          "objectiveType": "mark",
+          "description": "Mark the transit to Lighthouse with an MS2000 Marker on Woods",
+          "targetType": "mark",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c27425f79e528d73ed4b2e",
+          "sortOrder": 1,
+          "objectiveType": "extract",
+          "description": "Use the transit from Woods to Lighthouse",
+          "targetType": "extract",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c2745137b8de0e367891c6",
+          "sortOrder": 2,
+          "objectiveType": "mark",
+          "description": "Mark the transit to Woods with an MS2000 Marker on Lighthouse",
+          "targetType": "mark",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-stick-to-it",
+      "bsgId": "69c26c07683c9831020018c7",
+      "normalizedName": "stick-to-it",
+      "name": "Stick to It",
+      "nameEn": "Stick to It",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Stick_to_It",
+      "trader": "BTR Driver",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69c26dfeaa4283497aab0d36",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate Rogues",
+          "targetType": "shoot",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-to-great-heights-part-6-pvp-zone",
+      "bsgId": "69789418b2187365e70bb947",
+      "normalizedName": "to-great-heights-part-6-pvp-zone",
+      "name": "To Great Heights! - Part 6 [PVP ZONE]",
+      "nameEn": "To Great Heights! - Part 6 [PVP ZONE]",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/To_Great_Heights!_-_Part_6",
+      "trader": "Ref",
+      "locations": [],
+      "minLevel": 10,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6978a28fe2bee676ada49c79",
+          "sortOrder": 0,
+          "objectiveType": "visit",
+          "description": "Win 2 matches in a row in TeamFight, BlastGang or CheckPoint mode in Arena",
+          "targetType": "visit",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
     }
   ],
   "items": [
@@ -101333,10 +102022,10 @@
         "bigmap"
       ],
       "playerMarkerTransform": [
-        -2.0,
+        -2,
         0,
         0,
-        2.0,
+        2,
         2600,
         1601.5
       ],
@@ -101435,12 +102124,12 @@
         "INTERCHANGE"
       ],
       "playerMarkerTransform": [
-        -2.0,
+        -2,
         0,
         0,
-        2.0,
-        2166.0,
-        2004.0
+        2,
+        2166,
+        2004
       ],
       "svgBounds": [
         -470,
@@ -101785,14 +102474,14 @@
         0,
         0,
         0.994,
-        1346.0,
+        1346,
         1615.5
       ],
       "svgBounds": [
-        1357.0,
-        -1328.0,
-        -1625.0,
-        1526.0
+        1357,
+        -1328,
+        -1625,
+        1526
       ],
       "floors": []
     }
@@ -101804,7 +102493,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Customs",
       "x": 209.74889809155934,
-      "y": 0.0,
+      "y": 0,
       "z": -142.3366205085381,
       "floorId": "main"
     },
@@ -101814,7 +102503,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Customs",
       "x": 414.99574312119546,
-      "y": 0.0,
+      "y": 0,
       "z": 32.14206399853231,
       "floorId": "main"
     },
@@ -101824,7 +102513,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Customs",
       "x": 192.06804724751305,
-      "y": 0.0,
+      "y": 0,
       "z": 155.5420983715992,
       "floorId": "main"
     },
@@ -101834,7 +102523,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Customs",
       "x": 198.4697734646047,
-      "y": 0.0,
+      "y": 0,
       "z": -122.43820319645204,
       "floorId": "main"
     },
@@ -101844,7 +102533,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Customs",
       "x": 201.2886,
-      "y": 1.0,
+      "y": 1,
       "z": -103.1842,
       "floorId": "main"
     },
@@ -101854,7 +102543,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": -320.8866108080283,
-      "y": 0.0,
+      "y": 0,
       "z": -82.34326469546443,
       "floorId": "main"
     },
@@ -101864,7 +102553,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": 181.2511777843481,
-      "y": 0.0,
+      "y": 0,
       "z": 212.61796729789455,
       "floorId": "main"
     },
@@ -101874,7 +102563,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": 312.50657143604883,
-      "y": 0.0,
+      "y": 0,
       "z": -180.98527149062784,
       "floorId": "basement"
     },
@@ -101884,7 +102573,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": -14.783098649261547,
-      "y": 0.0,
+      "y": 0,
       "z": -133.70251872684173,
       "floorId": "main"
     },
@@ -101894,7 +102583,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": -40.23587486341512,
-      "y": 0.0,
+      "y": 0,
       "z": 121.54307473516076,
       "floorId": "main"
     },
@@ -101904,7 +102593,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": 470.82026072953454,
-      "y": 0.0,
+      "y": 0,
       "z": -116.14040688350474,
       "floorId": "basement"
     },
@@ -101914,7 +102603,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": -305.258811134192,
-      "y": 0.0,
+      "y": 0,
       "z": -218.25415132557532,
       "floorId": "main"
     },
@@ -101924,7 +102613,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Customs",
       "x": 634.823379768421,
-      "y": 0.0,
+      "y": 0,
       "z": -133.35299699770962,
       "floorId": "basement"
     },
@@ -101934,7 +102623,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 573.5032,
-      "y": 0.0,
+      "y": 0,
       "z": -115.1357,
       "floorId": "main"
     },
@@ -101944,7 +102633,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 638.4302,
-      "y": 0.0,
+      "y": 0,
       "z": 62.6749,
       "floorId": "main"
     },
@@ -101954,7 +102643,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 389.1956,
-      "y": 0.0,
+      "y": 0,
       "z": -116.3042,
       "floorId": "main"
     },
@@ -101964,7 +102653,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -218.5058,
-      "y": 0.0,
+      "y": 0,
       "z": -145.9201,
       "floorId": "main"
     },
@@ -101974,7 +102663,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -195.7311,
-      "y": 0.0,
+      "y": 0,
       "z": -232.22,
       "floorId": "main"
     },
@@ -101984,7 +102673,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 558.0268,
-      "y": 0.0,
+      "y": 0,
       "z": 45.5013,
       "floorId": "main"
     },
@@ -101994,7 +102683,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 378.1965,
-      "y": 0.0,
+      "y": 0,
       "z": -92.5541,
       "floorId": "main"
     },
@@ -102004,7 +102693,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 316.2624,
-      "y": 0.0,
+      "y": 0,
       "z": -86.6339,
       "floorId": "main"
     },
@@ -102014,7 +102703,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -15.0751,
-      "y": 0.0,
+      "y": 0,
       "z": 111.3605,
       "floorId": "main"
     },
@@ -102024,7 +102713,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 100.9669,
-      "y": 0.0,
+      "y": 0,
       "z": 19.3861,
       "floorId": "main"
     },
@@ -102034,7 +102723,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 94.7311,
-      "y": 0.0,
+      "y": 0,
       "z": -106.7833,
       "floorId": "main"
     },
@@ -102044,7 +102733,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 615.486,
-      "y": 0.0,
+      "y": 0,
       "z": -100.4618,
       "floorId": "main"
     },
@@ -102054,7 +102743,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 571.0282,
-      "y": 0.0,
+      "y": 0,
       "z": -51.9613,
       "floorId": "main"
     },
@@ -102064,7 +102753,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 359.0202,
-      "y": 0.0,
+      "y": 0,
       "z": 142.7888,
       "floorId": "main"
     },
@@ -102074,7 +102763,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -125.4353,
-      "y": 0.0,
+      "y": 0,
       "z": 34.6915,
       "floorId": "main"
     },
@@ -102084,7 +102773,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -306.8378,
-      "y": 0.0,
+      "y": 0,
       "z": -94.7286,
       "floorId": "main"
     },
@@ -102094,7 +102783,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -154.807,
-      "y": 0.0,
+      "y": 0,
       "z": -145.493,
       "floorId": "main"
     },
@@ -102104,7 +102793,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -212.725,
-      "y": 0.0,
+      "y": 0,
       "z": -2.5079,
       "floorId": "main"
     },
@@ -102114,7 +102803,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 572.3467,
-      "y": 0.0,
+      "y": 0,
       "z": 139.9971,
       "floorId": "main"
     },
@@ -102124,7 +102813,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 500.4088,
-      "y": 0.0,
+      "y": 0,
       "z": 183.9787,
       "floorId": "main"
     },
@@ -102134,7 +102823,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 503.7413,
-      "y": 0.0,
+      "y": 0,
       "z": -55.9052,
       "floorId": "main"
     },
@@ -102144,7 +102833,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 478.2908,
-      "y": 0.0,
+      "y": 0,
       "z": -79.2538,
       "floorId": "main"
     },
@@ -102154,7 +102843,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 292.1904,
-      "y": 0.0,
+      "y": 0,
       "z": -192.819,
       "floorId": "main"
     },
@@ -102164,7 +102853,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": -318.6968,
-      "y": 0.0,
+      "y": 0,
       "z": -225.7472,
       "floorId": "main"
     },
@@ -102174,7 +102863,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Customs",
       "x": 17.204,
-      "y": 0.0,
+      "y": 0,
       "z": -122.2787,
       "floorId": "main"
     },
@@ -102185,7 +102874,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 665.9862815586389,
-      "y": 0.0,
+      "y": 0,
       "z": -52.72875364625372,
       "floorId": "main"
     },
@@ -102195,7 +102884,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": -320.95455951995154,
-      "y": 0.0,
+      "y": 0,
       "z": -82.44150724268286,
       "floorId": "main"
     },
@@ -102206,7 +102895,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 653.1305698865299,
-      "y": 0.0,
+      "y": 0,
       "z": -163.73287943042624,
       "floorId": "main"
     },
@@ -102216,7 +102905,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 210.8347847957184,
-      "y": 0.0,
+      "y": 0,
       "z": 1.3495227605480977,
       "floorId": "main"
     },
@@ -102227,7 +102916,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 641.8101470126861,
-      "y": 0.0,
+      "y": 0,
       "z": 122.01056128363689,
       "floorId": "main"
     },
@@ -102237,7 +102926,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 300.1524,
-      "y": 1.0,
+      "y": 1,
       "z": -196.134,
       "floorId": "main"
     },
@@ -102248,7 +102937,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 181.00940686200124,
-      "y": 0.0,
+      "y": 0,
       "z": 212.83394268266204,
       "floorId": "main"
     },
@@ -102259,7 +102948,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 539.3767692567683,
-      "y": 0.0,
+      "y": 0,
       "z": 195.20724354097854,
       "floorId": "main"
     },
@@ -102269,7 +102958,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": -14.743725835700388,
-      "y": 0.0,
+      "y": 0,
       "z": -133.6876622101738,
       "floorId": "main"
     },
@@ -102280,7 +102969,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 491.22981511606406,
-      "y": 0.0,
+      "y": 0,
       "z": 218.1497518899048,
       "floorId": "main"
     },
@@ -102290,7 +102979,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": -143.0598141452383,
-      "y": 0.0,
+      "y": 0,
       "z": 45.1766229581973,
       "floorId": "main"
     },
@@ -102300,7 +102989,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": -162.70910047007465,
-      "y": 0.0,
+      "y": 0,
       "z": -217.1417941847924,
       "floorId": "main"
     },
@@ -102311,7 +103000,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 649.1749662951117,
-      "y": 0.0,
+      "y": 0,
       "z": -23.06172671061745,
       "floorId": "main"
     },
@@ -102321,7 +103010,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": -40.19118020145061,
-      "y": 0.0,
+      "y": 0,
       "z": 121.7395880709679,
       "floorId": "main"
     },
@@ -102331,7 +103020,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 470.88926348976725,
-      "y": 0.0,
+      "y": 0,
       "z": -116.1226942925432,
       "floorId": "basement"
     },
@@ -102341,7 +103030,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 18.322829226011436,
-      "y": 0.0,
+      "y": 0,
       "z": 124.074311639146,
       "floorId": "main"
     },
@@ -102351,7 +103040,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": -248.0192822000772,
-      "y": 0.0,
+      "y": 0,
       "z": -228.9691364528801,
       "floorId": "main"
     },
@@ -102361,7 +103050,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 51.66800447776927,
-      "y": 0.0,
+      "y": 0,
       "z": -73.69573249367272,
       "floorId": "main"
     },
@@ -102371,7 +103060,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Customs",
       "x": 342.2183,
-      "y": 1.0,
+      "y": 1,
       "z": -26.7154,
       "floorId": "main"
     },
@@ -102381,7 +103070,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Customs",
       "x": 475.8383,
-      "y": 1.0,
+      "y": 1,
       "z": -63.1251,
       "floorId": "main"
     },
@@ -102391,7 +103080,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Customs",
       "x": 256.9868,
-      "y": 1.0,
+      "y": 1,
       "z": -24.2113,
       "floorId": "main"
     },
@@ -102401,7 +103090,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Customs",
       "x": 107.3598,
-      "y": 1.0,
+      "y": 1,
       "z": -47.8639,
       "floorId": "main"
     },
@@ -102411,7 +103100,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Customs",
       "x": 582.6011,
-      "y": 1.0,
+      "y": 1,
       "z": 3.9134,
       "floorId": "main"
     },
@@ -102421,7 +103110,7 @@
       "markerType": "Transit",
       "mapKey": "Customs",
       "x": 350.5037663613733,
-      "y": 0.0,
+      "y": 0,
       "z": -185.03825179496528,
       "floorId": "main"
     },
@@ -102431,7 +103120,7 @@
       "markerType": "Transit",
       "mapKey": "Customs",
       "x": -331.5365232469519,
-      "y": 0.0,
+      "y": 0,
       "z": -202.50481248855465,
       "floorId": "main"
     },
@@ -102441,7 +103130,7 @@
       "markerType": "Transit",
       "mapKey": "Customs",
       "x": 650.8327230220654,
-      "y": 0.0,
+      "y": 0,
       "z": 123.4028587971244,
       "floorId": "main"
     },
@@ -102451,7 +103140,7 @@
       "markerType": "Transit",
       "mapKey": "Customs",
       "x": 18.095112274971143,
-      "y": 0.0,
+      "y": 0,
       "z": 124.0509507063407,
       "floorId": "main"
     },
@@ -102461,7 +103150,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Factory",
       "x": 44.2357397926864,
-      "y": 0.0,
+      "y": 0,
       "z": 18.88646750899245,
       "floorId": "main"
     },
@@ -102471,7 +103160,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Factory",
       "x": -10.008196627445706,
-      "y": 0.0,
+      "y": 0,
       "z": 49.23543782762093,
       "floorId": "main"
     },
@@ -102481,7 +103170,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Factory",
       "x": 23.889501094534104,
-      "y": 0.0,
+      "y": 0,
       "z": 5.539914568901645,
       "floorId": "main"
     },
@@ -102491,7 +103180,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Factory",
       "x": 0.8235606817002691,
-      "y": 0.0,
+      "y": 0,
       "z": -21.72931601362957,
       "floorId": "main"
     },
@@ -102501,7 +103190,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Factory",
       "x": 38.2857,
-      "y": 1.0,
+      "y": 1,
       "z": 11.5,
       "floorId": "main"
     },
@@ -102510,8 +103199,8 @@
       "name": "",
       "markerType": "CultistSpawn",
       "mapKey": "Factory",
-      "x": -15.0,
-      "y": 1.0,
+      "x": -15,
+      "y": 1,
       "z": 7.9285,
       "floorId": "main"
     },
@@ -102521,7 +103210,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Factory",
       "x": 20.1428,
-      "y": 1.0,
+      "y": 1,
       "z": -18.7858,
       "floorId": "main"
     },
@@ -102531,7 +103220,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Factory",
       "x": 76.16711142799427,
-      "y": 0.0,
+      "y": 0,
       "z": -28.306273614778092,
       "floorId": "basement"
     },
@@ -102541,7 +103230,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Factory",
       "x": 24.33712982999673,
-      "y": 0.0,
+      "y": 0,
       "z": 65.29693194755505,
       "floorId": "main"
     },
@@ -102551,7 +103240,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Factory",
       "x": -62.12190007084128,
-      "y": 0.0,
+      "y": 0,
       "z": 55.77840788609811,
       "floorId": "main"
     },
@@ -102561,7 +103250,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Factory",
       "x": 59.22562722542837,
-      "y": 0.0,
+      "y": 0,
       "z": 62.93707011591914,
       "floorId": "main"
     },
@@ -102571,7 +103260,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Factory",
       "x": -16.921110117801618,
-      "y": 0.0,
+      "y": 0,
       "z": -58.132653574313466,
       "floorId": "main"
     },
@@ -102581,7 +103270,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Factory",
       "x": 48.11914639900652,
-      "y": 0.0,
+      "y": 0,
       "z": -29.23864537218401,
       "floorId": "basement"
     },
@@ -102591,7 +103280,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": 69.0971,
-      "y": 1.0,
+      "y": 1,
       "z": -10.318,
       "floorId": "main"
     },
@@ -102601,7 +103290,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": -16.9887,
-      "y": -1.0,
+      "y": -1,
       "z": 39.0339,
       "floorId": "basement"
     },
@@ -102611,7 +103300,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": -6.2697,
-      "y": -1.0,
+      "y": -1,
       "z": -20.0661,
       "floorId": "basement"
     },
@@ -102621,7 +103310,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": 20.7126,
-      "y": -1.0,
+      "y": -1,
       "z": -1.3777,
       "floorId": "basement"
     },
@@ -102631,7 +103320,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": 70.1847,
-      "y": 1.0,
+      "y": 1,
       "z": -62.1242,
       "floorId": "main"
     },
@@ -102641,7 +103330,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": 58.7549,
-      "y": 1.0,
+      "y": 1,
       "z": 22.9088,
       "floorId": "main"
     },
@@ -102651,7 +103340,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": 29.9993,
-      "y": 1.0,
+      "y": 1,
       "z": 20.6137,
       "floorId": "main"
     },
@@ -102661,7 +103350,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": 44.8663,
-      "y": 1.0,
+      "y": 1,
       "z": -38.6757,
       "floorId": "main"
     },
@@ -102671,7 +103360,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": -2.553,
-      "y": 1.0,
+      "y": 1,
       "z": -32.376,
       "floorId": "main"
     },
@@ -102681,7 +103370,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": -29.4606,
-      "y": 1.0,
+      "y": 1,
       "z": 7.6997,
       "floorId": "main"
     },
@@ -102691,7 +103380,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": -50.5034,
-      "y": 1.0,
+      "y": 1,
       "z": 55.2396,
       "floorId": "main"
     },
@@ -102701,7 +103390,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Factory",
       "x": -20.1327,
-      "y": 1.0,
+      "y": 1,
       "z": 65.8303,
       "floorId": "main"
     },
@@ -102711,7 +103400,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Factory",
       "x": -12.873082157756222,
-      "y": 0.0,
+      "y": 0,
       "z": 41.90757873367691,
       "floorId": "basement"
     },
@@ -102721,7 +103410,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Factory",
       "x": 59.16568651043956,
-      "y": 0.0,
+      "y": 0,
       "z": 63.00446427298002,
       "floorId": "main"
     },
@@ -102731,7 +103420,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Factory",
       "x": 16.19984286841277,
-      "y": 0.0,
+      "y": 0,
       "z": 43.22422583362793,
       "floorId": "level3"
     },
@@ -102741,7 +103430,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Factory",
       "x": 48.08065624900801,
-      "y": 0.0,
+      "y": 0,
       "z": -29.237569078563595,
       "floorId": "basement"
     },
@@ -102751,7 +103440,7 @@
       "markerType": "Transit",
       "mapKey": "Factory",
       "x": 16.731243674449708,
-      "y": 0.0,
+      "y": 0,
       "z": -51.917163261551195,
       "floorId": "main"
     },
@@ -102761,7 +103450,7 @@
       "markerType": "Transit",
       "mapKey": "Factory",
       "x": -27.37550612308337,
-      "y": 0.0,
+      "y": 0,
       "z": -42.539224210830255,
       "floorId": "basement"
     },
@@ -102772,7 +103461,7 @@
       "markerType": "Transit",
       "mapKey": "Factory",
       "x": 23.504313346709456,
-      "y": 0.0,
+      "y": 0,
       "z": 63.599821423906455,
       "floorId": "main"
     },
@@ -102781,8 +103470,8 @@
       "name": "",
       "markerType": "CultistSpawn",
       "mapKey": "GroundZero",
-      "x": 11.0,
-      "y": 1.0,
+      "x": 11,
+      "y": 1,
       "z": -39.5,
       "floorId": "main"
     },
@@ -102792,7 +103481,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "GroundZero",
       "x": 79.5,
-      "y": 1.0,
+      "y": 1,
       "z": 124.5,
       "floorId": "main"
     },
@@ -102801,9 +103490,9 @@
       "name": "",
       "markerType": "CultistSpawn",
       "mapKey": "GroundZero",
-      "x": 79.0,
-      "y": 1.0,
-      "z": -40.0,
+      "x": 79,
+      "y": 1,
+      "z": -40,
       "floorId": "main"
     },
     {
@@ -102811,9 +103500,9 @@
       "name": "",
       "markerType": "CultistSpawn",
       "mapKey": "GroundZero",
-      "x": 79.0,
-      "y": 1.0,
-      "z": 46.0,
+      "x": 79,
+      "y": 1,
+      "z": 46,
       "floorId": "main"
     },
     {
@@ -102822,7 +103511,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "GroundZero",
       "x": 79.5,
-      "y": 1.0,
+      "y": 1,
       "z": 223.5,
       "floorId": "main"
     },
@@ -102832,7 +103521,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "GroundZero",
       "x": 154.99474284253517,
-      "y": 0.0,
+      "y": 0,
       "z": -93.97205770672247,
       "floorId": "main"
     },
@@ -102842,7 +103531,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "GroundZero",
       "x": 216.65278093506583,
-      "y": 0.0,
+      "y": 0,
       "z": 29.51379515234305,
       "floorId": "main"
     },
@@ -102852,7 +103541,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "GroundZero",
       "x": -22.473336840601974,
-      "y": 0.0,
+      "y": 0,
       "z": 331.87585906834113,
       "floorId": "main"
     },
@@ -102862,7 +103551,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "GroundZero",
       "x": -17.602184582418772,
-      "y": 0.0,
+      "y": 0,
       "z": 110.83520070012821,
       "floorId": "main"
     },
@@ -102872,7 +103561,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "GroundZero",
       "x": 190.0512678108047,
-      "y": 0.0,
+      "y": 0,
       "z": 126.09175680785086,
       "floorId": "main"
     },
@@ -102883,7 +103572,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "GroundZero",
       "x": 155.05095964239024,
-      "y": 0.0,
+      "y": 0,
       "z": -93.8355109981917,
       "floorId": "main"
     },
@@ -102894,7 +103583,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "GroundZero",
       "x": -23.172412394642947,
-      "y": 0.0,
+      "y": 0,
       "z": 332.95033832465174,
       "floorId": "main"
     },
@@ -102905,7 +103594,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "GroundZero",
       "x": 188.0229443483613,
-      "y": 0.0,
+      "y": 0,
       "z": 128.3561533580929,
       "floorId": "main"
     },
@@ -102915,7 +103604,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "GroundZero",
       "x": 59.0038,
-      "y": 1.0,
+      "y": 1,
       "z": 131.71,
       "floorId": "main"
     },
@@ -102925,7 +103614,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "GroundZero",
       "x": 103.5,
-      "y": 1.0,
+      "y": 1,
       "z": 92.25,
       "floorId": "main"
     },
@@ -102935,7 +103624,7 @@
       "markerType": "Transit",
       "mapKey": "GroundZero",
       "x": 224.44205181678444,
-      "y": 0.0,
+      "y": 0,
       "z": 60.4675596272192,
       "floorId": "main"
     },
@@ -102945,7 +103634,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Interchange",
       "x": -28.0808,
-      "y": 2.0,
+      "y": 2,
       "z": -240.8163,
       "floorId": "level2"
     },
@@ -102955,7 +103644,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Interchange",
       "x": 36.8926,
-      "y": 2.0,
+      "y": 2,
       "z": -57.0468,
       "floorId": "level2"
     },
@@ -102965,7 +103654,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Interchange",
       "x": -119.6349,
-      "y": 2.0,
+      "y": 2,
       "z": -48.1656,
       "floorId": "level2"
     },
@@ -102975,7 +103664,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Interchange",
       "x": -7.3163,
-      "y": 2.0,
+      "y": 2,
       "z": 135.9516,
       "floorId": "level2"
     },
@@ -102985,7 +103674,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Interchange",
       "x": 41.0142,
-      "y": 3.0,
+      "y": 3,
       "z": -52.4053,
       "floorId": "level3"
     },
@@ -102995,7 +103684,7 @@
       "markerType": "Lever",
       "mapKey": "Interchange",
       "x": -50.3075,
-      "y": 3.0,
+      "y": 3,
       "z": -54.9209,
       "floorId": "level3"
     },
@@ -103005,7 +103694,7 @@
       "markerType": "Lever",
       "mapKey": "Interchange",
       "x": -68.3152,
-      "y": 2.0,
+      "y": 2,
       "z": 54.3931,
       "floorId": "level2"
     },
@@ -103015,7 +103704,7 @@
       "markerType": "Lever",
       "mapKey": "Interchange",
       "x": -198.4236,
-      "y": 1.0,
+      "y": 1,
       "z": -359.2159,
       "floorId": "main"
     },
@@ -103025,7 +103714,7 @@
       "markerType": "Lever",
       "mapKey": "Interchange",
       "x": -45.6118,
-      "y": 1.0,
+      "y": 1,
       "z": 44.5359,
       "floorId": "main"
     },
@@ -103035,7 +103724,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Interchange",
       "x": -314.74887342737793,
-      "y": 0.0,
+      "y": 0,
       "z": 237.73166747330765,
       "floorId": "main"
     },
@@ -103045,7 +103734,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Interchange",
       "x": 543.3930039184837,
-      "y": 0.0,
+      "y": 0,
       "z": 56.20214924343804,
       "floorId": "main"
     },
@@ -103055,7 +103744,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Interchange",
       "x": -305.614861547554,
-      "y": 0.0,
+      "y": 0,
       "z": -397.6618244428561,
       "floorId": "main"
     },
@@ -103065,7 +103754,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Interchange",
       "x": 476.5756277565854,
-      "y": 0.0,
+      "y": 0,
       "z": -468.3698890302843,
       "floorId": "main"
     },
@@ -103075,7 +103764,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Interchange",
       "x": -45.86047205980208,
-      "y": 0.0,
+      "y": 0,
       "z": 17.22151687669009,
       "floorId": "main"
     },
@@ -103085,7 +103774,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Interchange",
       "x": -138.93547485867134,
-      "y": 0.0,
+      "y": 0,
       "z": -204.0901283748659,
       "floorId": "main"
     },
@@ -103095,7 +103784,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 404.6667,
-      "y": 1.0,
+      "y": 1,
       "z": -333.3293,
       "floorId": "main"
     },
@@ -103105,7 +103794,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -228.4665,
-      "y": 1.0,
+      "y": 1,
       "z": 107.4713,
       "floorId": "main"
     },
@@ -103115,7 +103804,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -204.399,
-      "y": 1.0,
+      "y": 1,
       "z": -1.9383,
       "floorId": "main"
     },
@@ -103125,7 +103814,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -202.5961,
-      "y": 1.0,
+      "y": 1,
       "z": -109.8098,
       "floorId": "main"
     },
@@ -103135,7 +103824,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -160.5965,
-      "y": 1.0,
+      "y": 1,
       "z": -378.4326,
       "floorId": "main"
     },
@@ -103145,7 +103834,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 211.8189,
-      "y": 1.0,
+      "y": 1,
       "z": -340.5098,
       "floorId": "main"
     },
@@ -103155,7 +103844,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 90.8329,
-      "y": 1.0,
+      "y": 1,
       "z": -372.5897,
       "floorId": "main"
     },
@@ -103165,7 +103854,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -18.0208,
-      "y": 1.0,
+      "y": 1,
       "z": -377.0349,
       "floorId": "main"
     },
@@ -103175,7 +103864,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 179.8033,
-      "y": 1.0,
+      "y": 1,
       "z": -414.507,
       "floorId": "main"
     },
@@ -103185,7 +103874,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 333.4167,
-      "y": 1.0,
+      "y": 1,
       "z": -157.9919,
       "floorId": "main"
     },
@@ -103195,7 +103884,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 274.6667,
-      "y": 1.0,
+      "y": 1,
       "z": 47.3455,
       "floorId": "main"
     },
@@ -103205,7 +103894,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 278.4167,
-      "y": 1.0,
+      "y": 1,
       "z": 346.0162,
       "floorId": "main"
     },
@@ -103215,7 +103904,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 154.1999,
-      "y": 1.0,
+      "y": 1,
       "z": 340.3203,
       "floorId": "main"
     },
@@ -103225,7 +103914,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": 57.5834,
-      "y": 1.0,
+      "y": 1,
       "z": 250.0244,
       "floorId": "main"
     },
@@ -103235,7 +103924,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -74.5,
-      "y": 1.0,
+      "y": 1,
       "z": 265.3618,
       "floorId": "main"
     },
@@ -103245,7 +103934,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -193.25,
-      "y": 1.0,
+      "y": 1,
       "z": 254.0325,
       "floorId": "main"
     },
@@ -103255,7 +103944,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Interchange",
       "x": -324.5832,
-      "y": 1.0,
+      "y": 1,
       "z": 206.8406,
       "floorId": "main"
     },
@@ -103265,7 +103954,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Interchange",
       "x": -314.819245004883,
-      "y": 0.0,
+      "y": 0,
       "z": 237.82394420021706,
       "floorId": "main"
     },
@@ -103275,7 +103964,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Interchange",
       "x": 476.6013522533084,
-      "y": 0.0,
+      "y": 0,
       "z": -468.3112752868242,
       "floorId": "main"
     },
@@ -103285,7 +103974,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Interchange",
       "x": -138.7466178353552,
-      "y": 0.0,
+      "y": 0,
       "z": -203.97228454360015,
       "floorId": "main"
     },
@@ -103295,7 +103984,7 @@
       "markerType": "SharedExtraction",
       "mapKey": "Interchange",
       "x": -88.93568816514698,
-      "y": 0.0,
+      "y": 0,
       "z": -74.6554478997906,
       "floorId": "main"
     },
@@ -103305,7 +103994,7 @@
       "markerType": "Transit",
       "mapKey": "Interchange",
       "x": 267.8628036485816,
-      "y": 0.0,
+      "y": 0,
       "z": 403.96246559580027,
       "floorId": "main"
     },
@@ -103315,7 +104004,7 @@
       "markerType": "Transit",
       "mapKey": "Interchange",
       "x": 252.93554791427448,
-      "y": 0.0,
+      "y": 0,
       "z": -456.72267177016715,
       "floorId": "main"
     },
@@ -103325,7 +104014,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -216.6623,
-      "y": 2.0,
+      "y": 2,
       "z": -381.4722,
       "floorId": "level2"
     },
@@ -103335,7 +104024,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -121.5531,
-      "y": -1.0,
+      "y": -1,
       "z": -353.011,
       "floorId": "basement"
     },
@@ -103345,7 +104034,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -170.9391,
-      "y": 2.0,
+      "y": 2,
       "z": -281.5445,
       "floorId": "level2"
     },
@@ -103355,7 +104044,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -271.3812,
-      "y": -1.0,
+      "y": -1,
       "z": -366.0321,
       "floorId": "basement"
     },
@@ -103365,7 +104054,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -124.0499,
-      "y": -1.0,
+      "y": -1,
       "z": -311.2678,
       "floorId": "basement"
     },
@@ -103375,7 +104064,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -246.0309,
-      "y": 2.0,
+      "y": 2,
       "z": -381.5891,
       "floorId": "level2"
     },
@@ -103385,7 +104074,7 @@
       "markerType": "Lever",
       "mapKey": "Labs",
       "x": -136.9911,
-      "y": -1.0,
+      "y": -1,
       "z": -254.8176,
       "floorId": "basement"
     },
@@ -103395,7 +104084,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -115.349297651601,
-      "y": 0.0,
+      "y": 0,
       "z": -408.87864409920223,
       "floorId": "level2"
     },
@@ -103405,7 +104094,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -170.85729279099857,
-      "y": 0.0,
+      "y": 0,
       "z": -248.65271790644965,
       "floorId": "main"
     },
@@ -103415,7 +104104,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -282.1698348637296,
-      "y": 0.0,
+      "y": 0,
       "z": -334.52532452722784,
       "floorId": "basement"
     },
@@ -103425,7 +104114,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -114.77359977007596,
-      "y": 0.0,
+      "y": 0,
       "z": -343.88629994536063,
       "floorId": "basement"
     },
@@ -103435,7 +104124,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -231.38729677737666,
-      "y": 0.0,
+      "y": 0,
       "z": -427.44228315642795,
       "floorId": "main"
     },
@@ -103445,7 +104134,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -123.19562815463378,
-      "y": 0.0,
+      "y": 0,
       "z": -255.2368938329928,
       "floorId": "basement"
     },
@@ -103455,7 +104144,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labs",
       "x": -145.65155716988716,
-      "y": 0.0,
+      "y": 0,
       "z": -400.83614604360923,
       "floorId": "basement"
     },
@@ -103465,7 +104154,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -256.7498,
-      "y": 2.0,
+      "y": 2,
       "z": -282.0982,
       "floorId": "level2"
     },
@@ -103475,7 +104164,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -255.7201,
-      "y": -1.0,
+      "y": -1,
       "z": -296.3318,
       "floorId": "basement"
     },
@@ -103485,7 +104174,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -276.5202,
-      "y": -1.0,
+      "y": -1,
       "z": -354.0761,
       "floorId": "basement"
     },
@@ -103495,7 +104184,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -269.0336,
-      "y": -1.0,
+      "y": -1,
       "z": -390.028,
       "floorId": "basement"
     },
@@ -103505,7 +104194,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -218.8871,
-      "y": -1.0,
+      "y": -1,
       "z": -385.1407,
       "floorId": "basement"
     },
@@ -103515,7 +104204,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -169.246,
-      "y": -1.0,
+      "y": -1,
       "z": -342.9328,
       "floorId": "basement"
     },
@@ -103525,7 +104214,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -117.4758,
-      "y": -1.0,
+      "y": -1,
       "z": -322.8976,
       "floorId": "basement"
     },
@@ -103535,7 +104224,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -117.6337,
-      "y": -1.0,
+      "y": -1,
       "z": -398.6252,
       "floorId": "basement"
     },
@@ -103545,7 +104234,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -205.7234,
-      "y": 2.0,
+      "y": 2,
       "z": -294.4107,
       "floorId": "level2"
     },
@@ -103555,7 +104244,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -125.8379,
-      "y": 2.0,
+      "y": 2,
       "z": -338.5732,
       "floorId": "level2"
     },
@@ -103565,7 +104254,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -111.514,
-      "y": 2.0,
+      "y": 2,
       "z": -414.7244,
       "floorId": "level2"
     },
@@ -103575,7 +104264,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -119.0604,
-      "y": 1.0,
+      "y": 1,
       "z": -255.1448,
       "floorId": "main"
     },
@@ -103585,7 +104274,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -277.6147,
-      "y": 1.0,
+      "y": 1,
       "z": -335.1021,
       "floorId": "main"
     },
@@ -103595,7 +104284,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -264.9761,
-      "y": 1.0,
+      "y": 1,
       "z": -389.9634,
       "floorId": "main"
     },
@@ -103605,7 +104294,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -170.7762,
-      "y": 1.0,
+      "y": 1,
       "z": -418.9536,
       "floorId": "main"
     },
@@ -103615,7 +104304,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Labs",
       "x": -131.3873,
-      "y": -1.0,
+      "y": -1,
       "z": -264.9977,
       "floorId": "basement"
     },
@@ -103626,7 +104315,7 @@
       "markerType": "Transit",
       "mapKey": "Labs",
       "x": -168.7706,
-      "y": 1.0,
+      "y": 1,
       "z": -421.8396,
       "floorId": "main"
     },
@@ -103635,9 +104324,9 @@
       "name": "Shadow of Tagilla",
       "markerType": "BossSpawn",
       "mapKey": "Labyrinth",
-      "x": 0.0,
-      "y": 0.0,
-      "z": 28.0
+      "x": 0,
+      "y": 0,
+      "z": 28
     },
     {
       "id": "68781277-4624-4a0c-a3b3-73a834fcf218",
@@ -103645,7 +104334,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Labyrinth",
       "x": 19.5,
-      "y": 0.0,
+      "y": 0,
       "z": 0.5
     },
     {
@@ -103653,9 +104342,9 @@
       "name": "The Way Up",
       "markerType": "PmcExtraction",
       "mapKey": "Labyrinth",
-      "x": -7.0,
-      "y": 0.0,
-      "z": 40.0
+      "x": -7,
+      "y": 0,
+      "z": 40
     },
     {
       "id": "10c6c2fd-0c27-4858-a142-41574b837f38",
@@ -103663,7 +104352,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Lighthouse",
       "x": -83.0052,
-      "y": 1.0,
+      "y": 1,
       "z": -74.7276
     },
     {
@@ -103672,7 +104361,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Lighthouse",
       "x": 42.4176,
-      "y": 1.0,
+      "y": 1,
       "z": -618.0452
     },
     {
@@ -103681,7 +104370,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Lighthouse",
       "x": -90.4169,
-      "y": 1.0,
+      "y": 1,
       "z": -743.7921
     },
     {
@@ -103690,7 +104379,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Lighthouse",
       "x": 405.6278,
-      "y": 1.0,
+      "y": 1,
       "z": 489.0181
     },
     {
@@ -103699,7 +104388,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": 4.580087155057072,
-      "y": 0.0,
+      "y": 0,
       "z": -897.260578966193
     },
     {
@@ -103708,7 +104397,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": -168.67802448690418,
-      "y": 0.0,
+      "y": 0,
       "z": -30.632348812845066
     },
     {
@@ -103717,7 +104406,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": 115.86893324563403,
-      "y": 0.0,
+      "y": 0,
       "z": -997.4838508439284
     },
     {
@@ -103726,7 +104415,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": -359.321535237063,
-      "y": 0.0,
+      "y": 0,
       "z": -593.3203400453453
     },
     {
@@ -103735,7 +104424,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": -351.8336517736834,
-      "y": 0.0,
+      "y": 0,
       "z": -164.99947916563087
     },
     {
@@ -103744,7 +104433,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": -340.9571684094642,
-      "y": 0.0,
+      "y": 0,
       "z": -804.458626479181
     },
     {
@@ -103753,7 +104442,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Lighthouse",
       "x": -270.0778033177271,
-      "y": 0.0,
+      "y": 0,
       "z": 395.9723266132355
     },
     {
@@ -103762,7 +104451,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -131.97703934257925,
-      "y": 0.0,
+      "y": 0,
       "z": -891.0800865491476
     },
     {
@@ -103771,7 +104460,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -7.334831803297902,
-      "y": 0.0,
+      "y": 0,
       "z": -906.326839764962
     },
     {
@@ -103780,7 +104469,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": 136.74698608614653,
-      "y": 0.0,
+      "y": 0,
       "z": -938.3450215181717
     },
     {
@@ -103789,7 +104478,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": 169.5275055001473,
-      "y": 0.0,
+      "y": 0,
       "z": -769.8683984834247
     },
     {
@@ -103798,7 +104487,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -354.19846746307144,
-      "y": 0.0,
+      "y": 0,
       "z": -259.10216575364825
     },
     {
@@ -103807,7 +104496,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -216.9776885207434,
-      "y": 0.0,
+      "y": 0,
       "z": -190.8729451128795
     },
     {
@@ -103816,7 +104505,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -164.75755875657978,
-      "y": 0.0,
+      "y": 0,
       "z": -44.504114241063235
     },
     {
@@ -103825,7 +104514,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -22.581585019112254,
-      "y": 0.0,
+      "y": 0,
       "z": -17.059958452597357
     },
     {
@@ -103834,7 +104523,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": 132.5541289517978,
-      "y": 0.0,
+      "y": 0,
       "z": -124.54956862408767
     },
     {
@@ -103843,7 +104532,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": 114.25802509282039,
-      "y": 0.0,
+      "y": 0,
       "z": 100.72121013956757
     },
     {
@@ -103852,7 +104541,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": 85.28919398277367,
-      "y": 0.0,
+      "y": 0,
       "z": 199.06276838156919
     },
     {
@@ -103861,7 +104550,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -164.3598173683406,
-      "y": 0.0,
+      "y": 0,
       "z": 218.93326523565702
     },
     {
@@ -103870,7 +104559,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -51.00352172033058,
-      "y": 0.0,
+      "y": 0,
       "z": 334.27826782486045
     },
     {
@@ -103879,7 +104568,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": 134.94057728123016,
-      "y": 0.0,
+      "y": 0,
       "z": 384.6588436684201
     },
     {
@@ -103888,7 +104577,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Lighthouse",
       "x": -134.19776209357747,
-      "y": 0.0,
+      "y": 0,
       "z": 481.77403263002
     },
     {
@@ -103897,7 +104586,7 @@
       "markerType": "RogueSpawn",
       "mapKey": "Lighthouse",
       "x": 41.8512,
-      "y": 1.0,
+      "y": 1,
       "z": -448.7443
     },
     {
@@ -103906,7 +104595,7 @@
       "markerType": "RogueSpawn",
       "mapKey": "Lighthouse",
       "x": -111.6519,
-      "y": 1.0,
+      "y": 1,
       "z": -744.2487
     },
     {
@@ -103915,7 +104604,7 @@
       "markerType": "RogueSpawn",
       "mapKey": "Lighthouse",
       "x": -187.9326,
-      "y": 1.0,
+      "y": 1,
       "z": -682.3751
     },
     {
@@ -103924,7 +104613,7 @@
       "markerType": "RogueSpawn",
       "mapKey": "Lighthouse",
       "x": -9.771,
-      "y": 1.0,
+      "y": 1,
       "z": -451.8417
     },
     {
@@ -103933,7 +104622,7 @@
       "markerType": "RogueSpawn",
       "mapKey": "Lighthouse",
       "x": 42.1113,
-      "y": 1.0,
+      "y": 1,
       "z": -638.7922
     },
     {
@@ -103942,7 +104631,7 @@
       "markerType": "RogueSpawn",
       "mapKey": "Lighthouse",
       "x": -119.4089,
-      "y": 1.0,
+      "y": 1,
       "z": -576.6528
     },
     {
@@ -103951,7 +104640,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": 3.3602755776655613,
-      "y": 0.0,
+      "y": 0,
       "z": -893.8627284779354
     },
     {
@@ -103960,7 +104649,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": 132.50135835613582,
-      "y": 0.0,
+      "y": 0,
       "z": 265.84293421684924
     },
     {
@@ -103969,7 +104658,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": -153.2964762412896,
-      "y": 0.0,
+      "y": 0,
       "z": -812.3748381107991
     },
     {
@@ -103978,7 +104667,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": -361.9620087565884,
-      "y": 0.0,
+      "y": 0,
       "z": -589.7945719277091
     },
     {
@@ -103987,7 +104676,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": -353.3033873796478,
-      "y": 0.0,
+      "y": 0,
       "z": -160.99935609462386
     },
     {
@@ -103996,7 +104685,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": 182.99142171760354,
-      "y": 0.0,
+      "y": 0,
       "z": -513.6932257261476
     },
     {
@@ -104005,7 +104694,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Lighthouse",
       "x": -278.0379023598075,
-      "y": 0.0,
+      "y": 0,
       "z": 404.3703910607055
     },
     {
@@ -104015,7 +104704,7 @@
       "markerType": "SharedExtraction",
       "mapKey": "Lighthouse",
       "x": -56.75744809613229,
-      "y": 0.0,
+      "y": 0,
       "z": 299.6536188842206,
       "floorId": ""
     },
@@ -104025,7 +104714,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Lighthouse",
       "x": -47.954,
-      "y": 1.0,
+      "y": 1,
       "z": 450.5762
     },
     {
@@ -104035,7 +104724,7 @@
       "markerType": "Transit",
       "mapKey": "Lighthouse",
       "x": -294.0860796109489,
-      "y": 0.0,
+      "y": 0,
       "z": -806.9164951010757,
       "floorId": ""
     },
@@ -104046,7 +104735,7 @@
       "markerType": "Transit",
       "mapKey": "Lighthouse",
       "x": -291.0547144134832,
-      "y": 0.0,
+      "y": 0,
       "z": -164.9097532295891,
       "floorId": ""
     },
@@ -104057,7 +104746,7 @@
       "markerType": "Transit",
       "mapKey": "Lighthouse",
       "x": 108.42025099015859,
-      "y": 0.0,
+      "y": 0,
       "z": -968.0430463428274,
       "floorId": ""
     },
@@ -104067,7 +104756,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Reserve",
       "x": -163.6409,
-      "y": 1.0,
+      "y": 1,
       "z": 54.1708,
       "floorId": "main"
     },
@@ -104077,7 +104766,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Reserve",
       "x": 51.0146,
-      "y": 1.0,
+      "y": 1,
       "z": -111.1486,
       "floorId": "main"
     },
@@ -104087,7 +104776,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Reserve",
       "x": 56.9663,
-      "y": -1.0,
+      "y": -1,
       "z": -135.3593,
       "floorId": "bunker"
     },
@@ -104097,7 +104786,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Reserve",
       "x": -142.0557,
-      "y": 1.0,
+      "y": 1,
       "z": -17.1992,
       "floorId": "main"
     },
@@ -104107,7 +104796,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Reserve",
       "x": 80.8829,
-      "y": 1.0,
+      "y": 1,
       "z": -41.8806,
       "floorId": "main"
     },
@@ -104117,7 +104806,7 @@
       "markerType": "Lever",
       "mapKey": "Reserve",
       "x": -61.866,
-      "y": 1.0,
+      "y": 1,
       "z": 79.1128,
       "floorId": "main"
     },
@@ -104127,7 +104816,7 @@
       "markerType": "Lever",
       "mapKey": "Reserve",
       "x": -116.2999,
-      "y": -1.0,
+      "y": -1,
       "z": 23.9038,
       "floorId": "bunker"
     },
@@ -104137,7 +104826,7 @@
       "markerType": "Lever",
       "mapKey": "Reserve",
       "x": -117.6381,
-      "y": -1.0,
+      "y": -1,
       "z": 167.9843,
       "floorId": "bunker"
     },
@@ -104147,7 +104836,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Reserve",
       "x": 121.43959073553117,
-      "y": 0.0,
+      "y": 0,
       "z": -154.4007012402591,
       "floorId": "main"
     },
@@ -104157,7 +104846,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Reserve",
       "x": 44.1117636152971,
-      "y": 0.0,
+      "y": 0,
       "z": -253.96821381956735,
       "floorId": "bunker"
     },
@@ -104167,7 +104856,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Reserve",
       "x": -13.111352739679909,
-      "y": 0.0,
+      "y": 0,
       "z": 199.42938532926166,
       "floorId": "main"
     },
@@ -104177,7 +104866,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Reserve",
       "x": -124.54576460966027,
-      "y": 0.0,
+      "y": 0,
       "z": 160.973286826684,
       "floorId": "bunker"
     },
@@ -104187,7 +104876,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Reserve",
       "x": 30.696202163528568,
-      "y": 0.0,
+      "y": 0,
       "z": -234.1996064297735,
       "floorId": "main"
     },
@@ -104197,7 +104886,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Reserve",
       "x": 38.16807828912184,
-      "y": 0.0,
+      "y": 0,
       "z": 66.44236538661178,
       "floorId": "main"
     },
@@ -104207,7 +104896,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 164.6167,
-      "y": 1.0,
+      "y": 1,
       "z": -238.0716,
       "floorId": "main"
     },
@@ -104217,7 +104906,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -45.0207,
-      "y": 1.0,
+      "y": 1,
       "z": 22.4436,
       "floorId": "main"
     },
@@ -104227,7 +104916,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -80.2654,
-      "y": 1.0,
+      "y": 1,
       "z": 199.8211,
       "floorId": "main"
     },
@@ -104237,7 +104926,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -215.9673,
-      "y": 1.0,
+      "y": 1,
       "z": 50.3618,
       "floorId": "main"
     },
@@ -104247,7 +104936,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -114.0146,
-      "y": 1.0,
+      "y": 1,
       "z": -22.2082,
       "floorId": "main"
     },
@@ -104257,7 +104946,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -136.1284,
-      "y": 1.0,
+      "y": 1,
       "z": -129.2988,
       "floorId": "main"
     },
@@ -104267,7 +104956,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -27.7331,
-      "y": -1.0,
+      "y": -1,
       "z": 182.737,
       "floorId": "bunker"
     },
@@ -104277,7 +104966,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -116.3723,
-      "y": -1.0,
+      "y": -1,
       "z": 75.446,
       "floorId": "bunker"
     },
@@ -104287,7 +104976,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 169.8573,
-      "y": 1.0,
+      "y": 1,
       "z": -167.5683,
       "floorId": "main"
     },
@@ -104297,7 +104986,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 188.9615,
-      "y": 1.0,
+      "y": 1,
       "z": -104.4034,
       "floorId": "main"
     },
@@ -104307,7 +104996,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 52.1627,
-      "y": 1.0,
+      "y": 1,
       "z": -178.2244,
       "floorId": "main"
     },
@@ -104317,7 +105006,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": -36.5117,
-      "y": 1.0,
+      "y": 1,
       "z": -168.4938,
       "floorId": "main"
     },
@@ -104327,7 +105016,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 85.7372,
-      "y": 1.0,
+      "y": 1,
       "z": -38.8787,
       "floorId": "main"
     },
@@ -104337,7 +105026,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 144.0327,
-      "y": 1.0,
+      "y": 1,
       "z": 28.9826,
       "floorId": "main"
     },
@@ -104347,7 +105036,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 59.5273,
-      "y": 1.0,
+      "y": 1,
       "z": 63.1297,
       "floorId": "main"
     },
@@ -104357,7 +105046,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Reserve",
       "x": 23.0002,
-      "y": 1.0,
+      "y": 1,
       "z": 4.8892,
       "floorId": "main"
     },
@@ -104367,7 +105056,7 @@
       "markerType": "RaiderSpawn",
       "mapKey": "Reserve",
       "x": 77.8003,
-      "y": 1.0,
+      "y": 1,
       "z": -119.1978,
       "floorId": "main"
     },
@@ -104377,7 +105066,7 @@
       "markerType": "RaiderSpawn",
       "mapKey": "Reserve",
       "x": -102.663,
-      "y": -1.0,
+      "y": -1,
       "z": 39.9318,
       "floorId": "bunker"
     },
@@ -104387,7 +105076,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": 121.42659901301215,
-      "y": 0.0,
+      "y": 0,
       "z": -154.45031968236339,
       "floorId": "main"
     },
@@ -104397,7 +105086,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": 44.25574355150784,
-      "y": 0.0,
+      "y": 0,
       "z": -254.2602945321051,
       "floorId": "bunker"
     },
@@ -104407,7 +105096,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": 58.26443484691259,
-      "y": 0.0,
+      "y": 0,
       "z": 122.70734441899866,
       "floorId": "main"
     },
@@ -104417,7 +105106,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": 120.99643672642938,
-      "y": 0.0,
+      "y": 0,
       "z": -134.0340258624362,
       "floorId": "bunker"
     },
@@ -104427,7 +105116,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": 30.773980032929252,
-      "y": 0.0,
+      "y": 0,
       "z": -234.24039305763972,
       "floorId": "main"
     },
@@ -104437,7 +105126,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": -40.01182175006315,
-      "y": 0.0,
+      "y": 0,
       "z": -188.23878324773682,
       "floorId": "main"
     },
@@ -104447,7 +105136,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": -40.05517583213158,
-      "y": 0.0,
+      "y": 0,
       "z": -188.1763672177356,
       "floorId": "main"
     },
@@ -104457,7 +105146,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": -261.4010173980023,
-      "y": 0.0,
+      "y": 0,
       "z": 37.64313786322724,
       "floorId": "main"
     },
@@ -104467,7 +105156,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Reserve",
       "x": 38.20050479488209,
-      "y": 0.0,
+      "y": 0,
       "z": 66.35239140628482,
       "floorId": "main"
     },
@@ -104477,7 +105166,7 @@
       "markerType": "SharedExtraction",
       "mapKey": "Reserve",
       "x": -128.53496366469034,
-      "y": 0.0,
+      "y": 0,
       "z": -148.5442353791791,
       "floorId": "main"
     },
@@ -104487,7 +105176,7 @@
       "markerType": "Transit",
       "mapKey": "Reserve",
       "x": -193.43690117882483,
-      "y": 0.0,
+      "y": 0,
       "z": -123.88824363827943,
       "floorId": "main"
     },
@@ -104497,7 +105186,7 @@
       "markerType": "Transit",
       "mapKey": "Reserve",
       "x": 231.24818799049768,
-      "y": 0.0,
+      "y": 0,
       "z": -134.8019367545826,
       "floorId": "main"
     },
@@ -104507,7 +105196,7 @@
       "markerType": "Transit",
       "mapKey": "Reserve",
       "x": 211.0171197775275,
-      "y": 0.0,
+      "y": 0,
       "z": -208.77053971645552,
       "floorId": "main"
     },
@@ -104517,7 +105206,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Shoreline",
       "x": -493.04882986966004,
-      "y": 0.0,
+      "y": 0,
       "z": 251.3606325697749,
       "floorId": "main"
     },
@@ -104527,7 +105216,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Shoreline",
       "x": 109.10995910721476,
-      "y": 0.0,
+      "y": 0,
       "z": 87.74914727216378,
       "floorId": "main"
     },
@@ -104537,7 +105226,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Shoreline",
       "x": -173.67671857388723,
-      "y": 0.0,
+      "y": 0,
       "z": -84.51179239424687,
       "floorId": "main"
     },
@@ -104547,7 +105236,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Shoreline",
       "x": -317.2679334057898,
-      "y": 0.0,
+      "y": 0,
       "z": 502.35713709478387,
       "floorId": "main"
     },
@@ -104557,7 +105246,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Shoreline",
       "x": -160.8341,
-      "y": 1.0,
+      "y": 1,
       "z": -82.9817,
       "floorId": "main"
     },
@@ -104567,7 +105256,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Shoreline",
       "x": -320.9167,
-      "y": 1.0,
+      "y": 1,
       "z": -81.9331,
       "floorId": "main"
     },
@@ -104577,7 +105266,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Shoreline",
       "x": 158.367,
-      "y": 1.0,
+      "y": 1,
       "z": -275.1264,
       "floorId": "main"
     },
@@ -104587,7 +105276,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": -197.11557100850382,
-      "y": 0.0,
+      "y": 0,
       "z": -360.77788027746897,
       "floorId": "main"
     },
@@ -104597,7 +105286,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": -389.36557100850405,
-      "y": 0.0,
+      "y": 0,
       "z": -382.9445469441357,
       "floorId": "main"
     },
@@ -104607,7 +105296,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": 422.09614662216313,
-      "y": 0.0,
+      "y": 0,
       "z": -250.7476324751783,
       "floorId": "basement"
     },
@@ -104617,7 +105306,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": -339.2842189897542,
-      "y": 0.0,
+      "y": 0,
       "z": 569.6319815184493,
       "floorId": "main"
     },
@@ -104627,7 +105316,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": -1025.4696559953709,
-      "y": 0.0,
+      "y": 0,
       "z": 305.2660573311248,
       "floorId": "main"
     },
@@ -104637,7 +105326,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": -854.4765141426419,
-      "y": 0.0,
+      "y": 0,
       "z": 4.522879408750214,
       "floorId": "main"
     },
@@ -104647,7 +105336,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": -542.0130305114744,
-      "y": 0.0,
+      "y": 0,
       "z": -377.6911306931438,
       "floorId": "main"
     },
@@ -104657,7 +105346,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Shoreline",
       "x": 384.6229997732321,
-      "y": 0.0,
+      "y": 0,
       "z": 308.39699172985456,
       "floorId": "main"
     },
@@ -104667,7 +105356,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -526.5216822003681,
-      "y": 0.0,
+      "y": 0,
       "z": 457.3699454373691,
       "floorId": "main"
     },
@@ -104677,7 +105366,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -639.3462881997038,
-      "y": 0.0,
+      "y": 0,
       "z": 457.70178251383777,
       "floorId": "main"
     },
@@ -104687,7 +105376,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -776.6581819108628,
-      "y": 0.0,
+      "y": 0,
       "z": 455.3800838279003,
       "floorId": "main"
     },
@@ -104697,7 +105386,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -856.2592797144325,
-      "y": 0.0,
+      "y": 0,
       "z": 353.88868412834836,
       "floorId": "main"
     },
@@ -104707,7 +105396,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -905.3466233599679,
-      "y": 0.0,
+      "y": 0,
       "z": 186.39470750000328,
       "floorId": "main"
     },
@@ -104717,7 +105406,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -918.6134729938967,
-      "y": 0.0,
+      "y": 0,
       "z": 85.89832152299573,
       "floorId": "main"
     },
@@ -104727,7 +105416,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -881.4662940188973,
-      "y": 0.0,
+      "y": 0,
       "z": -15.593078176556219,
       "floorId": "main"
     },
@@ -104737,7 +105426,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -802.5285386970236,
-      "y": 0.0,
+      "y": 0,
       "z": -11.613023286377711,
       "floorId": "main"
     },
@@ -104747,7 +105436,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -403.1963647157804,
-      "y": 0.0,
+      "y": 0,
       "z": -384.4114979997639,
       "floorId": "main"
     },
@@ -104757,7 +105446,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -271.19121085819324,
-      "y": 0.0,
+      "y": 0,
       "z": -363.84788106717497,
       "floorId": "main"
     },
@@ -104767,7 +105456,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 11.392686344480353,
-      "y": 0.0,
+      "y": 0,
       "z": -280.93007085512295,
       "floorId": "main"
     },
@@ -104777,7 +105466,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 133.44770297662126,
-      "y": 0.0,
+      "y": 0,
       "z": -295.52360545244414,
       "floorId": "main"
     },
@@ -104787,7 +105476,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 227.6423353775126,
-      "y": 0.0,
+      "y": 0,
       "z": -280.26672837342653,
       "floorId": "main"
     },
@@ -104797,7 +105486,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 346.3806396011714,
-      "y": 0.0,
+      "y": 0,
       "z": -260.3664539225342,
       "floorId": "main"
     },
@@ -104807,7 +105496,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 433.2785047034017,
-      "y": 0.0,
+      "y": 0,
       "z": -77.28392897432286,
       "floorId": "main"
     },
@@ -104817,7 +105506,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 427.9717648498304,
-      "y": 0.0,
+      "y": 0,
       "z": 72.63147188906737,
       "floorId": "main"
     },
@@ -104827,7 +105516,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 453.17877915429426,
-      "y": 0.0,
+      "y": 0,
       "z": 132.332295241745,
       "floorId": "main"
     },
@@ -104837,7 +105526,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 455.1688065993835,
-      "y": 0.0,
+      "y": 0,
       "z": 173.4595291069229,
       "floorId": "main"
     },
@@ -104847,7 +105536,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 385.51784602125963,
-      "y": 0.0,
+      "y": 0,
       "z": 271.63421639799276,
       "floorId": "main"
     },
@@ -104857,7 +105546,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 350.3606944913495,
-      "y": 0.0,
+      "y": 0,
       "z": 326.02829989709903,
       "floorId": "main"
     },
@@ -104867,7 +105556,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 234.27576019447656,
-      "y": 0.0,
+      "y": 0,
       "z": 247.75388705692149,
       "floorId": "main"
     },
@@ -104877,7 +105566,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": 97.62720896501446,
-      "y": 0.0,
+      "y": 0,
       "z": 290.8711483671884,
       "floorId": "main"
     },
@@ -104887,7 +105576,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -28.407862557304725,
-      "y": 0.0,
+      "y": 0,
       "z": 308.7813953729917,
       "floorId": "main"
     },
@@ -104897,7 +105586,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -178.9866059023916,
-      "y": 0.0,
+      "y": 0,
       "z": 318.0681901167418,
       "floorId": "main"
     },
@@ -104907,7 +105596,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -326.24863683899594,
-      "y": 0.0,
+      "y": 0,
       "z": 362.51213639040157,
       "floorId": "main"
     },
@@ -104917,7 +105606,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Shoreline",
       "x": -446.976968507744,
-      "y": 0.0,
+      "y": 0,
       "z": 378.4323559511156,
       "floorId": "main"
     },
@@ -104927,7 +105616,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Shoreline",
       "x": -246.7611748009706,
-      "y": 0.0,
+      "y": 0,
       "z": -154.29063233275633,
       "floorId": "basement"
     },
@@ -104937,7 +105626,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Shoreline",
       "x": -296.70853049944253,
-      "y": 0.0,
+      "y": 0,
       "z": -102.20549908157568,
       "floorId": "main"
     },
@@ -104947,7 +105636,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Shoreline",
       "x": -458.59254305259924,
-      "y": 0.0,
+      "y": 0,
       "z": 568.4938439005903,
       "floorId": "main"
     },
@@ -104958,7 +105647,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Shoreline",
       "x": -388.51799819729354,
-      "y": 0.0,
+      "y": 0,
       "z": -373.62182425990113,
       "floorId": "main"
     },
@@ -104968,7 +105657,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Shoreline",
       "x": -854.4591797381954,
-      "y": 0.0,
+      "y": 0,
       "z": 4.5450372727505055,
       "floorId": "main"
     },
@@ -104979,7 +105668,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Shoreline",
       "x": 356.3112081872266,
-      "y": 0.0,
+      "y": 0,
       "z": 327.5886818436445,
       "floorId": "main"
     },
@@ -104989,7 +105678,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Shoreline",
       "x": -228.591,
-      "y": 1.0,
+      "y": 1,
       "z": 191.271,
       "floorId": "main"
     },
@@ -104999,7 +105688,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Shoreline",
       "x": -150.2403,
-      "y": 1.0,
+      "y": 1,
       "z": -266.1145,
       "floorId": "main"
     },
@@ -105009,7 +105698,7 @@
       "markerType": "Transit",
       "mapKey": "Shoreline",
       "x": -193.7416094343041,
-      "y": 0.0,
+      "y": 0,
       "z": -77.88206937127734,
       "floorId": "basement"
     },
@@ -105019,7 +105708,7 @@
       "markerType": "Transit",
       "mapKey": "Shoreline",
       "x": 442.837879480953,
-      "y": 0.0,
+      "y": 0,
       "z": -189.01453780333827,
       "floorId": "main"
     },
@@ -105029,7 +105718,7 @@
       "markerType": "BossSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 95.12646830063386,
-      "y": 0.0,
+      "y": 0,
       "z": 292.290552159948
     },
     {
@@ -105038,7 +105727,7 @@
       "markerType": "BossSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 52.37752752132076,
-      "y": 0.0,
+      "y": 0,
       "z": 296.75973807608386
     },
     {
@@ -105047,7 +105736,7 @@
       "markerType": "BossSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -255.01392985625716,
-      "y": 0.0,
+      "y": 0,
       "z": 143.98520083098492
     },
     {
@@ -105056,7 +105745,7 @@
       "markerType": "BossSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -153.59533247848117,
-      "y": 0.0,
+      "y": 0,
       "z": -43.099861169038945
     },
     {
@@ -105065,7 +105754,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 213.06852977933306,
-      "y": 0.0,
+      "y": 0,
       "z": 268.37923802213686
     },
     {
@@ -105074,7 +105763,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": -152.5994860530227,
-      "y": 0.0,
+      "y": 0,
       "z": 493.5051909827753
     },
     {
@@ -105083,7 +105772,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 307.6922535339952,
-      "y": 0.0,
+      "y": 0,
       "z": 409.64552726029024
     },
     {
@@ -105092,7 +105781,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": -249.83902839656548,
-      "y": 0.0,
+      "y": 0,
       "z": 342.86815201653144
     },
     {
@@ -105101,7 +105790,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 215.0685956312061,
-      "y": 0.0,
+      "y": 0,
       "z": -108.6133306938051
     },
     {
@@ -105110,7 +105799,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": -232.48419352449037,
-      "y": 0.0,
+      "y": 0,
       "z": 45.78671331485873
     },
     {
@@ -105119,7 +105808,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 2.9772865736662197,
-      "y": 0.0,
+      "y": 0,
       "z": 461.09776353876305
     },
     {
@@ -105128,7 +105817,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 73.86904871107811,
-      "y": 0.0,
+      "y": 0,
       "z": 47.80729439724928
     },
     {
@@ -105137,7 +105826,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": -54.42083576942093,
-      "y": 0.0,
+      "y": 0,
       "z": -80.3352405628018
     },
     {
@@ -105146,7 +105835,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 246.1233,
-      "y": 1.0,
+      "y": 1,
       "z": -39.4785
     },
     {
@@ -105155,7 +105844,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -114.5855,
-      "y": 1.0,
+      "y": 1,
       "z": -31.8412
     },
     {
@@ -105164,7 +105853,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -157.4419,
-      "y": 1.0,
+      "y": 1,
       "z": -61.3514
     },
     {
@@ -105173,7 +105862,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -123.6249,
-      "y": 1.0,
+      "y": 1,
       "z": 58.2527
     },
     {
@@ -105182,7 +105871,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -99.9499,
-      "y": 1.0,
+      "y": 1,
       "z": 66.6103
     },
     {
@@ -105191,7 +105880,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -92.3371,
-      "y": 1.0,
+      "y": 1,
       "z": 120.6964
     },
     {
@@ -105200,7 +105889,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -34.4975,
-      "y": 1.0,
+      "y": 1,
       "z": 80.7863
     },
     {
@@ -105209,7 +105898,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -175.999,
-      "y": 1.0,
+      "y": 1,
       "z": 108.5182
     },
     {
@@ -105218,7 +105907,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -163.4457,
-      "y": 1.0,
+      "y": 1,
       "z": 178.9427
     },
     {
@@ -105227,7 +105916,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -205.375,
-      "y": 1.0,
+      "y": 1,
       "z": 177.9075
     },
     {
@@ -105236,7 +105925,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -245.0087,
-      "y": 1.0,
+      "y": 1,
       "z": 238.0582
     },
     {
@@ -105245,7 +105934,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 239.2237,
-      "y": 1.0,
+      "y": 1,
       "z": -103.9103
     },
     {
@@ -105254,7 +105943,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -233.7175,
-      "y": 1.0,
+      "y": 1,
       "z": 340.5962
     },
     {
@@ -105263,7 +105952,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -136.2383,
-      "y": 1.0,
+      "y": 1,
       "z": 398.8201
     },
     {
@@ -105272,7 +105961,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -172.6943,
-      "y": 1.0,
+      "y": 1,
       "z": 467.8545
     },
     {
@@ -105281,7 +105970,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -53.8953,
-      "y": 1.0,
+      "y": 1,
       "z": 459.4366
     },
     {
@@ -105290,7 +105979,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 42.0703,
-      "y": 1.0,
+      "y": 1,
       "z": 412.7119
     },
     {
@@ -105299,7 +105988,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 99.5669,
-      "y": 1.0,
+      "y": 1,
       "z": 447.2773
     },
     {
@@ -105308,7 +105997,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 157.8803,
-      "y": 1.0,
+      "y": 1,
       "z": 426.1794
     },
     {
@@ -105317,7 +106006,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 189.8614,
-      "y": 1.0,
+      "y": 1,
       "z": 455.4566
     },
     {
@@ -105326,7 +106015,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 279.2116,
-      "y": 1.0,
+      "y": 1,
       "z": 516.8688
     },
     {
@@ -105335,7 +106024,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 230.6649,
-      "y": 1.0,
+      "y": 1,
       "z": 404.4927
     },
     {
@@ -105344,7 +106033,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 173.1588,
-      "y": 1.0,
+      "y": 1,
       "z": -140.8219
     },
     {
@@ -105353,7 +106042,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 220.8214,
-      "y": 1.0,
+      "y": 1,
       "z": 294.5334
     },
     {
@@ -105362,7 +106051,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 177.3124,
-      "y": 1.0,
+      "y": 1,
       "z": 232.825
     },
     {
@@ -105371,7 +106060,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 188.5465,
-      "y": 1.0,
+      "y": 1,
       "z": 183.97
     },
     {
@@ -105380,7 +106069,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 228.3434,
-      "y": 1.0,
+      "y": 1,
       "z": 170.2759
     },
     {
@@ -105389,7 +106078,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 117.842,
-      "y": 1.0,
+      "y": 1,
       "z": 125.2227
     },
     {
@@ -105398,7 +106087,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 104.9284,
-      "y": 1.0,
+      "y": 1,
       "z": 57.3166
     },
     {
@@ -105407,7 +106096,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 43.6471,
-      "y": 1.0,
+      "y": 1,
       "z": 62.9399
     },
     {
@@ -105416,7 +106105,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 54.3842,
-      "y": 1.0,
+      "y": 1,
       "z": 41.8695
     },
     {
@@ -105425,7 +106114,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 261.0757,
-      "y": 1.0,
+      "y": 1,
       "z": 46.5706
     },
     {
@@ -105434,7 +106123,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 277.196,
-      "y": 1.0,
+      "y": 1,
       "z": 84.3601
     },
     {
@@ -105443,7 +106132,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 103.2043,
-      "y": 1.0,
+      "y": 1,
       "z": -164.8787
     },
     {
@@ -105452,7 +106141,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -195.1307,
-      "y": 1.0,
+      "y": 1,
       "z": 340.0407
     },
     {
@@ -105461,7 +106150,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -77.4212,
-      "y": 1.0,
+      "y": 1,
       "z": 332.7767
     },
     {
@@ -105470,7 +106159,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 55.3254,
-      "y": 1.0,
+      "y": 1,
       "z": -140.8221
     },
     {
@@ -105479,7 +106168,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -11.0112,
-      "y": 1.0,
+      "y": 1,
       "z": -139.0011
     },
     {
@@ -105488,7 +106177,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -58.4271,
-      "y": 1.0,
+      "y": 1,
       "z": -150.9027
     },
     {
@@ -105497,7 +106186,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -43.0534,
-      "y": 1.0,
+      "y": 1,
       "z": -118.5675
     },
     {
@@ -105506,7 +106195,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -48.395,
-      "y": 1.0,
+      "y": 1,
       "z": -68.5975
     },
     {
@@ -105515,7 +106204,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 96.6407884159438,
-      "y": 0.0,
+      "y": 0,
       "z": -162.13646074925987
     },
     {
@@ -105524,7 +106213,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": -250.30387212262394,
-      "y": 0.0,
+      "y": 0,
       "z": 240.32155591713376
     },
     {
@@ -105533,7 +106222,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 261.828912358446,
-      "y": 0.0,
+      "y": 0,
       "z": 45.65452007698866
     },
     {
@@ -105542,7 +106231,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 275.7516522871167,
-      "y": 0.0,
+      "y": 0,
       "z": 342.39523622575507
     },
     {
@@ -105551,7 +106240,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": 73.88318861138953,
-      "y": 0.0,
+      "y": 0,
       "z": 47.83056459827367
     },
     {
@@ -105560,7 +106249,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "StreetsOfTarkov",
       "x": -124.60523067999202,
-      "y": 0.0,
+      "y": 0,
       "z": 422.84754907385786
     },
     {
@@ -105569,7 +106258,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -14.585,
-      "y": 1.0,
+      "y": 1,
       "z": 222.2065
     },
     {
@@ -105578,7 +106267,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -160.7737,
-      "y": 1.0,
+      "y": 1,
       "z": 399.1323
     },
     {
@@ -105587,7 +106276,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 42.4167,
-      "y": 1.0,
+      "y": 1,
       "z": -20.6051
     },
     {
@@ -105596,7 +106285,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 57.4699,
-      "y": 1.0,
+      "y": 1,
       "z": 285.0402
     },
     {
@@ -105605,7 +106294,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -129.1654,
-      "y": 1.0,
+      "y": 1,
       "z": -15.2719
     },
     {
@@ -105614,7 +106303,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": -157.2289,
-      "y": 1.0,
+      "y": 1,
       "z": -10.6454
     },
     {
@@ -105623,7 +106312,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "StreetsOfTarkov",
       "x": 95.7449,
-      "y": 1.0,
+      "y": 1,
       "z": 283.5912
     },
     {
@@ -105632,7 +106321,7 @@
       "markerType": "Transit",
       "mapKey": "StreetsOfTarkov",
       "x": -259.77865571401685,
-      "y": 0.0,
+      "y": 0,
       "z": 107.76739918166186
     },
     {
@@ -105641,7 +106330,7 @@
       "markerType": "Transit",
       "mapKey": "StreetsOfTarkov",
       "x": 287.25498882678176,
-      "y": 0.0,
+      "y": 0,
       "z": 496.3530786108745
     },
     {
@@ -105650,7 +106339,7 @@
       "markerType": "Transit",
       "mapKey": "StreetsOfTarkov",
       "x": 208.57281826225562,
-      "y": 0.0,
+      "y": 0,
       "z": 79.1026397655587
     },
     {
@@ -105659,7 +106348,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Terminal",
       "x": -34.78,
-      "y": 0.0,
+      "y": 0,
       "z": 193.75
     },
     {
@@ -105667,9 +106356,9 @@
       "name": "Zubr Boat",
       "markerType": "PmcExtraction",
       "mapKey": "Terminal",
-      "x": -287.0,
-      "y": 0.0,
-      "z": 66.0
+      "x": -287,
+      "y": 0,
+      "z": 66
     },
     {
       "id": "3e5372c8-c7e5-4dd4-bf49-13762d5798f3",
@@ -105677,7 +106366,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Terminal",
       "x": 125.19,
-      "y": 0.0,
+      "y": 0,
       "z": -412.5
     },
     {
@@ -105686,7 +106375,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Woods",
       "x": 180.0205085844159,
-      "y": 0.0,
+      "y": 0,
       "z": -723.6861732147116
     },
     {
@@ -105695,7 +106384,7 @@
       "markerType": "BossSpawn",
       "mapKey": "Woods",
       "x": 7.758832977994871,
-      "y": 0.0,
+      "y": 0,
       "z": -4.789404621267295
     },
     {
@@ -105704,7 +106393,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Woods",
       "x": -72.2947,
-      "y": 1.0,
+      "y": 1,
       "z": -706.6153
     },
     {
@@ -105713,7 +106402,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Woods",
       "x": -141.7609,
-      "y": 1.0,
+      "y": 1,
       "z": -605.5928
     },
     {
@@ -105722,7 +106411,7 @@
       "markerType": "CultistSpawn",
       "mapKey": "Woods",
       "x": 276.25,
-      "y": 1.0,
+      "y": 1,
       "z": -136.25
     },
     {
@@ -105731,7 +106420,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": -486.49383968092934,
-      "y": 0.0,
+      "y": 0,
       "z": -510.26799096742536
     },
     {
@@ -105740,7 +106429,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": -559.8654745232213,
-      "y": 0.0,
+      "y": 0,
       "z": -71.1270058869593
     },
     {
@@ -105749,7 +106438,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": 348.75611782099145,
-      "y": 0.0,
+      "y": 0,
       "z": 331.90348634998077
     },
     {
@@ -105758,7 +106447,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": 567.3973540099571,
-      "y": 0.0,
+      "y": 0,
       "z": -82.13002149108115
     },
     {
@@ -105767,7 +106456,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": -135.225,
-      "y": 1.0,
+      "y": 1,
       "z": 412.1869
     },
     {
@@ -105776,7 +106465,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": -716.2830706336372,
-      "y": 0.0,
+      "y": 0,
       "z": 117.62172203195132
     },
     {
@@ -105785,7 +106474,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": -521.7360942746179,
-      "y": 0.0,
+      "y": 0,
       "z": 287.37682219760995
     },
     {
@@ -105794,7 +106483,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": 447.7548,
-      "y": -1.0,
+      "y": -1,
       "z": 54.9797
     },
     {
@@ -105803,7 +106492,7 @@
       "markerType": "PmcExtraction",
       "mapKey": "Woods",
       "x": -388.5816,
-      "y": -1.0,
+      "y": -1,
       "z": 9.2912
     },
     {
@@ -105812,7 +106501,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 485.9215,
-      "y": 1.0,
+      "y": 1,
       "z": 277.4406
     },
     {
@@ -105821,7 +106510,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -288.4207,
-      "y": 1.0,
+      "y": 1,
       "z": 332.3767
     },
     {
@@ -105830,7 +106519,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -356.7576,
-      "y": 1.0,
+      "y": 1,
       "z": 248.3456
     },
     {
@@ -105839,7 +106528,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -543.1639,
-      "y": 1.0,
+      "y": 1,
       "z": 297.8531
     },
     {
@@ -105848,7 +106537,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -521.2984,
-      "y": 1.0,
+      "y": 1,
       "z": 226.4324
     },
     {
@@ -105857,7 +106546,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -514.8964,
-      "y": 1.0,
+      "y": 1,
       "z": 150.6506
     },
     {
@@ -105866,7 +106555,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -518.4854,
-      "y": 1.0,
+      "y": 1,
       "z": 85.72
     },
     {
@@ -105875,7 +106564,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -492.8102,
-      "y": 1.0,
+      "y": 1,
       "z": -46.5735
     },
     {
@@ -105884,7 +106573,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -510.203,
-      "y": 1.0,
+      "y": 1,
       "z": -147.9464
     },
     {
@@ -105893,7 +106582,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -250.9664,
-      "y": 1.0,
+      "y": 1,
       "z": -199.0732
     },
     {
@@ -105902,7 +106591,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -327.4398,
-      "y": 1.0,
+      "y": 1,
       "z": -132.5911
     },
     {
@@ -105911,7 +106600,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 455.4291,
-      "y": 1.0,
+      "y": 1,
       "z": 319.6794
     },
     {
@@ -105920,7 +106609,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -625.8794,
-      "y": 1.0,
+      "y": 1,
       "z": -317.8915
     },
     {
@@ -105929,7 +106618,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -410.263,
-      "y": 1.0,
+      "y": 1,
       "z": -528.591
     },
     {
@@ -105938,7 +106627,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -259.9849,
-      "y": 1.0,
+      "y": 1,
       "z": -628.1608
     },
     {
@@ -105947,7 +106636,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -60.1049,
-      "y": 1.0,
+      "y": 1,
       "z": -589.58
     },
     {
@@ -105956,7 +106645,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 75.7251,
-      "y": 1.0,
+      "y": 1,
       "z": -649.6508
     },
     {
@@ -105965,7 +106654,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 227.7517,
-      "y": 1.0,
+      "y": 1,
       "z": -310.6979
     },
     {
@@ -105974,7 +106663,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 390.8214,
-      "y": 1.0,
+      "y": 1,
       "z": -429.6652
     },
     {
@@ -105983,7 +106672,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 366.8947,
-      "y": 1.0,
+      "y": 1,
       "z": -582.498
     },
     {
@@ -105992,7 +106681,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 368.8825,
-      "y": 1.0,
+      "y": 1,
       "z": -695.104
     },
     {
@@ -106001,7 +106690,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 419.4753,
-      "y": 1.0,
+      "y": 1,
       "z": 344.6239
     },
     {
@@ -106010,7 +106699,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 273.3846,
-      "y": 1.0,
+      "y": 1,
       "z": 309.4938
     },
     {
@@ -106019,7 +106708,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 226.5082,
-      "y": 1.0,
+      "y": 1,
       "z": 205.1868
     },
     {
@@ -106028,7 +106717,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 446.3269,
-      "y": 1.0,
+      "y": 1,
       "z": 151.8522
     },
     {
@@ -106037,7 +106726,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 408.5527,
-      "y": 1.0,
+      "y": 1,
       "z": 26.61
     },
     {
@@ -106046,7 +106735,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": 364.2977,
-      "y": 1.0,
+      "y": 1,
       "z": -70.3122
     },
     {
@@ -106055,7 +106744,7 @@
       "markerType": "PmcSpawn",
       "mapKey": "Woods",
       "x": -93.937,
-      "y": 1.0,
+      "y": 1,
       "z": 381.0218
     },
     {
@@ -106064,7 +106753,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": 183.88713577850888,
-      "y": 0.0,
+      "y": 0,
       "z": 210.92621248142768
     },
     {
@@ -106073,7 +106762,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": 185.02245881133467,
-      "y": 0.0,
+      "y": 0,
       "z": 250.094857113917
     },
     {
@@ -106082,7 +106771,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": -508.580954500846,
-      "y": 0.0,
+      "y": 0,
       "z": -41.905985011417215
     },
     {
@@ -106091,7 +106780,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": -205.3520560718364,
-      "y": 0.0,
+      "y": 0,
       "z": -203.31564004518964
     },
     {
@@ -106100,7 +106789,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": -512.9953991005714,
-      "y": 0.0,
+      "y": 0,
       "z": 153.0129742285485
     },
     {
@@ -106109,7 +106798,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": 349.98661486350875,
-      "y": 0.0,
+      "y": 0,
       "z": 330.2280264979695
     },
     {
@@ -106118,7 +106807,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": -716.1301304100657,
-      "y": 0.0,
+      "y": 0,
       "z": 119.68126909107718
     },
     {
@@ -106127,7 +106816,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": 103.3450076595741,
-      "y": 0.0,
+      "y": 0,
       "z": -834.9304566588909
     },
     {
@@ -106136,7 +106825,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": 224.3096036102114,
-      "y": 0.0,
+      "y": 0,
       "z": -686.1567421970657
     },
     {
@@ -106145,7 +106834,7 @@
       "markerType": "ScavExtraction",
       "mapKey": "Woods",
       "x": 408.3434530698157,
-      "y": 0.0,
+      "y": 0,
       "z": 237.60607961317646
     },
     {
@@ -106154,7 +106843,7 @@
       "markerType": "SniperScavSpawn",
       "mapKey": "Woods",
       "x": -136.3862,
-      "y": 1.0,
+      "y": 1,
       "z": -198.6555
     },
     {
@@ -106163,7 +106852,7 @@
       "markerType": "Transit",
       "mapKey": "Woods",
       "x": -152.77060600587606,
-      "y": 0.0,
+      "y": 0,
       "z": 396.1112293350525
     },
     {
@@ -106172,7 +106861,7 @@
       "markerType": "Transit",
       "mapKey": "Woods",
       "x": -365.9012626331835,
-      "y": 0.0,
+      "y": 0,
       "z": 354.88447445993893
     },
     {
@@ -106181,7 +106870,7 @@
       "markerType": "Transit",
       "mapKey": "Woods",
       "x": 468.7627480692638,
-      "y": 0.0,
+      "y": 0,
       "z": 337.43867816065176
     }
   ],
@@ -106191,8 +106880,8 @@
       "mapKey": "Customs",
       "floorId": "level2",
       "regionName": "Dorm 2fl",
-      "minY": 3.0,
-      "maxY": 6.0,
+      "minY": 3,
+      "maxY": 6,
       "minX": 165.64087161044404,
       "maxX": 243.8,
       "minZ": 126.9,
@@ -106204,8 +106893,8 @@
       "mapKey": "Customs",
       "floorId": "level3",
       "regionName": "Dorm 3fl",
-      "minY": 6.0,
-      "maxY": 10.0,
+      "minY": 6,
+      "maxY": 10,
       "minX": 165.59857459632644,
       "maxX": 243.84986945631817,
       "minZ": 126.88623180192121,
@@ -106217,8 +106906,8 @@
       "mapKey": "Customs",
       "floorId": "main",
       "regionName": "Dorm 1fl",
-      "minY": -1.0,
-      "maxY": 3.0,
+      "minY": -1,
+      "maxY": 3,
       "minX": 165.6,
       "maxX": 243.8,
       "minZ": 126.9,
@@ -106231,7 +106920,7 @@
       "floorId": "level2",
       "regionName": "New Region 1 (Copy)",
       "minY": 23.5,
-      "maxY": 32.0,
+      "maxY": 32,
       "minX": -206.4276764467529,
       "maxX": 123.63481829619457,
       "minZ": -333.95905735710005,
@@ -106243,8 +106932,8 @@
       "mapKey": "Interchange",
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy)",
-      "minY": 32.0,
-      "maxY": 50.0,
+      "minY": 32,
+      "maxY": 50,
       "minX": -206.4276764467529,
       "maxX": 123.63481829619457,
       "minZ": -333.95905735710005,
@@ -106256,7 +106945,7 @@
       "mapKey": "Interchange",
       "floorId": "main",
       "regionName": "New Region 1",
-      "minY": 22.0,
+      "minY": 22,
       "maxY": 23.5,
       "minX": -206.4276764467529,
       "maxX": 123.63481829619457,
@@ -106269,7 +106958,7 @@
       "mapKey": "Labs",
       "floorId": "basement",
       "regionName": "New Region 1",
-      "minY": -3.0,
+      "minY": -3,
       "maxY": -0.5,
       "minX": -297.6440681948763,
       "maxX": -84.5580467802899,
@@ -106282,8 +106971,8 @@
       "mapKey": "Labs",
       "floorId": "level2",
       "regionName": "New Region 1 (Copy) (Copy)",
-      "minY": 2.0,
-      "maxY": 10.0,
+      "minY": 2,
+      "maxY": 10,
       "minX": -297.6440681948763,
       "maxX": -84.5580467802899,
       "minZ": -495.66136235975756,
@@ -106296,7 +106985,7 @@
       "floorId": "main",
       "regionName": "New Region 1 (Copy)",
       "minY": -0.5,
-      "maxY": 2.0,
+      "maxY": 2,
       "minX": -297.6440681948763,
       "maxX": -84.5580467802899,
       "minZ": -495.66136235975756,
@@ -106308,8 +106997,8 @@
       "mapKey": "Reserve",
       "floorId": "bunker",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy)",
-      "minY": -20.0,
-      "maxY": -7.0,
+      "minY": -20,
+      "maxY": -7,
       "minX": -194.46116292498556,
       "maxX": 201.25179793172234,
       "minZ": -261.38807078239086,
@@ -106321,7 +107010,7 @@
       "mapKey": "Reserve",
       "floorId": "level2",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy) (Copy)",
-      "minY": -3.0,
+      "minY": -3,
       "maxY": -1.5,
       "minX": -177.79934619652698,
       "maxX": -149.70110925720334,
@@ -106361,7 +107050,7 @@
       "floorId": "level2",
       "regionName": "New Region 1 (Copy)",
       "minY": -3.5,
-      "maxY": -2.0,
+      "maxY": -2,
       "minX": -76.47708058605912,
       "maxX": -18.143970482147367,
       "minZ": -14.615528703203525,
@@ -106373,8 +107062,8 @@
       "mapKey": "Reserve",
       "floorId": "level2",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy)",
-      "minY": -3.0,
-      "maxY": -1.0,
+      "minY": -3,
+      "maxY": -1,
       "minX": -178.3824027588724,
       "maxX": -103.50270939486876,
       "minZ": -41.60087984250439,
@@ -106386,8 +107075,8 @@
       "mapKey": "Reserve",
       "floorId": "level2",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy)",
-      "minY": -3.0,
-      "maxY": -1.0,
+      "minY": -3,
+      "maxY": -1,
       "minX": -86.26969510644601,
       "maxX": -46.231559922472734,
       "minZ": -44.349487245753366,
@@ -106399,7 +107088,7 @@
       "mapKey": "Reserve",
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy) (Copy)",
-      "minY": -1.0,
+      "minY": -1,
       "maxY": 1.8,
       "minX": -178.3824027588724,
       "maxX": -103.50270939486876,
@@ -106413,7 +107102,7 @@
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy) (Copy) (Copy)",
       "minY": -1.5,
-      "maxY": 2.0,
+      "maxY": 2,
       "minX": -177.79934619652698,
       "maxX": -149.70110925720334,
       "minZ": 25.710406847956445,
@@ -106426,7 +107115,7 @@
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy)",
       "minY": -1.4,
-      "maxY": 2.0,
+      "maxY": 2,
       "minX": 68.11302819866665,
       "maxX": 101.92435432278256,
       "minZ": -53.421669636270714,
@@ -106438,8 +107127,8 @@
       "mapKey": "Reserve",
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy)",
-      "minY": -1.0,
-      "maxY": 1.0,
+      "minY": -1,
+      "maxY": 1,
       "minX": -86.26969510644601,
       "maxX": -46.231559922472734,
       "minZ": -44.349487245753366,
@@ -106452,7 +107141,7 @@
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy) (Copy)",
       "minY": -0.7,
-      "maxY": 1.0,
+      "maxY": 1,
       "minX": -1.997559885679303,
       "maxX": 33.78294339294174,
       "minZ": -34.334965474087916,
@@ -106464,8 +107153,8 @@
       "mapKey": "Reserve",
       "floorId": "level4",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy) (Copy) (Copy) (Copy)",
-      "minY": 2.0,
-      "maxY": 7.0,
+      "minY": 2,
+      "maxY": 7,
       "minX": -177.79934619652698,
       "maxX": -149.70110925720334,
       "minZ": 25.710406847956445,
@@ -106478,7 +107167,7 @@
       "floorId": "main",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy)",
       "minY": -5.7,
-      "maxY": -3.0,
+      "maxY": -3,
       "minX": -178.3824027588724,
       "maxX": -103.50270939486876,
       "minZ": -41.60087984250439,
@@ -106504,7 +107193,7 @@
       "floorId": "main",
       "regionName": "New Region 1 (Copy) (Copy) (Copy)",
       "minY": -5.7,
-      "maxY": -3.0,
+      "maxY": -3,
       "minX": -86.26969510644601,
       "maxX": -46.231559922472734,
       "minZ": -44.349487245753366,
@@ -106517,7 +107206,7 @@
       "floorId": "main",
       "regionName": "New Region 1 (Copy) (Copy) (Copy) (Copy) (Copy)",
       "minY": -5.7,
-      "maxY": -3.0,
+      "maxY": -3,
       "minX": -177.79934619652698,
       "maxX": -149.70110925720334,
       "minZ": 25.710406847956445,
@@ -106555,7 +107244,7 @@
       "mapKey": "Shoreline",
       "floorId": "basement",
       "regionName": "New Region 1 (Copy) (Copy) (Copy)",
-      "minY": -10.0,
+      "minY": -10,
       "maxY": -4.5,
       "minX": -372.8440593448304,
       "maxX": -125.33760026742175,
@@ -106568,8 +107257,8 @@
       "mapKey": "Shoreline",
       "floorId": "level2",
       "regionName": "New Region 1 (Copy)",
-      "minY": -2.0,
-      "maxY": 1.0,
+      "minY": -2,
+      "maxY": 1,
       "minX": -372.8440593448304,
       "maxX": -125.33760026742175,
       "minZ": -178.94528977462414,
@@ -106581,8 +107270,8 @@
       "mapKey": "Shoreline",
       "floorId": "level3",
       "regionName": "New Region 1 (Copy) (Copy)",
-      "minY": 1.0,
-      "maxY": 10.0,
+      "minY": 1,
+      "maxY": 10,
       "minX": -372.8440593448304,
       "maxX": -125.33760026742175,
       "minZ": -178.94528977462414,
@@ -106595,7 +107284,7 @@
       "floorId": "main",
       "regionName": "New Region 1",
       "minY": -4.5,
-      "maxY": -2.0,
+      "maxY": -2,
       "minX": -372.8440593448304,
       "maxX": -125.33760026742175,
       "minZ": -178.94528977462414,

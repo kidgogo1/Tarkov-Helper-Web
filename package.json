@@ -11,6 +11,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/copy-release-documents.mjs",
     "data:export": "python scripts/export_data.py",
+    "data:refresh-quests": "node scripts/refresh-quest-pack.mjs",
     "release:direct": "pnpm build && node scripts/create-direct-release.mjs",
     "test": "vitest",
     "test:portable": "pnpm build && node --test tests/portable/launcher.node.mjs tests/portable/lifecycle.node.mjs tests/portable/overlay.node.mjs tests/portable/package.node.mjs tests/portable/tracker.node.mjs",

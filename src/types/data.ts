@@ -4,6 +4,14 @@ export interface DataMeta {
   originalCommit: string;
   modifiedCommit: string;
   exportedAt: string;
+  sources?: {
+    localExportedAt?: string | null;
+    tarkovDataGeneratedAt?: string | null;
+    tarkovDataQuestCount?: number;
+    wikiQuestCount?: number;
+    wikiRevisionTimestamp?: string | null;
+    refreshMode?: string;
+  };
   counts: {
     quests: number;
     items: number;
