@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Headless quality gates
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Activate the locked pnpm version
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.16.0 --activate
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm exec vitest run
+
+      - name: Release contract tests
+        run: pnpm test:release
+
+      - name: Portable package tests
+        run: pnpm test:portable
+
+      - name: Headless browser tests
+        run: pnpm test:e2e
+
+      - name: Headless direct-release tests
+        run: pnpm test:e2e:direct

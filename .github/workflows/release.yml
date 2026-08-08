@@ -1,0 +1,430 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# Stable releases are serialized repository-wide so an older build cannot finish
+# after a newer one and replace it as the latest release.
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  RELEASE_REPOSITORY: ${{ github.repository }}
+  RELEASE_COMMIT: ${{ github.sha }}
+  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+jobs:
+  quality:
+    name: Headless release gates
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Check out the tagged revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Activate the locked pnpm version
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.16.0 --activate
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Assert tag, version, commit, and repository identity
+        shell: pwsh
+        run: >-
+          node scripts/assert-release-version.mjs
+          --tag $env:RELEASE_TAG
+          --commit $env:RELEASE_COMMIT
+          --repository $env:RELEASE_REPOSITORY
+          --require-repository
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm exec vitest run
+
+      - name: Release contract tests
+        run: pnpm test:release
+
+      - name: Portable package tests
+        run: pnpm test:portable
+
+      - name: Headless browser tests
+        run: pnpm test:e2e
+
+      - name: Headless direct-release tests
+        run: pnpm test:e2e:direct
+
+  package:
+    name: Build prepared release archives
+    needs: quality
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the tagged revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Activate the locked pnpm version
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.16.0 --activate
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Require the release commit on the protected default branch
+        shell: pwsh
+        run: |
+          git fetch --no-tags origin $env:RELEASE_DEFAULT_BRANCH
+          if ($LASTEXITCODE -ne 0) { throw "Unable to fetch the default branch" }
+          git merge-base --is-ancestor $env:RELEASE_COMMIT "refs/remotes/origin/$env:RELEASE_DEFAULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Release commit is not on the repository default branch" }
+          node scripts/assert-release-version.mjs --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --require-repository
+          if ($LASTEXITCODE -ne 0) { throw "Release identity validation failed" }
+
+      - name: Build static and Direct inputs
+        shell: pwsh
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "Static build failed" }
+          $directRoot = Join-Path $env:RUNNER_TEMP "direct-release-input"
+          node scripts/create-direct-release.mjs --output $directRoot
+          if ($LASTEXITCODE -ne 0) { throw "Direct release creation failed" }
+          $env:TARKOV_HELPER_DIRECT_ROOT = $directRoot
+          pnpm test:e2e:direct
+          if ($LASTEXITCODE -ne 0) { throw "Direct release headless test failed" }
+
+      - name: Create and verify deterministic prepared ZIPs
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PUBLIC_KEY)) {
+            throw "UPDATE_SIGNING_PUBLIC_KEY is required"
+          }
+          $directRoot = Join-Path $env:RUNNER_TEMP "direct-release-input"
+          $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
+          node scripts/create-release-bundle.mjs --direct $directRoot --static dist --output $seedRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --prepare-only
+          if ($LASTEXITCODE -ne 0) { throw "Prepared release creation failed" }
+          node scripts/verify-release-bundle.mjs --bundle $seedRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --prepared-only
+          if ($LASTEXITCODE -ne 0) { throw "Prepared release verification failed" }
+
+      - name: Transfer only prepared ZIPs to the protected publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-seed-${{ github.sha }}
+          path: ${{ runner.temp }}/release-seed/*.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    name: Sign, attest, and publish
+    needs: package
+    runs-on: windows-2025
+    timeout-minutes: 30
+    environment: github-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the tagged revision without credentials
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js without installing project dependencies
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Download prepared ZIPs into the fresh protected runner
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-seed-${{ github.sha }}
+          path: ${{ runner.temp }}/release-seed
+
+      - name: Revalidate trusted branch, tag, and prepared archives
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PUBLIC_KEY)) {
+            throw "UPDATE_SIGNING_PUBLIC_KEY is required"
+          }
+          git fetch --no-tags origin $env:RELEASE_DEFAULT_BRANCH
+          if ($LASTEXITCODE -ne 0) { throw "Unable to fetch the default branch" }
+          git merge-base --is-ancestor $env:RELEASE_COMMIT "refs/remotes/origin/$env:RELEASE_DEFAULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw "Release commit is not on the repository default branch" }
+          $tagCommit = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/commits/$env:RELEASE_TAG" --jq .sha
+          if ($LASTEXITCODE -ne 0 -or -not [string]::Equals($tagCommit.Trim(), $env:RELEASE_COMMIT, [System.StringComparison]::Ordinal)) {
+            throw "Remote tag no longer resolves to the workflow commit"
+          }
+          node scripts/assert-release-version.mjs --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --require-repository
+          if ($LASTEXITCODE -ne 0) { throw "Release identity validation failed" }
+          $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
+          node scripts/verify-release-bundle.mjs --bundle $seedRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --prepared-only
+          if ($LASTEXITCODE -ne 0) { throw "Prepared release verification failed on the protected runner" }
+
+      - name: Require immutable releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) permission"
+          }
+          $settings = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/immutable-releases" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $settings.enabled -ne $true) {
+            throw "Immutable releases must be enabled before publishing"
+          }
+
+      - name: Create or safely reuse the verified draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
+          $zipAssets = @(Get-ChildItem -LiteralPath $seedRoot -File -Filter "*.zip" | Sort-Object Name)
+          if ($zipAssets.Count -ne 3) { throw "Expected exactly three ZIP seed assets" }
+          $version = $env:RELEASE_TAG.Substring(1)
+          $allowedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+          @(
+            "tarkov-helper-web-direct-v$version.zip",
+            "tarkov-helper-web-static-v$version.zip",
+            "tarkov-helper-web-source-v$version.zip",
+            "update-manifest-v1.json",
+            "update-manifest-v1.sig",
+            "SHA256SUMS.txt"
+          ) | ForEach-Object { [void]$allowedNames.Add($_) }
+          function Get-ExactAsset([object]$release, [string]$name) {
+            return @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
+          }
+          function Read-Draft() {
+            $json = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to read the draft release" }
+            $value = $json | ConvertFrom-Json
+            if (-not $value.draft -or $value.prerelease -or -not [string]::Equals([string]$value.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)) {
+              throw "An existing release cannot be safely resumed"
+            }
+            return $value
+          }
+          $existingJson = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $release = $existingJson | ConvertFrom-Json
+            if (-not $release.draft -or $release.prerelease -or -not [string]::Equals([string]$release.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)) {
+              throw "An existing release cannot be safely resumed"
+            }
+          } else {
+            gh release create $env:RELEASE_TAG ($zipAssets | ForEach-Object FullName) --draft --generate-notes --title "Tarkov Helper $env:RELEASE_TAG" --verify-tag
+            if ($LASTEXITCODE -ne 0) { throw "Draft release creation failed" }
+            $release = Read-Draft
+          }
+          $unexpected = @($release.assets | Where-Object { -not $allowedNames.Contains([string]$_.name) })
+          if ($unexpected.Count -ne 0) { throw "Existing draft contains unexpected or case-mismatched assets" }
+          foreach ($zip in $zipAssets) {
+            $matches = @(Get-ExactAsset $release $zip.Name)
+            if ($matches.Count -gt 1) { throw "Duplicate draft ZIP asset: $($zip.Name)" }
+            if ($matches.Count -eq 0) {
+              gh release upload $env:RELEASE_TAG $zip.FullName
+              if ($LASTEXITCODE -ne 0) { throw "Missing ZIP upload failed; the draft was retained" }
+            }
+          }
+          for ($attempt = 1; $attempt -le 6; $attempt += 1) {
+            $release = Read-Draft
+            $ready = $true
+            foreach ($zip in $zipAssets) {
+              $matches = @(Get-ExactAsset $release $zip.Name)
+              if ($matches.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$matches[0].digest)) { $ready = $false; break }
+            }
+            if ($ready) { break }
+            if ($attempt -eq 6) { throw "GitHub did not report ZIP asset digests within the bounded wait" }
+            Start-Sleep -Seconds 2
+          }
+          foreach ($zip in $zipAssets) {
+            $matches = @(Get-ExactAsset $release $zip.Name)
+            $expectedDigest = "sha256:$((Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+            if ([int64]$matches[0].size -ne $zip.Length -or -not [string]::Equals([string]$matches[0].digest, $expectedDigest, [System.StringComparison]::Ordinal)) {
+              throw "Existing draft ZIP does not match the deterministic seed: $($zip.Name)"
+            }
+          }
+
+      - name: Finalize signed metadata on the protected runner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY_PEM)) { throw "The update signing private key is required" }
+          [Environment]::SetEnvironmentVariable(("UPDATE_SIGNING_" + "PRIVATE_KEY"), $env:SIGNING_KEY_PEM)
+          $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
+          $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $release.draft) { throw "Unable to resolve the draft release" }
+          function Get-AssetId([string]$name) {
+            $matches = @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
+            if ($matches.Count -ne 1) { throw "Draft asset identity mismatch for $name" }
+            return [int64]$matches[0].id
+          }
+          $version = $env:RELEASE_TAG.Substring(1)
+          $directId = Get-AssetId "tarkov-helper-web-direct-v$version.zip"
+          $staticId = Get-AssetId "tarkov-helper-web-static-v$version.zip"
+          $sourceId = Get-AssetId "tarkov-helper-web-source-v$version.zip"
+          node scripts/create-release-bundle.mjs --prepared $seedRoot --output $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
+          if ($LASTEXITCODE -ne 0) { throw "Final signed release bundle creation failed" }
+          foreach ($zip in Get-ChildItem -LiteralPath $bundleRoot -File -Filter "*.zip") {
+            $seed = Join-Path $seedRoot $zip.Name
+            if (-not (Test-Path -LiteralPath $seed -PathType Leaf)) { throw "Seed ZIP missing: $($zip.Name)" }
+            if ((Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $seed -Algorithm SHA256).Hash) {
+              throw "ZIP changed after GitHub asset ID assignment: $($zip.Name)"
+            }
+          }
+
+      - name: Attest every finalized release asset
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ runner.temp }}/release-assets/*
+
+      - name: Upload metadata, rebind IDs, and publish the pinned draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
+          $version = $env:RELEASE_TAG.Substring(1)
+          $expectedFiles = @(Get-ChildItem -LiteralPath $bundleRoot -File | Sort-Object Name)
+          function Get-ExactAsset([object]$release, [string]$name) {
+            return @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
+          }
+          function Read-Draft() {
+            $value = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not $value.draft) { throw "Unable to read the draft release" }
+            return $value
+          }
+          $release = Read-Draft
+          $missingMetadata = [System.Collections.Generic.List[string]]::new()
+          foreach ($file in $expectedFiles | Where-Object Extension -cne ".zip") {
+            $matches = @(Get-ExactAsset $release $file.Name)
+            if ($matches.Count -gt 1) { throw "Duplicate signed metadata asset: $($file.Name)" }
+            if ($matches.Count -eq 0) { $missingMetadata.Add($file.FullName); continue }
+            $expectedDigest = "sha256:$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+            if ([int64]$matches[0].size -ne $file.Length -or -not [string]::Equals([string]$matches[0].digest, $expectedDigest, [System.StringComparison]::Ordinal)) {
+              throw "Existing signed metadata cannot be safely replaced: $($file.Name)"
+            }
+          }
+          if ($missingMetadata.Count -ne 0) {
+            gh release upload $env:RELEASE_TAG $missingMetadata.ToArray()
+            if ($LASTEXITCODE -ne 0) { throw "Signed release metadata upload failed; the draft was retained" }
+          }
+          for ($attempt = 1; $attempt -le 6; $attempt += 1) {
+            $release = Read-Draft
+            $ready = $true
+            foreach ($file in $expectedFiles) {
+              $matches = @(Get-ExactAsset $release $file.Name)
+              if ($matches.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$matches[0].digest)) { $ready = $false; break }
+            }
+            if ($ready) { break }
+            if ($attempt -eq 6) { throw "GitHub did not report all release asset digests within the bounded wait" }
+            Start-Sleep -Seconds 2
+          }
+          if (@($release.assets).Count -ne $expectedFiles.Count) { throw "Uploaded release contains unexpected assets" }
+          foreach ($file in $expectedFiles) {
+            $matches = @(Get-ExactAsset $release $file.Name)
+            $expectedDigest = "sha256:$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+            if ([int64]$matches[0].size -ne $file.Length -or -not [string]::Equals([string]$matches[0].digest, $expectedDigest, [System.StringComparison]::Ordinal)) {
+              throw "Uploaded asset identity, size, or digest mismatch for $($file.Name)"
+            }
+          }
+          $directId = [int64](Get-ExactAsset $release "tarkov-helper-web-direct-v$version.zip")[0].id
+          $staticId = [int64](Get-ExactAsset $release "tarkov-helper-web-static-v$version.zip")[0].id
+          $sourceId = [int64](Get-ExactAsset $release "tarkov-helper-web-source-v$version.zip")[0].id
+          node scripts/verify-release-bundle.mjs --bundle $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
+          if ($LASTEXITCODE -ne 0) { throw "Signed manifest is not bound to the current GitHub release and asset IDs" }
+          $tagCommit = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/commits/$env:RELEASE_TAG" --jq .sha
+          if ($LASTEXITCODE -ne 0 -or -not [string]::Equals($tagCommit.Trim(), $env:RELEASE_COMMIT, [System.StringComparison]::Ordinal)) {
+            throw "Remote tag changed before publication"
+          }
+          $candidate = [System.Version]::Parse($version)
+          $publishedReleases = @(gh api -H "X-GitHub-Api-Version: 2026-03-10" --paginate --slurp "repos/$env:RELEASE_REPOSITORY/releases?per_page=100" | ConvertFrom-Json | ForEach-Object { $_ })
+          if ($LASTEXITCODE -ne 0) { throw "Unable to inspect existing stable releases" }
+          foreach ($item in $publishedReleases | Where-Object { -not $_.draft -and -not $_.prerelease -and $_.tag_name -match '^v[0-9]+\.[0-9]+\.[0-9]+$' }) {
+            if ([System.Version]::Parse($item.tag_name.Substring(1)) -ge $candidate) {
+              throw "A stable release with an equal or newer version already exists"
+            }
+          }
+          $releaseId = [int64]$release.id
+          gh api --method PATCH -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" -F draft=false -f make_latest=true | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Release publication failed; the verified draft was retained"
+          }
+          for ($attempt = 1; $attempt -le 6; $attempt += 1) {
+            $published = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw "Unable to read the published release by pinned ID" }
+            $publishedReady = -not $published.draft -and $published.immutable -eq $true
+            if ($publishedReady) {
+              foreach ($file in $expectedFiles) {
+                $asset = @(Get-ExactAsset $published $file.Name)
+                if ($asset.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$asset[0].digest)) { $publishedReady = $false; break }
+              }
+            }
+            if ($publishedReady) { break }
+            if ($attempt -eq 6) { throw "Published release did not become immutable within the bounded wait" }
+            Start-Sleep -Seconds 2
+          }
+          if ([int64]$published.id -ne $releaseId) {
+            throw "Published release did not retain the pinned release identity"
+          }
+          foreach ($file in $expectedFiles) {
+            $asset = @(Get-ExactAsset $published $file.Name)
+            if ($asset.Count -ne 1) { throw "Published asset identity mismatch for $($file.Name)" }
+            $expectedDigest = "sha256:$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+            if ([int64]$asset[0].size -ne $file.Length -or -not [string]::Equals([string]$asset[0].digest, $expectedDigest, [System.StringComparison]::Ordinal)) {
+              throw "Published asset digest mismatch for $($file.Name)"
+            }
+          }
+          if (
+            [int64](Get-ExactAsset $published "tarkov-helper-web-direct-v$version.zip")[0].id -ne $directId -or
+            [int64](Get-ExactAsset $published "tarkov-helper-web-static-v$version.zip")[0].id -ne $staticId -or
+            [int64](Get-ExactAsset $published "tarkov-helper-web-source-v$version.zip")[0].id -ne $sourceId
+          ) {
+            throw "Published ZIP asset IDs changed after manifest signing"
+          }

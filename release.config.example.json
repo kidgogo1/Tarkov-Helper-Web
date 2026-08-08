@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "product": "tarkov-helper-web",
+  "channel": "stable",
+  "repository": null,
+  "directRootName": "Tarkov Helper 바로 실행",
+  "updater": {
+    "enabled": false,
+    "protocolVersion": 1,
+    "configFile": "UPDATE_CONFIG.json",
+    "manifestAsset": "update-manifest-v1.json",
+    "signatureAsset": "update-manifest-v1.sig",
+    "requireImmutableRelease": true,
+    "signing": {
+      "algorithm": "RSA-SHA256",
+      "minimumRsaBits": 3072
+    }
+  }
+}
