@@ -49,23 +49,33 @@ function manifestText(files) {
   return files.map((file) => `${file.sha256}  ${file.size}  ${file.path}`).join("\n") + "\n";
 }
 
-function sourceCommit() {
+function sourceIdentity() {
   try {
     const commit = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: projectRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
+    if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error("Git returned an invalid source commit");
     const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
       cwd: projectRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    return status ? `${commit}-dirty` : commit;
-  } catch {
-    return "unavailable";
+    return { commit, label: status ? `${commit}-dirty` : commit };
+  } catch (error) {
+    throw new Error(`Unable to determine the source commit: ${error?.message ?? error}`);
   }
 }
+
+const packageDocument = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
+if (
+  typeof packageDocument.version !== "string" ||
+  !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(packageDocument.version)
+) {
+  throw new Error("package.json must contain a stable semantic version");
+}
+const source = sourceIdentity();
 
 const outputDirectory = readOutputArgument();
 const filesystemRoot = path.parse(outputDirectory).root;
@@ -83,6 +93,8 @@ await requireFile(path.join(distDirectory, "data", "tarkov-data.json"));
 await requireFile(path.join(distDirectory, "LICENSE"));
 await requireFile(path.join(distDirectory, "THIRD_PARTY_NOTICES.md"));
 await requireFile(path.join(portableDirectory, "launcher.ps1"));
+await requireFile(path.join(portableDirectory, "app-update-worker.ps1"));
+await requireFile(path.join(portableDirectory, "app-update-broker.ps1"));
 await requireFile(path.join(portableDirectory, "Tarkov Helper 실행.vbs"));
 await requireFile(path.join(portableDirectory, "Tarkov Helper 종료.vbs"));
 await requireFile(path.join(portableDirectory, "문제 해결용 실행.cmd"));
@@ -105,6 +117,8 @@ try {
   });
   for (const filename of [
     "launcher.ps1",
+    "app-update-worker.ps1",
+    "app-update-broker.ps1",
     "Tarkov Helper 실행.vbs",
     "Tarkov Helper 종료.vbs",
     "문제 해결용 실행.cmd",
@@ -114,6 +128,18 @@ try {
       errorOnExist: true,
     });
   }
+  await writeFile(path.join(outputDirectory, "UPDATE_CONFIG.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    updaterEnabled: false,
+    protocolVersion: 1,
+  }, null, 2)}\n`, "utf8");
+  await writeFile(path.join(outputDirectory, "app", "version.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    product: "tarkov-helper-web",
+    version: packageDocument.version,
+    commit: source.commit,
+    updaterProtocolVersion: 1,
+  }, null, 2)}\n`, "utf8");
   for (const filename of ["LICENSE", "README.md", "THIRD_PARTY_NOTICES.md"]) {
     await cp(path.join(distDirectory, filename), path.join(outputDirectory, filename), {
       errorOnExist: true,
@@ -126,7 +152,9 @@ try {
   const appTreeHash = createHash("sha256").update(appManifest, "utf8").digest("hex");
   const packageInfo = [
     "Tarkov Helper Web Direct Release",
-    `Source commit: ${sourceCommit()}`,
+    `Version: ${packageDocument.version}`,
+    `Source commit: ${source.label}`,
+    "Updater protocol: 1",
     `App files: ${appFiles.length}`,
     `App bytes: ${appBytes}`,
     `App tree SHA-256: ${appTreeHash}`,
