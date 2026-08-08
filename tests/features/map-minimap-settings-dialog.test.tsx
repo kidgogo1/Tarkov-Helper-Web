@@ -24,7 +24,9 @@ describe("MapMiniMapSettingsDialog", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: "미니맵 창 크기" }), {
       target: { value: "480" },
     });
-    fireEvent.change(screen.getByRole("slider", { name: "미니맵 확대율" }), {
+    const zoom = screen.getByRole("slider", { name: "미니맵 확대율" });
+    expect(zoom).toHaveAttribute("max", "1500");
+    fireEvent.change(zoom, {
       target: { value: "180" },
     });
     fireEvent.change(screen.getByRole("combobox", { name: "미니맵 화면 방식" }), {

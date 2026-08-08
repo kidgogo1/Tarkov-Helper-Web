@@ -254,7 +254,7 @@ function MiniMapSurface({
   }, [mapSettings.miniMapZoom]);
 
   const zoomBy = useCallback((direction: -1 | 1) => {
-    const nextZoom = Math.min(4, Math.max(0.01, zoomRef.current + direction * ZOOM_STEP));
+    const nextZoom = Math.min(15, Math.max(0.01, zoomRef.current + direction * ZOOM_STEP));
     zoomRef.current = nextZoom;
     updateMapSettings({ miniMapZoom: nextZoom });
   }, [updateMapSettings]);

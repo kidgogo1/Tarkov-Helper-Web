@@ -335,7 +335,7 @@ describe("AppStoreProvider", () => {
         questNameSize: 12,
         extractNameSize: 32,
         customMarkerOpacity: 0,
-        miniMapZoom: 4,
+        miniMapZoom: 15,
         miniMapWindowSize: 1000,
         miniMapOpacity: 0.1,
         miniMapPlayerMarkerScale: 0.5,

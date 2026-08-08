@@ -179,7 +179,7 @@ function normalizeMapSettings(
       ? clampInteger(next.miniMapWindowSize, 240, 1000)
       : current.miniMapWindowSize,
     miniMapZoom: Number.isFinite(next.miniMapZoom)
-      ? clamp(next.miniMapZoom, 0.01, 4)
+      ? clamp(next.miniMapZoom, 0.01, 15)
       : current.miniMapZoom,
     miniMapOpacity: Number.isFinite(next.miniMapOpacity)
       ? clamp(next.miniMapOpacity, 0.1, 1)

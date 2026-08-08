@@ -58,7 +58,7 @@ export function MapMiniMapSettingsDialog({
             <span>미니맵 확대율 {Math.round(mapSettings.miniMapZoom * 100)}%</span>
             <input
               aria-label="미니맵 확대율"
-              max="400"
+              max="1500"
               min="1"
               onChange={(event) => onUpdateMapSettings({
                 miniMapZoom: Number(event.target.value) / 100,
