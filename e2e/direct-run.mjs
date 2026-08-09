@@ -16,6 +16,7 @@ const launcherPath = directReleaseRoot
   : path.resolve("portable", "launcher.ps1");
 const outputDirectory = path.resolve("output", "playwright");
 const storageProbeKey = "tarkov-helper-direct-e2e";
+const serverStartupTimeoutMs = 30_000;
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-direct-e2e-"));
 const screenshotFolder = path.join(temporaryRoot, "Escape from Tarkov", "Screenshots");
 const stateDirectory = path.join(temporaryRoot, "state");
@@ -126,7 +127,7 @@ function startServer() {
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error(`Direct server startup timed out.\nstdout: ${stdout}\nstderr: ${stderr}`));
-    }, 10_000);
+    }, serverStartupTimeoutMs);
     const inspect = () => {
       const match = stdout.match(/TARKOV_HELPER_URL=(http:\/\/127\.0\.0\.1:41753\/)/);
       if (!match) return;

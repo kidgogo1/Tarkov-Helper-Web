@@ -44,6 +44,12 @@ test("CI is read-only and every browser test remains headless", async () => {
   assert.match(workflow, /pnpm test:release/);
 });
 
+test("the Direct E2E allows a bounded cold Windows launcher startup", async () => {
+  const script = await text("e2e/direct-run.mjs");
+  assert.match(script, /const serverStartupTimeoutMs = 30_000;/);
+  assert.match(script, /}, serverStartupTimeoutMs\);/);
+});
+
 test("release identity comes from GitHub context and signing is isolated from tagged code", async () => {
   const workflow = (await text(".github/workflows/release.yml")).replace(/\r\n?/g, "\n");
   const packageJob = /\n\x20{2}package:\n([\s\S]*?)\n\x20{2}finalize:\n/.exec(workflow)?.[1] ?? "";
