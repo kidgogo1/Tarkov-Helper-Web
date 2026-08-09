@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -413,7 +413,7 @@ test("portable updater exposes only the authenticated candidate API and hidden h
     readFile(workerPath, "utf8"),
     readFile(brokerPath, "utf8"),
   ]);
-  for (const route of ["session", "status", "check", "stage"]) assert.match(launcher, new RegExp(`/api/v1/app-update/${route}`));
+  for (const route of ["session", "status", "check", "stage", "apply"]) assert.match(launcher, new RegExp(`/api/v1/app-update/${route}`));
   assert.match(launcher, /X-Tarkov-Update/i);
   assert.match(launcher, /Sec-Fetch-Site/i);
   assert.match(launcher, /app-update-worker\.ps1/);
@@ -446,7 +446,7 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   appPort = await getFreePort();
   const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
     "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(appPort), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
-  ], { env, timeout: 15_000 });
+  ], { cwd: fixture.packageRoot, env, timeout: 15_000 });
   assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
   const base = `http://127.0.0.1:${appPort}/`;
 
@@ -471,6 +471,7 @@ test("authenticated API verifies, stages, and applies an immutable signed public
     "Sec-Fetch-Site": "same-origin",
     "X-Tarkov-Update": session.token,
   };
+  const originalInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
   const checkingResponse = await fetch(new URL("api/v1/app-update/check", base), {
     method: "POST",
     headers: mutationHeaders,
@@ -495,6 +496,13 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   assert.deepEqual(Object.keys(available).sort(), [
     "candidateId", "currentVersion", "downloadBytes", "latestVersion", "publishedAt", "releasePageUrl", "state",
   ]);
+
+  const applyBeforeReady = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST", headers: mutationHeaders, body: JSON.stringify({ candidateId: available.candidateId }),
+  });
+  assert.equal(applyBeforeReady.status, 409);
+  assert.equal((await applyBeforeReady.json()).error.code, "UPDATE_NOT_READY");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8")).pid, originalInstance.pid);
 
   const malformedCheck = await fetch(new URL("api/v1/app-update/check", base), {
     method: "POST", headers: mutationHeaders, body: JSON.stringify({ extra: true }),
@@ -524,6 +532,16 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   }, (status) => status?.state === "READY_TO_RESTART" || status?.state === "ERROR", 20_000);
   assert.equal(ready.state, "READY_TO_RESTART", JSON.stringify(ready));
   assert.equal(ready.candidateId, available.candidateId);
+  const malformedApply = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST", headers: mutationHeaders, body: "{}",
+  });
+  assert.equal(malformedApply.status, 422);
+  assert.equal((await malformedApply.json()).error.code, "INVALID_REQUEST");
+  const mismatchedApply = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST", headers: mutationHeaders, body: JSON.stringify({ candidateId: "z".repeat(43) }),
+  });
+  assert.equal(mismatchedApply.status, 409);
+  assert.equal((await mismatchedApply.json()).error.code, "CANDIDATE_MISMATCH");
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const readyRecheck = await fetch(new URL("api/v1/app-update/check", base), {
       method: "POST", headers: mutationHeaders, body: "{}",
@@ -532,20 +550,482 @@ test("authenticated API verifies, stages, and applies an immutable signed public
     assert.equal((await readyRecheck.json()).error.code, "UPDATE_READY");
   }
 
-  const stopped = runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env });
-  assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
-  const applied = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
-    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(appPort), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
-  ], { cwd: fixture.packageRoot, env, timeout: 60_000 });
-  assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const applyResponse = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: mutationHeaders,
+    body: JSON.stringify({ candidateId: available.candidateId }),
+  });
+  assert.equal(applyResponse.status, 202, `${await applyResponse.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const applying = (await applyResponse.json()).status;
+  assert.equal(applying.state, "APPLYING");
+  assert.equal(applying.currentVersion, "1.0.0");
+  assert.equal(applying.latestVersion, "1.1.0");
+  assert.match(applying.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const replacementSession = await waitFor(async () => {
+    const response = await fetch(new URL("api/v1/app-update/session", base), {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+    });
+    if (!response.ok) return null;
+    return response.json();
+  }, (value) => value?.status?.state === "UPDATED" && value?.status?.currentVersion === "1.1.0", 60_000);
+  assert.equal(replacementSession.status.currentVersion, "1.1.0");
+  assert.notEqual(replacementSession.token, session.token);
+  const replacementInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  assert.notEqual(replacementInstance.pid, originalInstance.pid);
+  assert.equal(replacementInstance.port, appPort);
   const version = JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8"));
   assert.equal(version.version, "1.1.0");
   const backupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-backup`);
   assert.equal(JSON.parse(await readFile(path.join(backupRoot, "app", "version.json"), "utf8")).version, "1.0.0");
-  const finalStatus = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
+  const finalStatus = await waitFor(
+    async () => JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8")),
+    (value) => value?.state === "UPDATED" || value?.state === "ERROR",
+    10_000,
+  );
   assert.equal(finalStatus.state, "UPDATED");
   assert.equal(finalStatus.currentVersion, "1.1.0");
   assert.equal((await stat(path.join(fixture.stateDirectory, "instance.json"))).isFile(), true);
+});
+
+test("live apply rejects a changed trusted broker without stopping the running server", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const originalInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  await appendFile(path.join(fixture.packageRoot, "app-update-broker.ps1"), "\n# changed after staging\n", "utf8");
+
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, "UPDATE_INVALID");
+  const currentInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  assert.equal(currentInstance.pid, originalInstance.pid);
+  assert.equal((await fetch(base)).status, 200);
+});
+
+test("live apply keeps the old server running when the durable handoff cannot start", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FAIL_HANDOFF_START: "1",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const originalInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 500);
+  assert.equal((await response.json()).error.code, "UPDATE_HANDOFF_FAILED");
+
+  const currentInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  assert.equal(currentInstance.pid, originalInstance.pid);
+  assert.equal(currentInstance.processStartTimeUtc, originalInstance.processStartTimeUtc);
+  assert.equal((await fetch(base)).status, 200);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8")).state, "READY_TO_RESTART");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "pending.json"), "utf8")).candidateId, ready.candidateId);
+});
+
+test("live apply cancels the acknowledged helper before recovering from a response-write failure", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FAIL_APPLY_RESPONSE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FAIL_HANDOFF_KILL: "1",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const originalInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 500);
+  assert.equal((await response.json()).error.code, "UPDATE_HANDOFF_CANCELLED");
+  const currentInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  assert.equal(currentInstance.pid, originalInstance.pid);
+  assert.equal(currentInstance.processStartTimeUtc, originalInstance.processStartTimeUtc);
+  assert.equal((await fetch(base)).status, 200);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8")).state, "READY_TO_RESTART");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "pending.json"), "utf8")).candidateId, ready.candidateId);
+
+  const stopped = runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+  assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "pending.json"), "utf8")).candidateId, ready.candidateId);
+});
+
+test("live apply gives a verified large-tree handoff a size-aware acknowledgement budget", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_HANDOFF_VERIFY_DELAY_MS: "11000",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 202, `${await response.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const replacement = await waitFor(async () => {
+    const result = await fetch(new URL("api/v1/app-update/session", base), {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+    });
+    if (!result.ok) return null;
+    return result.json();
+  }, (value) => value?.status?.state === "UPDATED", 60_000);
+  assert.equal(replacement.status.currentVersion, "1.1.0");
+});
+
+test("live apply does not lose an acknowledged handoff when best-effort ACK cleanup fails", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FAIL_HANDOFF_ACK_DELETE: "1",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 202, `${await response.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const replacement = await waitFor(async () => {
+    const result = await fetch(new URL("api/v1/app-update/session", base), {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+    });
+    if (!result.ok) return null;
+    return result.json();
+  }, (value) => value?.status?.state === "UPDATED", 60_000);
+  assert.equal(replacement.status.currentVersion, "1.1.0");
+});
+
+test("an update replacement with no first client lease shuts down after its handoff grace period", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FIRST_CLIENT_DEADLINE_MS: "1500",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 202, `${await response.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const finalStatus = await waitFor(
+    async () => JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8")),
+    (value) => value?.state === "UPDATED" || value?.state === "ERROR",
+    60_000,
+  );
+  assert.equal(finalStatus.state, "UPDATED", await updateDiagnostics(fixture.stateDirectory));
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.1.0");
+  const instanceState = await waitFor(async () => {
+    try {
+      return JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+    } catch (error) {
+      return { errorCode: error?.code };
+    }
+  }, (value) => value?.errorCode === "ENOENT", 8_000);
+  assert.equal(instanceState.errorCode, "ENOENT");
+});
+
+test("an update replacement keeps its existing last-tab close semantics after the first lease", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FIRST_CLIENT_DEADLINE_MS: "3000",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const updateSession = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const applyResponse = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": updateSession.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(applyResponse.status, 202, `${await applyResponse.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const clientSession = await waitFor(async () => {
+    const result = await fetch(new URL("api/v1/client/session", base));
+    if (!result.ok) return null;
+    return result.json();
+  }, (value) => typeof value?.leaseToken === "string", 60_000);
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  assert.equal((await fetch(base)).status, 200, "the first lease must permanently disarm the one-shot handoff deadline");
+  const closeResponse = await fetch(new URL("api/v1/client/close", base), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: base.slice(0, -1) },
+    body: JSON.stringify({ leaseToken: clientSession.leaseToken }),
+  });
+  assert.equal(closeResponse.status, 204);
+  const instanceState = await waitFor(async () => {
+    try {
+      return JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+    } catch (error) {
+      return { errorCode: error?.code };
+    }
+  }, (value) => value?.errorCode === "ENOENT", 8_000);
+  assert.equal(instanceState.errorCode, "ENOENT");
+});
+
+test("a rollback replacement with no first client lease also shuts down after its handoff grace period", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH: "1",
+    TARKOV_HELPER_UPDATE_TEST_FIRST_CLIENT_DEADLINE_MS: "1500",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 202, `${await response.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const finalStatus = await waitFor(
+    async () => JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8")),
+    (value) => value?.state === "ERROR",
+    60_000,
+  );
+  assert.equal(finalStatus.currentVersion, "1.0.0");
+  assert.equal(finalStatus.code, "APPLY_FAILED", await updateDiagnostics(fixture.stateDirectory));
+  const instanceState = await waitFor(async () => {
+    try {
+      return JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+    } catch (error) {
+      return { errorCode: error?.code };
+    }
+  }, (value) => value?.errorCode === "ENOENT", 8_000);
+  assert.equal(instanceState.errorCode, "ENOENT");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+});
+
+test("live apply health failure automatically restores the old server on the same port", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH: "1",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const base = `http://127.0.0.1:${port}/`;
+  const session = await (await fetch(new URL("api/v1/app-update/session", base), {
+    headers: { "Sec-Fetch-Site": "same-origin" },
+  })).json();
+  const response = await fetch(new URL("api/v1/app-update/apply", base), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: base.slice(0, -1),
+      "Sec-Fetch-Site": "same-origin",
+      "X-Tarkov-Update": session.token,
+    },
+    body: JSON.stringify({ candidateId: ready.candidateId }),
+  });
+  assert.equal(response.status, 202, `${await response.clone().text()}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+
+  const restored = await waitFor(async () => {
+    const result = await fetch(new URL("api/v1/app-update/session", base), {
+      headers: { "Sec-Fetch-Site": "same-origin" },
+    });
+    if (!result.ok) return null;
+    return result.json();
+  }, (value) => value?.status?.state === "ERROR", 60_000);
+  assert.equal(restored.status.currentVersion, "1.0.0");
+  assert.equal(restored.status.operation, "APPLY");
+  assert.equal(restored.status.code, "APPLY_FAILED");
+  assert.notEqual(restored.token, session.token);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  assert.equal(JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8")).port, port);
 });
 
 test("worker fails closed on a tampered detached manifest signature", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {

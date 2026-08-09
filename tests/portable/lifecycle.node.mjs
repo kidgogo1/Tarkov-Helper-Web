@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
@@ -14,7 +14,7 @@ const startVbsPath = path.join(portableRoot, "Tarkov Helper 실행.vbs");
 const stopVbsPath = path.join(portableRoot, "Tarkov Helper 종료.vbs");
 const diagnosticCommandPath = path.join(portableRoot, "문제 해결용 실행.cmd");
 
-function runLauncher(arguments_, timeout = 15_000) {
+function runLauncher(arguments_, timeout = 15_000, options = {}) {
   return spawnSync(
     "powershell.exe",
     [
@@ -27,7 +27,7 @@ function runLauncher(arguments_, timeout = 15_000) {
       launcherPath,
       ...arguments_,
     ],
-    { encoding: "utf8", windowsHide: true, timeout },
+    { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout },
   );
 }
 
@@ -59,12 +59,13 @@ test("double-click scripts start and stop the hidden broker without a console", 
   assert.match(launcher, /Start-Process[\s\S]*-WindowStyle Hidden/i);
   const launcherStarts = launcher.match(/^\s*(?:\$\w+\s*=\s*)?Start-Process\b/gm) ?? [];
   const hiddenLauncherStarts = launcher.match(/^\s*(?:\$\w+\s*=\s*)?Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/gm) ?? [];
-  assert.equal(launcherStarts.length, 3);
+  assert.ok(launcherStarts.length >= 3, "expected the launcher, worker, and update handoff process starts");
   assert.equal(hiddenLauncherStarts.length, launcherStarts.length);
   assert.match(updateBroker, /Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/i);
   assert.equal((launcher.match(/Get-StateMutexName -Purpose "Control"/g) ?? []).length, 2);
   assert.match(launcher, /function Get-FileSha256Hex/);
   assert.match(launcher, /Get-FileSha256Hex -Path \$PSCommandPath/);
+  assert.match(launcher, /\$Root = \$rootPath[\s\S]*?\$ScreenshotFolder = \[IO\.Path\]::GetFullPath\(\$ScreenshotFolder\)[\s\S]*?\$StateDirectory = \[IO\.Path\]::GetFullPath\(\$serveWorkingDirectory\)[\s\S]*?SetCurrentDirectory/);
 });
 
 test("Start reuses one hidden server and Stop gracefully terminates only its recorded instance", { skip: process.platform !== "win32" }, async (t) => {
@@ -152,6 +153,44 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
   assert.equal(stoppedAgain.status, 0, `${stoppedAgain.stdout}\n${stoppedAgain.stderr}`);
 });
 
+test("Start resolves relative root, state, and screenshot paths before changing the child CWD", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-relative-start-"));
+  const packageRoot = path.join(temporaryRoot, "package");
+  const appRoot = path.join(packageRoot, "app");
+  const screenshotFolder = path.join(temporaryRoot, "screenshots");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  await mkdir(appRoot, { recursive: true });
+  await mkdir(screenshotFolder);
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Relative path test</title>", "utf8");
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", "app",
+    "-Port", "0",
+    "-NoBrowser",
+    "-ScreenshotFolder", `${path.join("..", "screenshots")}${path.sep}`,
+    "-StateDirectory", path.join("..", "state"),
+  ], 15_000, { cwd: packageRoot });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const instance = JSON.parse(await readFile(path.join(stateDirectory, "instance.json"), "utf8"));
+  assert.equal(instance.rootPath, await realpath(appRoot));
+  let config;
+  await waitFor(async () => {
+    try {
+      config = JSON.parse(await readFile(path.join(stateDirectory, "config.json"), "utf8"));
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  });
+  assert.equal(config.screenshotFolder, `${await realpath(screenshotFolder)}${path.sep}`);
+});
+
 test("the authenticated browser lease shuts the server down after the tab closes", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-client-lease-"));
   const appRoot = path.join(temporaryRoot, "app");
@@ -212,11 +251,50 @@ test("the authenticated browser lease shuts the server down after the tab closes
   await assert.rejects(fetch(baseUrl));
 });
 
-test("lease expiry is not an automatic server shutdown mechanism", async () => {
+test("direct Serve moves its process CWD out of the package before a live swap", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-serve-cwd-"));
+  const packageRoot = path.join(temporaryRoot, "package");
+  const movedPackageRoot = path.join(temporaryRoot, "package-moved");
+  const appRoot = path.join(packageRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "runtime", "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  await mkdir(appRoot, { recursive: true });
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Serve CWD test</title>", "utf8");
+
+  const child = spawn(
+    "powershell.exe",
+    [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", launcherPath,
+      "-Action", "Serve", "-Root", "app", "-Port", "0", "-NoBrowser", "-StateDirectory", path.join("..", "runtime", "state"),
+    ],
+    { cwd: packageRoot, stdio: "ignore", windowsHide: true },
+  );
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    if (child.exitCode === null) spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  await waitFor(async () => {
+    try {
+      return Boolean(JSON.parse(await readFile(instancePath, "utf8")).pid);
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  });
+  await rename(packageRoot, movedPackageRoot);
+  const stopped = runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 10_000);
+  assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+});
+
+test("lease expiry never shuts down an armed client lifecycle", async () => {
   const launcher = await readFile(launcherPath, "utf8");
   const updateFunction = launcher.match(/function Update-ClientLeases[\s\S]*?\n}\r?\n\r?\nfunction Initialize-NativeOverlayBridge/);
   assert(updateFunction, "Expected the client lease maintenance function.");
-  assert.doesNotMatch(updateFunction[0], /\$script:\s*shutdownRequested\s*=\s*\$true/);
+  assert.match(updateFunction[0], /-not \$script:clientLifecycleArmed[\s\S]*?clientFirstLeaseDeadlineUtc[\s\S]*?shutdownRequested/);
+  const armedLeaseMaintenance = updateFunction[0].slice(updateFunction[0].indexOf("foreach ($token"));
+  assert.doesNotMatch(armedLeaseMaintenance, /\$script:\s*shutdownRequested\s*=\s*\$true/);
   assert.match(launcher, /if \(\$Closing\)[\s\S]*?clientLeases\.Remove\(\$Token\)[\s\S]*?clientLeases\.Count -eq 0[\s\S]*?shutdownRequested/);
 });
 

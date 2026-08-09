@@ -293,6 +293,12 @@
   font-size: 13px;
 }
 
+.update-status progress {
+  min-width: 120px;
+  flex: 1 1 180px;
+  accent-color: var(--accent);
+}
+
 .update-status.muted {
   color: var(--text-muted);
 }

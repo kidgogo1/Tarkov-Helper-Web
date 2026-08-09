@@ -435,7 +435,8 @@ export function SettingsDialog({
                   clientError={publicUpdate.clientError}
                   initializing={publicUpdate.initializing}
                   onCheck={publicUpdate.check}
-                  onStage={publicUpdate.stage}
+                  onInstall={publicUpdate.install}
+                  onApply={publicUpdate.apply}
                   session={publicUpdate.session}
                   status={publicUpdate.status}
                 />

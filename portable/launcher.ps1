@@ -62,6 +62,21 @@ $appUpdateToken = $null
 $clientLeaseTimeoutSeconds = 600
 $clientLeases = @{}
 $clientLifecycleArmed = $false
+$clientFirstLeaseDeadlineUtc = [DateTime]::MaxValue
+if (-not [string]::IsNullOrWhiteSpace($UpdateNonce)) {
+    $firstLeaseDeadlineMilliseconds = 300000
+    if (-not [string]::IsNullOrWhiteSpace($env:TARKOV_HELPER_UPDATE_TEST_FIRST_CLIENT_DEADLINE_MS)) {
+        if (
+            -not [int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_FIRST_CLIENT_DEADLINE_MS, [ref]$firstLeaseDeadlineMilliseconds) -or
+            $firstLeaseDeadlineMilliseconds -lt 500 -or
+            $firstLeaseDeadlineMilliseconds -gt 300000
+        ) {
+            [Console]::Error.WriteLine("The internal replacement first-client deadline is invalid.")
+            exit 2
+        }
+    }
+    $clientFirstLeaseDeadlineUtc = [DateTime]::UtcNow.AddMilliseconds($firstLeaseDeadlineMilliseconds)
+}
 
 function Get-ScreenshotCandidates {
     $paths = New-Object 'Collections.Generic.List[string]'
@@ -745,8 +760,19 @@ function Touch-ClientLease {
 }
 
 function Update-ClientLeases {
-    if (-not $script:clientLifecycleArmed) { return }
     $now = [DateTime]::UtcNow
+    if (-not $script:clientLifecycleArmed) {
+        if ($script:clientFirstLeaseDeadlineUtc -ne [DateTime]::MaxValue -and $now -ge $script:clientFirstLeaseDeadlineUtc) {
+            # Update/rollback Serve processes start hidden so the broker can
+            # authenticate them. If every tab disappeared during the restart,
+            # no first lease will arrive; retire only that replacement instead
+            # of leaving a permanent background server. Normal Serve processes
+            # have no deadline, and the first lease restores existing semantics.
+            Write-PortableLog "Update replacement stopped because no client acquired its first lease before the handoff deadline."
+            $script:shutdownRequested = $true
+        }
+        return
+    }
     foreach ($token in @($script:clientLeases.Keys)) {
         if ($script:clientLeases[$token] -le $now) {
             $script:clientLeases.Remove($token)
@@ -2623,6 +2649,11 @@ function Stop-SpawnedPortableChild {
 }
 
 function Invoke-PendingAppUpdate {
+    param(
+        [switch]$ValidateOnly,
+        [string]$ExpectedCandidate = ""
+    )
+
     $pendingPath = Get-AppUpdatePendingPath
     if (-not [IO.File]::Exists($pendingPath)) { return $null }
     if ($Port -eq 0) {
@@ -2635,6 +2666,7 @@ function Invoke-PendingAppUpdate {
     if (
         -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
         $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
+        (-not [string]::IsNullOrWhiteSpace($ExpectedCandidate) -and $pending.candidateId -cne $ExpectedCandidate) -or
         -not ([string]$pending.packageRoot).Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
         -not ([string]$pending.stateDirectory).Equals([IO.Path]::GetFullPath($StateDirectory), [StringComparison]::OrdinalIgnoreCase) -or
         $pending.port -ne $Port -or
@@ -2662,6 +2694,7 @@ function Invoke-PendingAppUpdate {
             } else { [IO.File]::Move($temporary, $broker) }
         } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
     }
+    if ($ValidateOnly) { return 0 }
     $powershell = Join-Path $PSHOME "powershell.exe"; if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
     $arguments = @(
         "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $broker,
@@ -2710,6 +2743,248 @@ function Invoke-PendingAppUpdate {
     return 2
 }
 
+function Stop-AppUpdateHandoffProcess {
+    param([object]$Handoff)
+
+    if ($null -eq $Handoff -or $null -eq $Handoff.Process) { return }
+    $process = [Diagnostics.Process]$Handoff.Process
+    $processId = [int]$Handoff.ProcessId
+    $processStartTimeUtc = [string]$Handoff.ProcessStartTimeUtc
+    $isExactProcessRunning = {
+        $current = $null
+        try {
+            $current = [Diagnostics.Process]::GetProcessById($processId)
+        } catch [ArgumentException] {
+            # GetProcessById proves that the exact PID no longer exists.
+            return $false
+        } catch {
+            # An access or inspection failure is not proof of exit.
+            return $true
+        }
+        try {
+            if ($current.HasExited) { return $false }
+            $currentStart = $current.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+            return $currentStart -ceq $processStartTimeUtc
+        } catch {
+            # Metadata failure is likewise not proof of exit. Keep the old
+            # request blocked until exact helper termination is established.
+            return $true
+        } finally {
+            if ($null -ne $current) { $current.Dispose() }
+        }
+    }
+    if (-not (& $isExactProcessRunning)) { return }
+
+    try {
+        Write-AppUpdateJson -Path ([string]$Handoff.CancelPath) -Value $Handoff.CancelValue
+    } catch {
+        Write-PortableLog "The live update cancellation marker could not be written; exact helper termination is required."
+    }
+
+    $cooperativeDeadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ((& $isExactProcessRunning) -and [DateTime]::UtcNow -lt $cooperativeDeadline) {
+        Start-Sleep -Milliseconds 100
+    }
+    if ((& $isExactProcessRunning) -and $env:TARKOV_HELPER_UPDATE_TEST_FAIL_HANDOFF_KILL -cne "1") {
+        try {
+            $process.Kill()
+        } catch {
+            Write-PortableLog "The live update handoff helper rejected forced termination; waiting for exact exit."
+        }
+    }
+
+    # Never resume the old request loop while the exact acknowledged helper is
+    # still alive. It could otherwise observe a later tab-close/Stop and apply a
+    # request whose response was reported as failed.
+    while (& $isExactProcessRunning) {
+        Start-Sleep -Milliseconds 100
+    }
+    if ([IO.File]::Exists([string]$Handoff.CancelPath)) {
+        [IO.File]::Delete([string]$Handoff.CancelPath)
+    }
+}
+
+function Get-AppUpdateHandoffAckTimeoutSeconds {
+    param([object]$Pending)
+
+    if (
+        $Pending.fileCount -isnot [int] -or
+        $Pending.fileCount -lt 1 -or
+        $Pending.fileCount -gt 10000 -or
+        (-not (($Pending.unpackedBytes -is [int]) -or ($Pending.unpackedBytes -is [long]))) -or
+        [long]$Pending.unpackedBytes -lt 1 -or
+        [long]$Pending.unpackedBytes -gt 1073741824
+    ) {
+        throw [IO.InvalidDataException]::new("The staged update verification budget is invalid.")
+    }
+    $sizeMiB = [Math]::Ceiling(([double][long]$Pending.unpackedBytes) / 1048576.0)
+    $fileBatches = [Math]::Ceiling(([double][int]$Pending.fileCount) / 100.0)
+    # Budget for a conservative 0.5 MiB/s hash pass plus 100 files/s metadata
+    # overhead, bounded to 45 minutes for the worker's 1 GiB / 10,000-file caps.
+    return [int][Math]::Min(2700.0, [Math]::Max(30.0, 30.0 + (2.0 * $sizeMiB) + $fileBatches))
+}
+
+function Start-AppUpdateHandoff {
+    param(
+        [Parameter(Mandatory = $true)][string]$CandidateId,
+        [ValidateRange(1, 65535)][int]$BoundPort
+    )
+
+    if ((Invoke-PendingAppUpdate -ValidateOnly -ExpectedCandidate $CandidateId) -ne 0) {
+        throw [IO.InvalidDataException]::new("The staged update could not be prepared for live handoff.")
+    }
+    $pendingPath = Get-AppUpdatePendingPath
+    $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
+    $instance = Read-PortableInstance
+    $expectedRootPath = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $currentProcessStartTimeUtc = (Get-Process -Id $PID -ErrorAction Stop).StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    if (
+        $null -eq $pending -or
+        $pending.candidateId -cne $CandidateId -or
+        $pending.port -ne $BoundPort -or
+        $null -eq $instance -or
+        $instance.pid -ne $PID -or
+        $instance.processStartTimeUtc -cne $currentProcessStartTimeUtc -or
+        $instance.port -ne $BoundPort -or
+        $instance.buildIdentity -cne $buildIdentity -or
+        -not ([string]$instance.rootPath).Equals($expectedRootPath, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-RecordedProcessIdentity -Instance $instance)
+    ) {
+        throw [Security.SecurityException]::new("The running server does not match the staged live update.")
+    }
+    $ackTimeoutSeconds = Get-AppUpdateHandoffAckTimeoutSeconds -Pending $pending
+
+    $directory = Get-AppUpdateDirectory
+    $broker = Join-Path $directory ("broker-" + [string]$pending.brokerSha256 + ".ps1")
+    if (
+        -not [IO.File]::Exists($broker) -or
+        (Get-FileSha256Hex -Path $broker) -cne [string]$pending.brokerSha256
+    ) {
+        throw [Security.Cryptography.CryptographicException]::new("The trusted live update broker is unavailable.")
+    }
+    $handoffNonce = Get-RandomToken
+    $ackPath = Join-Path $directory ("handoff-" + $handoffNonce + ".json")
+    $cancelPath = Join-Path $directory ("handoff-" + $handoffNonce + ".cancel.json")
+    if ([IO.File]::Exists($ackPath) -or [IO.File]::Exists($cancelPath)) {
+        throw [IO.IOException]::new("The live update handoff path is already occupied.")
+    }
+
+    $powershell = Join-Path $PSHOME "powershell.exe"
+    if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
+    $arguments = @(
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $broker,
+        "-PlanPath", $pendingPath,
+        "-ExpectedPackageRoot", [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar),
+        "-StateDirectory", $StateDirectory,
+        "-Port", [string]$BoundPort,
+        "-WaitForProcessId", [string]$PID,
+        "-WaitForProcessStartTimeUtc", [string]$instance.processStartTimeUtc,
+        "-ExpectedOldBuildIdentity", $buildIdentity,
+        "-ExpectedCandidate", $CandidateId,
+        "-HandoffNonce", $handoffNonce,
+        "-HandoffAckPath", $ackPath,
+        "-HandoffCancelPath", $cancelPath
+    )
+    if ($env:TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE -ceq "1") { $arguments += "-SkipRunOnce" }
+    if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH -ceq "1") { $arguments += "-TestFailHealth" }
+    if ($env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE -in @("PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK", "ROLLED_BACK")) {
+        $arguments += @("-TestCrashAfterPhase", [string]$env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:TARKOV_HELPER_UPDATE_TEST_HANDOFF_VERIFY_DELAY_MS)) {
+        $handoffVerifyDelay = 0
+        if (
+            -not [int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_HANDOFF_VERIFY_DELAY_MS, [ref]$handoffVerifyDelay) -or
+            $handoffVerifyDelay -lt 0 -or
+            $handoffVerifyDelay -gt 120000
+        ) {
+            throw [ArgumentOutOfRangeException]::new("TARKOV_HELPER_UPDATE_TEST_HANDOFF_VERIFY_DELAY_MS")
+        }
+        $arguments += @("-TestHandoffVerifyDelayMilliseconds", [string]$handoffVerifyDelay)
+    }
+    $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
+    $child = $null
+    $handoff = $null
+    try {
+        if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_HANDOFF_START -ceq "1") {
+            throw [InvalidOperationException]::new("Injected live update handoff start failure.")
+        }
+        $child = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WorkingDirectory $StateDirectory -WindowStyle Hidden -PassThru
+        $childStartTime = $child.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+        $handoff = [pscustomobject]@{
+            Process = $child
+            ProcessId = $child.Id
+            ProcessStartTimeUtc = $childStartTime
+            CancelPath = $cancelPath
+            CancelValue = [ordered]@{
+                schemaVersion = 1
+                state = "CANCEL"
+                handoffNonce = $handoffNonce
+                candidateId = $CandidateId
+                packageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+                port = $BoundPort
+                oldProcessId = $PID
+                oldProcessStartTimeUtc = [string]$instance.processStartTimeUtc
+                brokerPid = $child.Id
+                brokerProcessStartTimeUtc = $childStartTime
+            }
+        }
+        $deadline = [DateTime]::UtcNow.AddSeconds($ackTimeoutSeconds)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $child.Refresh()
+            if ($child.HasExited) {
+                throw [InvalidOperationException]::new("The live update handoff helper exited before acknowledgement.")
+            }
+            $ack = Read-AppUpdateJson -Path $ackPath -MaximumBytes 65536
+            if ($null -ne $ack) {
+                if (
+                    -not (Test-AppUpdateObjectShape $ack @("schemaVersion", "state", "handoffNonce", "candidateId", "packageRoot", "port", "oldProcessId", "oldProcessStartTimeUtc", "oldBuildIdentity", "brokerPid", "brokerProcessStartTimeUtc")) -or
+                    $ack.schemaVersion -ne 1 -or
+                    $ack.state -cne "READY" -or
+                    $ack.handoffNonce -cne $handoffNonce -or
+                    $ack.candidateId -cne $CandidateId -or
+                    -not ([string]$ack.packageRoot).Equals([IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or
+                    $ack.port -ne $BoundPort -or
+                    $ack.oldProcessId -ne $PID -or
+                    $ack.oldProcessStartTimeUtc -cne [string]$instance.processStartTimeUtc -or
+                    $ack.oldBuildIdentity -cne $buildIdentity -or
+                    $ack.brokerPid -ne $child.Id -or
+                    $ack.brokerProcessStartTimeUtc -cne $childStartTime
+                ) {
+                    throw [Security.SecurityException]::new("The live update handoff acknowledgement is invalid.")
+                }
+                return $handoff
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        throw [TimeoutException]::new("The live update handoff helper did not acknowledge readiness.")
+    } catch {
+        if ($null -ne $handoff) {
+            Stop-AppUpdateHandoffProcess -Handoff $handoff
+        } elseif ($null -ne $child) {
+            # Start-Process succeeded but the exact cancellation identity could
+            # not be constructed. Do not return to the old request loop until
+            # that Process object has definitely exited.
+            try { $child.Kill() } catch { }
+            $child.WaitForExit()
+        }
+        throw
+    } finally {
+        if ([IO.File]::Exists($ackPath)) {
+            try {
+                if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_HANDOFF_ACK_DELETE -ceq "1") {
+                    throw [IO.IOException]::new("Injected live update acknowledgement cleanup failure.")
+                }
+                [IO.File]::Delete($ackPath)
+            } catch {
+                # The nonce-scoped ACK is neither an apply trigger nor reused.
+                # Cleanup must not override a verified handoff return and leave
+                # its already-running broker unowned by the caller.
+                Write-PortableLog "A stale live update acknowledgement could not be removed."
+            }
+        }
+    }
+}
+
 function Start-PortableBroker {
     $mutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Control"))
     $hasMutex = $false
@@ -2727,6 +3002,11 @@ function Start-PortableBroker {
         }
 
         $expectedRootPath = [IO.Path]::GetFullPath($Root)
+        $expectedStateDirectory = Initialize-StateDirectory
+        $expectedScreenshotFolder = ""
+        if (-not [string]::IsNullOrWhiteSpace($ScreenshotFolder)) {
+            $expectedScreenshotFolder = [IO.Path]::GetFullPath($ScreenshotFolder)
+        }
         $expectedBuildIdentity = Get-AppBuildIdentity -AppRoot $expectedRootPath
         $instancePath = Get-InstancePath
         $stateExists = [IO.File]::Exists($instancePath)
@@ -2784,20 +3064,21 @@ function Start-PortableBroker {
             "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", $PSCommandPath,
             "-Action", "Serve",
-            "-Root", $Root,
+            "-Root", $expectedRootPath,
             "-Port", [string]$Port,
             "-NoBrowser",
-            "-StateDirectory", $StateDirectory
+            "-StateDirectory", $expectedStateDirectory
         )
-        if (-not [string]::IsNullOrWhiteSpace($ScreenshotFolder)) {
-            $serveArguments += @("-ScreenshotFolder", $ScreenshotFolder)
+        if (-not [string]::IsNullOrWhiteSpace($expectedScreenshotFolder)) {
+            $serveArguments += @("-ScreenshotFolder", $expectedScreenshotFolder)
         }
         $argumentLine = ($serveArguments | ForEach-Object { ConvertTo-ProcessArgument -Value ([string]$_) }) -join " "
-        $directory = Initialize-StateDirectory
+        $directory = $expectedStateDirectory
         $serveOut = Join-Path $directory "server.stdout.log"
         $serveError = Join-Path $directory "server.stderr.log"
         $child = Start-Process -FilePath $powershellPath -ArgumentList $argumentLine `
-            -WindowStyle Hidden -PassThru -RedirectStandardOutput $serveOut -RedirectStandardError $serveError
+            -WorkingDirectory $directory -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $serveOut -RedirectStandardError $serveError
 
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         while ([DateTime]::UtcNow -lt $deadline) {
@@ -2900,14 +3181,30 @@ if ($Action -eq "Stop") {
 
 try {
     $rootPath = [IO.Path]::GetFullPath($Root)
+    $Root = $rootPath
+    if (-not [string]::IsNullOrWhiteSpace($ScreenshotFolder)) {
+        $ScreenshotFolder = [IO.Path]::GetFullPath($ScreenshotFolder)
+    }
 } catch {
-    [Console]::Error.WriteLine("Invalid app directory: $Root")
+    [Console]::Error.WriteLine("Invalid app or screenshot directory.")
     exit 2
 }
 
 $indexPath = Join-Path $rootPath "index.html"
 if (-not [IO.File]::Exists($indexPath)) {
     [Console]::Error.WriteLine("The app directory must contain index.html: $rootPath")
+    exit 2
+}
+
+try {
+    # Direct diagnostic Serve can be launched while Explorer's current
+    # directory is the portable package. Move this long-lived process onto
+    # persistent state before it can participate in a live directory swap.
+    $serveWorkingDirectory = Initialize-StateDirectory
+    $StateDirectory = [IO.Path]::GetFullPath($serveWorkingDirectory)
+    [IO.Directory]::SetCurrentDirectory([IO.Path]::GetFullPath($serveWorkingDirectory))
+} catch {
+    [Console]::Error.WriteLine("The local runtime directory could not be used as the server working directory.")
     exit 2
 }
 
@@ -3139,7 +3436,8 @@ try {
                 "/api/v1/app-update/session",
                 "/api/v1/app-update/status",
                 "/api/v1/app-update/check",
-                "/api/v1/app-update/stage"
+                "/api/v1/app-update/stage",
+                "/api/v1/app-update/apply"
             )
             if ($appUpdatePaths -contains $requestPath) {
                 $expectedOrigin = "http://127.0.0.1:$boundPort"
@@ -3221,8 +3519,54 @@ try {
                         Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "NOT_CONFIGURED" -Message "Public updates are not configured for this package."
                         continue
                     }
-                    if ((Get-AppUpdateStatus -Context $appUpdateContext).state -eq "READY_TO_RESTART") {
-                        Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "UPDATE_READY" -Message "The staged update is ready and will be applied on the next start."
+                    $currentUpdateStatus = Get-AppUpdateStatus -Context $appUpdateContext
+                    if ($requestPath -eq "/api/v1/app-update/apply") {
+                        if ($currentUpdateStatus.state -ne "READY_TO_RESTART") {
+                            Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "UPDATE_NOT_READY" -Message "A verified update is not ready to apply."
+                            continue
+                        }
+                        if ($currentUpdateStatus.candidateId -cne [string]$updateRequest.candidateId) {
+                            Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "CANDIDATE_MISMATCH" -Message "The reviewed update candidate is no longer available."
+                            continue
+                        }
+                        if ((Invoke-PendingAppUpdate -ValidateOnly -ExpectedCandidate ([string]$updateRequest.candidateId)) -ne 0) {
+                            Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "UPDATE_INVALID" -Message "The staged update could not be validated."
+                            continue
+                        }
+                        $handoff = $null
+                        try {
+                            $handoff = Start-AppUpdateHandoff -CandidateId ([string]$updateRequest.candidateId) -BoundPort $boundPort
+                        } catch {
+                            Write-PortableLog "Live app update handoff failed before shutdown: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+                            Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" -Code "UPDATE_HANDOFF_FAILED" -Message "The update could not be prepared for a safe restart."
+                            continue
+                        }
+                        $initialStatus = [pscustomobject]@{
+                            state = "APPLYING"
+                            currentVersion = [string]$currentUpdateStatus.currentVersion
+                            latestVersion = [string]$currentUpdateStatus.latestVersion
+                            startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+                        }
+                        try {
+                            # Only acknowledge the mutation after an exact, hash-pinned broker
+                            # is running from persistent state and waiting for this Serve
+                            # process identity to exit. A response-write failure cancels that
+                            # helper and leaves the old server untouched.
+                            if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_APPLY_RESPONSE -ceq "1") {
+                                throw [IO.IOException]::new("Injected live update response-write failure.")
+                            }
+                            Send-JsonResponse -Stream $stream -StatusCode 202 -Reason "Accepted" -Value ([ordered]@{ protocolVersion = $appUpdateProtocolVersion; status = $initialStatus })
+                        } catch {
+                            Write-PortableLog "Live app update response failed; cancelling the acknowledged helper before continuing."
+                            Stop-AppUpdateHandoffProcess -Handoff $handoff
+                            Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" -Code "UPDATE_HANDOFF_CANCELLED" -Message "The update response could not be delivered, so the safe restart was cancelled."
+                            continue
+                        }
+                        $script:shutdownRequested = $true
+                        continue
+                    }
+                    if ($currentUpdateStatus.state -eq "READY_TO_RESTART") {
+                        Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" -Code "UPDATE_READY" -Message "The staged update is ready to apply."
                         continue
                     }
                     if ($requestPath -eq "/api/v1/app-update/check") {

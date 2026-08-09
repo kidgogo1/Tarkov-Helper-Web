@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   PublicUpdateApiError,
+  applyPublicUpdate,
   checkForPublicUpdate,
   fetchPublicUpdateStatus,
   fetchPublicUpdateSession,
@@ -58,6 +59,24 @@ describe("public GitHub update API boundary", () => {
     { ...session, status: { ...availableStatus, latestVersion: "1.1.0-beta.1" } },
     { ...session, status: { ...availableStatus, latestVersion: "999999999999999999999.1.0" } },
     { ...session, status: { ...availableStatus, latestVersion: "0.9.0" } },
+    {
+      ...session,
+      status: {
+        state: "APPLYING",
+        currentVersion: "1.0.0",
+        latestVersion: "1.0.0",
+        startedAt: "2026-08-09T03:05:07.000Z",
+      },
+    },
+    {
+      ...session,
+      status: {
+        state: "ROLLING_BACK",
+        currentVersion: "1.0.0",
+        latestVersion: "0.9.0",
+        startedAt: "2026-08-09T03:05:07.000Z",
+      },
+    },
     { ...session, status: { ...availableStatus, downloadBytes: -1 } },
     { ...session, status: { ...availableStatus, releasePageUrl: "http://github.com/example/repo" } },
     { ...session, status: { ...availableStatus, releasePageUrl: "https://github.com/other/repo/releases/tag/v1.1.0" } },
@@ -158,6 +177,130 @@ describe("public GitHub update API boundary", () => {
       },
       body: JSON.stringify({ candidateId: availableStatus.candidateId }),
     });
+  });
+
+  it("applies only the exact staged candidate through the authenticated local launcher", async () => {
+    const applying = {
+      state: "APPLYING",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      startedAt: "2026-08-09T03:05:07.000Z",
+    } as const;
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      status: applying,
+    }, 202));
+
+    await expect(applyPublicUpdate(
+      session,
+      availableStatus.candidateId,
+      availableStatus.latestVersion,
+      request,
+    )).resolves.toEqual(applying);
+    expect(request).toHaveBeenCalledWith("/api/v1/app-update/apply", {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Tarkov-Update": session.token,
+      },
+      body: JSON.stringify({ candidateId: availableStatus.candidateId }),
+    });
+  });
+
+  it("passes an abort signal to a mutation and preserves AbortError on cancellation", async () => {
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | null | undefined;
+    const request = vi.fn<typeof fetch>((_input, init) => {
+      requestSignal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        }, { once: true });
+      });
+    });
+
+    const mutation = checkForPublicUpdate(session, controller.signal, request);
+    controller.abort();
+
+    expect(requestSignal).toBe(controller.signal);
+    expect(requestSignal?.aborted).toBe(true);
+    await expect(mutation).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("passes optional abort signals through stage and apply mutations", async () => {
+    const controller = new AbortController();
+    const downloading = {
+      state: "DOWNLOADING",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      downloadedBytes: 0,
+      downloadBytes: availableStatus.downloadBytes,
+      startedAt: "2026-08-09T03:05:05.000Z",
+    } as const;
+    const applying = {
+      state: "APPLYING",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      startedAt: "2026-08-09T03:05:07.000Z",
+    } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: downloading }, 202))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: applying }, 202));
+
+    await expect(stagePublicUpdate(
+      session,
+      availableStatus.candidateId,
+      controller.signal,
+      request,
+    )).resolves.toEqual(downloading);
+    await expect(applyPublicUpdate(
+      session,
+      availableStatus.candidateId,
+      availableStatus.latestVersion,
+      controller.signal,
+      request,
+    )).resolves.toEqual(applying);
+
+    expect(request.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+    expect(request.mock.calls[1]?.[1]?.signal).toBe(controller.signal);
+  });
+
+  it("rejects a live apply response for a different version or state", async () => {
+    const wrongVersion = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      status: {
+        state: "APPLYING",
+        currentVersion: "1.0.0",
+        latestVersion: "1.2.0",
+        startedAt: "2026-08-09T03:05:07.000Z",
+      },
+    }, 202));
+    await expect(applyPublicUpdate(
+      session,
+      availableStatus.candidateId,
+      availableStatus.latestVersion,
+      wrongVersion,
+    )).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+
+    const readyInstead = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      status: {
+        state: "READY_TO_RESTART",
+        currentVersion: "1.0.0",
+        latestVersion: "1.1.0",
+        candidateId: availableStatus.candidateId,
+        stagedAt: "2026-08-09T03:05:06.000Z",
+      },
+    }, 202));
+    await expect(applyPublicUpdate(
+      session,
+      availableStatus.candidateId,
+      availableStatus.latestVersion,
+      readyInstead,
+    )).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("rejects semantic mismatches and normalized launcher errors", async () => {

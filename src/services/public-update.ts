@@ -3,6 +3,7 @@ const SESSION_PATH = "/api/v1/app-update/session";
 const STATUS_PATH = "/api/v1/app-update/status";
 const CHECK_PATH = "/api/v1/app-update/check";
 const STAGE_PATH = "/api/v1/app-update/stage";
+const APPLY_PATH = "/api/v1/app-update/apply";
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const SEMVER_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
@@ -283,7 +284,9 @@ function parseStatus(value: unknown, repository?: string): PublicUpdateStatus | 
     case "APPLYING":
     case "ROLLING_BACK":
       return hasExactKeys(value, ["state", "currentVersion", "latestVersion", "startedAt"]) &&
-        isSemVer(value.latestVersion) && isIsoUtc(value.startedAt)
+        isSemVer(value.latestVersion) &&
+        compareSemVer(value.latestVersion, value.currentVersion) > 0 &&
+        isIsoUtc(value.startedAt)
         ? {
             state: value.state,
             currentVersion: value.currentVersion,
@@ -414,10 +417,11 @@ async function sendUpdateMutation(
   session: PublicUpdateSession,
   body: string,
   request: UpdateRequest,
+  signal?: AbortSignal,
 ): Promise<PublicUpdateStatus> {
   let response: Response;
   try {
-    response = await request(path, {
+    const init: RequestInit = {
       method: "POST",
       cache: "no-store",
       headers: {
@@ -426,11 +430,33 @@ async function sendUpdateMutation(
         "X-Tarkov-Update": session.token,
       },
       body,
-    });
-  } catch {
+    };
+    if (signal) init.signal = signal;
+    response = await request(path, init);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (signal?.aborted) {
+      if (isAbortError(signal.reason)) throw signal.reason;
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
     throw new PublicUpdateApiError("REQUEST_FAILED", "The local update service could not be reached.");
   }
   return parseMutationResponse(response, session);
+}
+
+function isAbortError(error: unknown): error is Error {
+  return typeof error === "object" && error !== null &&
+    "name" in error && error.name === "AbortError";
+}
+
+function resolveMutationRequest(
+  signalOrRequest: AbortSignal | UpdateRequest | undefined,
+  request: UpdateRequest | undefined,
+): { signal: AbortSignal | undefined; request: UpdateRequest } {
+  if (typeof signalOrRequest === "function") {
+    return { signal: undefined, request: signalOrRequest };
+  }
+  return { signal: signalOrRequest, request: request ?? globalThis.fetch };
 }
 
 export async function fetchPublicUpdateStatus(
@@ -456,9 +482,20 @@ export async function fetchPublicUpdateStatus(
 
 export function checkForPublicUpdate(
   session: PublicUpdateSession,
-  request: UpdateRequest = globalThis.fetch,
+  request?: UpdateRequest,
+): Promise<PublicUpdateStatus>;
+export function checkForPublicUpdate(
+  session: PublicUpdateSession,
+  signal?: AbortSignal,
+  request?: UpdateRequest,
+): Promise<PublicUpdateStatus>;
+export function checkForPublicUpdate(
+  session: PublicUpdateSession,
+  signalOrRequest?: AbortSignal | UpdateRequest,
+  maybeRequest?: UpdateRequest,
 ): Promise<PublicUpdateStatus> {
-  return sendUpdateMutation(CHECK_PATH, session, "{}", request).then((status) => {
+  const { signal, request } = resolveMutationRequest(signalOrRequest, maybeRequest);
+  return sendUpdateMutation(CHECK_PATH, session, "{}", request, signal).then((status) => {
     if (
       status.state !== "CHECKING" &&
       status.state !== "CURRENT" &&
@@ -471,25 +508,83 @@ export function checkForPublicUpdate(
   });
 }
 
+export function stagePublicUpdate(
+  session: PublicUpdateSession,
+  candidateId: string,
+  request?: UpdateRequest,
+): Promise<PublicUpdateStatus>;
+export function stagePublicUpdate(
+  session: PublicUpdateSession,
+  candidateId: string,
+  signal?: AbortSignal,
+  request?: UpdateRequest,
+): Promise<PublicUpdateStatus>;
 export async function stagePublicUpdate(
   session: PublicUpdateSession,
   candidateId: string,
-  request: UpdateRequest = globalThis.fetch,
+  signalOrRequest?: AbortSignal | UpdateRequest,
+  maybeRequest?: UpdateRequest,
 ): Promise<PublicUpdateStatus> {
   if (!CANDIDATE_PATTERN.test(candidateId)) {
     throw new PublicUpdateApiError("INVALID_CANDIDATE", "The requested update candidate is invalid.");
   }
+  const { signal, request } = resolveMutationRequest(signalOrRequest, maybeRequest);
   const status = await sendUpdateMutation(
     STAGE_PATH,
     session,
     JSON.stringify({ candidateId }),
     request,
+    signal,
   );
   if (
     !(status.state === "DOWNLOADING" || status.state === "VERIFYING" || status.state === "READY_TO_RESTART") ||
     status.candidateId !== candidateId
   ) {
     throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher staged a different update candidate.");
+  }
+  return status;
+}
+
+export function applyPublicUpdate(
+  session: PublicUpdateSession,
+  candidateId: string,
+  expectedVersion: string,
+  request?: UpdateRequest,
+): Promise<PublicUpdateStatus>;
+export function applyPublicUpdate(
+  session: PublicUpdateSession,
+  candidateId: string,
+  expectedVersion: string,
+  signal?: AbortSignal,
+  request?: UpdateRequest,
+): Promise<PublicUpdateStatus>;
+export async function applyPublicUpdate(
+  session: PublicUpdateSession,
+  candidateId: string,
+  expectedVersion: string,
+  signalOrRequest?: AbortSignal | UpdateRequest,
+  maybeRequest?: UpdateRequest,
+): Promise<PublicUpdateStatus> {
+  if (!CANDIDATE_PATTERN.test(candidateId)) {
+    throw new PublicUpdateApiError("INVALID_CANDIDATE", "The requested update candidate is invalid.");
+  }
+  if (!isSemVer(expectedVersion) || compareSemVer(expectedVersion, session.status.currentVersion) <= 0) {
+    throw new PublicUpdateApiError("INVALID_VERSION", "The requested update version is invalid.");
+  }
+  const { signal, request } = resolveMutationRequest(signalOrRequest, maybeRequest);
+  const status = await sendUpdateMutation(
+    APPLY_PATH,
+    session,
+    JSON.stringify({ candidateId }),
+    request,
+    signal,
+  );
+  if (
+    status.state !== "APPLYING" ||
+    status.currentVersion !== session.status.currentVersion ||
+    status.latestVersion !== expectedVersion
+  ) {
+    throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher applied a different update candidate.");
   }
   return status;
 }

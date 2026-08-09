@@ -96,7 +96,7 @@ function defaultAlternativeSelections(
 
 export function App() {
   const store = useAppStore();
-  const publicUpdate = usePublicUpdate();
+  const publicUpdate = usePublicUpdate(undefined, { persistState: store.persistState });
   const [data, setData] = useState<TarkovData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(tabFromHash);

@@ -2,8 +2,9 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from "react";
@@ -56,6 +57,7 @@ export interface AppStoreValue {
   resetProgress: () => void;
   updateSettings: (patch: SettingsPatch) => void;
   updateMapSettings: (patch: Partial<MapDisplaySettings>) => void;
+  persistState: () => boolean;
 }
 
 function createDefaultProfile(): ProfileState {
@@ -512,14 +514,36 @@ const AppStoreContext = createContext<AppStoreValue | null>(null);
 
 export function AppStoreProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<PersistedAppState>(readPersistedState);
+  const stateRef = useRef(state);
+  const persistedSnapshotRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  const persistState = useCallback(() => {
     try {
-      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+      const serialized = JSON.stringify(stateRef.current);
+      const stored = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
+      if (
+        persistedSnapshotRef.current !== null &&
+        stored !== null &&
+        stored !== persistedSnapshotRef.current &&
+        serialized === persistedSnapshotRef.current
+      ) {
+        // Another tab saved newer state while this tab remained unchanged.
+        // Reload from that snapshot instead of overwriting it during update.
+        return true;
+      }
+      window.localStorage.setItem(APP_STATE_STORAGE_KEY, serialized);
+      persistedSnapshotRef.current = serialized;
+      return true;
     } catch {
       // The app remains usable when storage is blocked or full.
+      return false;
     }
-  }, [state]);
+  }, []);
+
+  useLayoutEffect(() => {
+    stateRef.current = state;
+    persistState();
+  }, [persistState, state]);
 
   const setActiveProfile = useCallback((type: ProfileType) => {
     setState((current) =>
@@ -690,6 +714,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       resetProgress,
       updateSettings,
       updateMapSettings,
+      persistState,
     }),
     [
       state,
@@ -704,6 +729,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       resetProgress,
       updateSettings,
       updateMapSettings,
+      persistState,
     ],
   );
 

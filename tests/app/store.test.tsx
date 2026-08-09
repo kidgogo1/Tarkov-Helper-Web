@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   APP_STATE_STORAGE_KEY,
@@ -257,6 +257,70 @@ describe("AppStoreProvider", () => {
         hiddenMarkerTypes: ["BossSpawn"],
       },
     });
+  });
+
+  it("flushes the current state synchronously before a controlled app restart", () => {
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+    const persistBeforeProgressChanged = result.current.persistState;
+
+    act(() => {
+      result.current.updateProfile({ level: 42 });
+      result.current.setQuestStatus("quest-before-update", "done");
+    });
+    window.localStorage.removeItem(APP_STATE_STORAGE_KEY);
+
+    act(() => {
+      persistBeforeProgressChanged();
+    });
+
+    expect(JSON.parse(window.localStorage.getItem(APP_STATE_STORAGE_KEY) ?? "null")).toMatchObject({
+      activeProfile: "pvp",
+      profiles: {
+        pvp: {
+          level: 42,
+          questProgress: { "quest-before-update": "done" },
+        },
+      },
+    });
+  });
+
+  it("does not overwrite a newer state written by another tab during restart", () => {
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+    const newerState = {
+      ...result.current.state,
+      profiles: {
+        ...result.current.state.profiles,
+        pvp: {
+          ...result.current.state.profiles.pvp,
+          level: 55,
+          questProgress: { "newer-tab-quest": "done" as const },
+        },
+      },
+    };
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(newerState));
+
+    expect(result.current.persistState()).toBe(true);
+    expect(JSON.parse(window.localStorage.getItem(APP_STATE_STORAGE_KEY) ?? "null")).toMatchObject({
+      profiles: {
+        pvp: {
+          level: 55,
+          questProgress: { "newer-tab-quest": "done" },
+        },
+      },
+    });
+  });
+
+  it("reports a blocked localStorage flush instead of claiming the state is safe", () => {
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage is full", "QuotaExceededError");
+    });
+
+    try {
+      expect(result.current.persistState()).toBe(false);
+    } finally {
+      setItem.mockRestore();
+    }
   });
 
   it("sanitizes, deduplicates, and shares hidden marker types across profiles", () => {

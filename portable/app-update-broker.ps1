@@ -7,7 +7,15 @@ param(
     [switch]$SkipRunOnce,
     [switch]$TestFailHealth,
     [ValidateSet("", "PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK", "ROLLED_BACK")]
-    [string]$TestCrashAfterPhase = ""
+    [string]$TestCrashAfterPhase = "",
+    [ValidateRange(0, 2147483647)][int]$WaitForProcessId = 0,
+    [string]$WaitForProcessStartTimeUtc = "",
+    [string]$ExpectedOldBuildIdentity = "",
+    [string]$ExpectedCandidate = "",
+    [string]$HandoffNonce = "",
+    [string]$HandoffAckPath = "",
+    [string]$HandoffCancelPath = "",
+    [ValidateRange(0, 120000)][int]$TestHandoffVerifyDelayMilliseconds = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -349,7 +357,7 @@ function Start-Server {
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
     $directory = Get-UpdateDirectory
     $out = Join-Path $directory ("$Label.stdout.log"); $error = Join-Path $directory ("$Label.stderr.log")
-    return Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $error
+    return Start-Process -FilePath $powershell -ArgumentList $argumentLine -WorkingDirectory $StateDirectory -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $error
 }
 
 function Wait-Healthy {
@@ -413,6 +421,164 @@ function Test-Identity {
 function Get-ProcessStartTimeText {
     param([Diagnostics.Process]$Process)
     return $Process.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Test-LiveHandoffCancellation {
+    param(
+        [string]$Path,
+        [object]$Plan,
+        [string]$PackageRoot,
+        [string]$BrokerProcessStartTimeUtc
+    )
+
+    if (-not [IO.File]::Exists($Path)) { return $false }
+    $cancel = Read-BoundedJson -Path $Path -MaximumBytes 65536
+    Assert-ExactObject -Value $cancel -Properties @(
+        "schemaVersion", "state", "handoffNonce", "candidateId", "packageRoot", "port",
+        "oldProcessId", "oldProcessStartTimeUtc", "brokerPid", "brokerProcessStartTimeUtc"
+    ) -Label "live update cancellation"
+    if (
+        $cancel.schemaVersion -ne 1 -or
+        $cancel.state -cne "CANCEL" -or
+        $cancel.handoffNonce -cne $HandoffNonce -or
+        $cancel.candidateId -cne [string]$Plan.candidateId -or
+        -not ([string]$cancel.packageRoot).Equals($PackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        $cancel.port -ne $Port -or
+        $cancel.oldProcessId -ne $WaitForProcessId -or
+        $cancel.oldProcessStartTimeUtc -cne $WaitForProcessStartTimeUtc -or
+        $cancel.brokerPid -ne $PID -or
+        $cancel.brokerProcessStartTimeUtc -cne $BrokerProcessStartTimeUtc
+    ) {
+        throw [Security.SecurityException]::new("The live update cancellation identity is invalid.")
+    }
+    return $true
+}
+
+function Invoke-LiveHandoff {
+    param(
+        [object]$Plan,
+        [string]$PackageRoot,
+        [string]$StageRoot,
+        [object]$Journal
+    )
+
+    $requested =
+        $WaitForProcessId -gt 0 -or
+        -not [string]::IsNullOrWhiteSpace($WaitForProcessStartTimeUtc) -or
+        -not [string]::IsNullOrWhiteSpace($ExpectedOldBuildIdentity) -or
+        -not [string]::IsNullOrWhiteSpace($ExpectedCandidate) -or
+        -not [string]::IsNullOrWhiteSpace($HandoffNonce) -or
+        -not [string]::IsNullOrWhiteSpace($HandoffAckPath) -or
+        -not [string]::IsNullOrWhiteSpace($HandoffCancelPath)
+    if (-not $requested) { return }
+    if (
+        $WaitForProcessId -le 0 -or
+        [string]::IsNullOrWhiteSpace($WaitForProcessStartTimeUtc) -or
+        [string]::IsNullOrWhiteSpace($ExpectedOldBuildIdentity) -or
+        [string]::IsNullOrWhiteSpace($ExpectedCandidate) -or
+        [string]::IsNullOrWhiteSpace($HandoffNonce) -or
+        [string]::IsNullOrWhiteSpace($HandoffAckPath) -or
+        [string]::IsNullOrWhiteSpace($HandoffCancelPath)
+    ) {
+        throw [Security.SecurityException]::new("The live update handoff is incomplete.")
+    }
+    if (
+        $WaitForProcessStartTimeUtc -notmatch '^\d{4}-\d{2}-\d{2}T' -or
+        $ExpectedOldBuildIdentity -notmatch '^[0-9a-f]{64}$' -or
+        $ExpectedCandidate -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+        $HandoffNonce -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+        $Plan.candidateId -cne $ExpectedCandidate -or
+        $null -ne $Journal
+    ) {
+        throw [Security.SecurityException]::new("The live update handoff identity is invalid.")
+    }
+
+    $updateDirectory = [IO.Path]::GetFullPath((Get-UpdateDirectory))
+    $expectedAckPath = Join-Path $updateDirectory ("handoff-" + $HandoffNonce + ".json")
+    if (-not ([IO.Path]::GetFullPath($HandoffAckPath)).Equals($expectedAckPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw [Security.SecurityException]::new("The live update acknowledgement path is invalid.")
+    }
+    $expectedCancelPath = Join-Path $updateDirectory ("handoff-" + $HandoffNonce + ".cancel.json")
+    if (-not ([IO.Path]::GetFullPath($HandoffCancelPath)).Equals($expectedCancelPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw [Security.SecurityException]::new("The live update cancellation path is invalid.")
+    }
+    $expectedBrokerPath = Join-Path $updateDirectory ("broker-" + [string]$Plan.brokerSha256 + ".ps1")
+    if (-not ([IO.Path]::GetFullPath($PSCommandPath)).Equals($expectedBrokerPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw [Security.SecurityException]::new("The live update broker is not running from trusted state storage.")
+    }
+
+    $brokerProcess = Get-Process -Id $PID -ErrorAction Stop
+    $brokerProcessStartTimeUtc = Get-ProcessStartTimeText $brokerProcess
+    if (Test-LiveHandoffCancellation -Path $expectedCancelPath -Plan $Plan -PackageRoot $PackageRoot -BrokerProcessStartTimeUtc $brokerProcessStartTimeUtc) {
+        throw [OperationCanceledException]::new("The live update handoff was cancelled before acknowledgement.")
+    }
+
+    $rootIdentity = Get-VersionDocument $PackageRoot
+    if ($rootIdentity.version -cne $Plan.currentVersion -or $rootIdentity.commit -cne $Plan.currentCommit) {
+        throw [IO.InvalidDataException]::new("The live update source package changed before handoff.")
+    }
+    if ($TestHandoffVerifyDelayMilliseconds -gt 0) {
+        Start-Sleep -Milliseconds $TestHandoffVerifyDelayMilliseconds
+    }
+    if (Test-LiveHandoffCancellation -Path $expectedCancelPath -Plan $Plan -PackageRoot $PackageRoot -BrokerProcessStartTimeUtc $brokerProcessStartTimeUtc) {
+        throw [OperationCanceledException]::new("The live update handoff was cancelled during verification.")
+    }
+    $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify(
+        $StageRoot,
+        [int]$Plan.fileCount,
+        [long]$Plan.unpackedBytes,
+        [string]$Plan.treeSha256
+    )
+    if (Test-LiveHandoffCancellation -Path $expectedCancelPath -Plan $Plan -PackageRoot $PackageRoot -BrokerProcessStartTimeUtc $brokerProcessStartTimeUtc) {
+        throw [OperationCanceledException]::new("The live update handoff was cancelled after verification.")
+    }
+
+    $instance = Read-Instance
+    if (
+        $null -eq $instance -or
+        $instance.pid -ne $WaitForProcessId -or
+        $instance.processStartTimeUtc -cne $WaitForProcessStartTimeUtc -or
+        $instance.buildIdentity -cne $ExpectedOldBuildIdentity -or
+        -not ([string]$instance.rootPath).Equals((Join-Path $PackageRoot "app"), [StringComparison]::OrdinalIgnoreCase)
+    ) {
+        throw [Security.SecurityException]::new("The running server could not be authenticated for live update handoff.")
+    }
+    try {
+        $oldProcess = Get-Process -Id $WaitForProcessId -ErrorAction Stop
+    } catch {
+        throw [Security.SecurityException]::new("The live update source process identity changed.", $_.Exception)
+    }
+    if ($oldProcess.HasExited -or (Get-ProcessStartTimeText $oldProcess) -cne $WaitForProcessStartTimeUtc) {
+        throw [Security.SecurityException]::new("The live update source process identity changed.")
+    }
+
+    Write-AtomicJson -Path $expectedAckPath -Value ([ordered]@{
+        schemaVersion = 1
+        state = "READY"
+        handoffNonce = $HandoffNonce
+        candidateId = [string]$Plan.candidateId
+        packageRoot = $PackageRoot
+        port = $Port
+        oldProcessId = $WaitForProcessId
+        oldProcessStartTimeUtc = $WaitForProcessStartTimeUtc
+        oldBuildIdentity = $ExpectedOldBuildIdentity
+        brokerPid = $PID
+        brokerProcessStartTimeUtc = $brokerProcessStartTimeUtc
+    })
+
+    # The launcher can cancel this exact helper if writing the 202 response
+    # fails. Once the response succeeds, keep the durable handoff alive for as
+    # long as the exact old process needs to finish overlay and listener cleanup.
+    # A fixed timeout could otherwise expire just before a slow shutdown exits,
+    # leaving neither the old server nor the update broker running.
+    while (-not $oldProcess.WaitForExit(100)) {
+        if (Test-LiveHandoffCancellation -Path $expectedCancelPath -Plan $Plan -PackageRoot $PackageRoot -BrokerProcessStartTimeUtc $brokerProcessStartTimeUtc) {
+            throw [OperationCanceledException]::new("The acknowledged live update handoff was cancelled.")
+        }
+    }
+    if (Test-LiveHandoffCancellation -Path $expectedCancelPath -Plan $Plan -PackageRoot $PackageRoot -BrokerProcessStartTimeUtc $brokerProcessStartTimeUtc) {
+        throw [OperationCanceledException]::new("The live update handoff was cancelled as the source process exited.")
+    }
 }
 
 function Complete-Commit {
@@ -534,6 +700,7 @@ try {
     $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
     $failedRoot = Join-Path $parent ("." + $leaf + ".update-failed-" + [string]$plan.candidateId)
     $journal = Read-ApplyJournal -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot
+    Invoke-LiveHandoff -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -Journal $journal
     $canReconcile = $true
     Set-RecoveryRunOnce -Plan $plan
     Write-Status ([ordered]@{ state = "APPLYING"; currentVersion = [string]$plan.currentVersion; latestVersion = [string]$plan.latestVersion; startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) })
