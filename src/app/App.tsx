@@ -20,6 +20,7 @@ import { ItemsPage } from "../features/items/ItemsPage";
 import { MapPage } from "../features/map/MapPage";
 import { MapMiniMapSettingsDialog } from "../features/map/MapMiniMapSettingsDialog";
 import { QuestsPage } from "../features/quests/QuestsPage";
+import { PriceSearchPage } from "../features/prices/PriceSearchPage";
 import { InProgressQuestDialog } from "../features/settings/InProgressQuestDialog";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
 import { usePublicUpdate } from "../features/settings/usePublicUpdate";
@@ -47,7 +48,7 @@ interface LogImportPreview {
   fileCount: number;
 }
 
-const VALID_TABS: readonly AppTab[] = ["quests", "hideout", "items", "collector", "map"];
+const VALID_TABS: readonly AppTab[] = ["quests", "hideout", "items", "collector", "prices", "map"];
 
 function tabFromHash(): AppTab {
   const candidate = window.location.hash.replace(/^#\/?/, "") as AppTab;
@@ -277,6 +278,8 @@ export function App() {
         );
       case "collector":
         return <CollectorPage data={data} />;
+      case "prices":
+        return <PriceSearchPage activeProfile={store.activeProfile} />;
       case "map":
         return null;
     }

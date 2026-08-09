@@ -1,5 +1,6 @@
 import {
   Boxes,
+  BadgeDollarSign,
   House,
   ListChecks,
   Map,
@@ -13,7 +14,7 @@ import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 import { QuantityStepper } from "../components/QuantityStepper";
 import type { ProfileType } from "../types/data";
 
-export type AppTab = "quests" | "hideout" | "items" | "collector" | "map";
+export type AppTab = "quests" | "hideout" | "items" | "collector" | "prices" | "map";
 
 interface AppShellProps {
   activeTab: AppTab;
@@ -38,6 +39,7 @@ const TABS: readonly TabDefinition[] = [
   { id: "hideout", label: "은신처", icon: House },
   { id: "items", label: "아이템", icon: Boxes },
   { id: "collector", label: "수집가 · 카파", icon: Trophy },
+  { id: "prices", label: "시세", icon: BadgeDollarSign },
   { id: "map", label: "지도", icon: Map },
 ];
 

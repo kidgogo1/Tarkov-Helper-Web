@@ -1,0 +1,109 @@
+.prices-page {
+  max-width: 1360px;
+  margin: 0 auto;
+}
+
+.prices-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 4px 18px;
+}
+
+.prices-page-header h1 {
+  margin: 2px 0 4px;
+  font-size: clamp(24px, 3vw, 36px);
+}
+
+.prices-page-header p:last-child,
+.price-disclaimer {
+  color: var(--text-muted);
+}
+
+.prices-catalog-stat {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px 14px;
+  color: var(--accent);
+}
+
+.prices-catalog-stat span { grid-column: 2; color: var(--text-muted); font-size: 11px; }
+.prices-workspace { display: grid; grid-template-columns: minmax(330px, 0.8fr) minmax(460px, 1.4fr); gap: 12px; min-height: 610px; }
+.price-search-panel, .price-detail-panel { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.price-search-panel { padding: 12px; }
+
+.price-search-field {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  padding: 0 12px;
+  color: var(--text-muted);
+}
+
+.price-search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(213 179 70 / 12%); }
+.price-search-field input { min-width: 0; flex: 1; border: 0; background: transparent; padding: 0; outline: 0; }
+.price-search-help, .price-search-empty { margin: 22px 8px; color: var(--text-muted); text-align: center; }
+.price-search-results { display: grid; max-height: 540px; gap: 4px; overflow-y: auto; margin: 10px 0 0; padding: 0; list-style: none; }
+.price-search-results button { display: grid; width: 100%; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-color: transparent; background: transparent; padding: 8px; text-align: left; }
+.price-search-results button:hover, .price-search-results button.active { border-color: var(--line-strong); background: var(--surface-raised); }
+.price-search-results button.active { box-shadow: inset 3px 0 var(--accent); }
+.price-search-results img, .price-result-icon { display: grid; width: 38px; height: 38px; place-items: center; object-fit: contain; }
+.price-result-icon { border: 1px solid var(--line); border-radius: 4px; color: var(--accent); font-weight: 900; }
+.price-search-results button > span:nth-child(2) { display: grid; min-width: 0; }
+.price-search-results strong, .price-search-results small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.price-search-results small { color: var(--text-muted); }
+.price-search-results b { color: var(--accent); font-size: 13px; white-space: nowrap; }
+
+.price-detail-panel { display: grid; }
+.price-detail-placeholder, .prices-load-state { display: grid; place-content: center; justify-items: center; gap: 8px; min-height: 380px; padding: 30px; color: var(--text-muted); text-align: center; }
+.prices-load-state.error { color: var(--danger); }
+.price-detail { padding: clamp(16px, 3vw, 30px); }
+.price-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.price-detail-header > button, .price-links a { display: inline-flex; align-items: center; gap: 6px; }
+.price-item-identity { display: flex; min-width: 0; align-items: center; gap: 16px; }
+.price-item-identity img, .price-item-placeholder { display: grid; width: 78px; height: 78px; flex: 0 0 auto; place-items: center; object-fit: contain; }
+.price-item-placeholder { border: 1px solid var(--line); color: var(--accent); font-size: 28px; font-weight: 900; }
+.price-item-identity h2 { margin: 7px 0 2px; font-size: clamp(21px, 3vw, 31px); }
+.price-item-identity p { margin: 0; color: var(--text-muted); }
+.price-mode-badge { border-radius: 3px; background: var(--accent); padding: 3px 6px; color: #18170f; font-size: 10px; font-weight: 900; }
+.price-mode-badge.pvp { background: var(--pvp); color: #fff; }
+.price-source-line { display: flex; justify-content: space-between; gap: 10px; margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 10px; color: var(--text-muted); font-size: 12px; }
+.price-source-line span:first-child { color: var(--success); font-weight: 800; }
+.price-source-line span.stale { color: var(--warning); }
+.price-fallback-note { display: flex; align-items: center; gap: 7px; border: 1px solid rgb(219 168 60 / 30%); border-radius: 5px; background: rgb(219 168 60 / 7%); padding: 10px; color: var(--warning); }
+.price-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 22px 0; }
+.price-metrics > div { border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); padding: 14px; }
+.price-metrics > div.emphasis { border-color: rgb(213 179 70 / 50%); background: rgb(213 179 70 / 7%); }
+.price-metrics dt { color: var(--text-muted); font-size: 12px; }
+.price-metrics dd { margin: 5px 0 0; color: var(--text); font-size: 19px; font-weight: 800; }
+.price-metrics .emphasis dd { color: var(--accent); font-size: 25px; }
+.price-trader-offer { display: flex; justify-content: space-between; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 4px; }
+.price-trader-offer span { color: var(--text-muted); }
+.price-links { display: flex; gap: 16px; margin-top: 20px; }
+.price-links a { color: var(--accent); }
+.price-disclaimer { margin: 10px 4px 0; font-size: 11px; }
+
+@media (max-width: 900px) {
+  .prices-workspace { grid-template-columns: 1fr; }
+  .price-search-results { max-height: 340px; }
+}
+
+@media (max-width: 620px) {
+  .prices-page-header { align-items: flex-start; }
+  .prices-catalog-stat { display: none; }
+  .price-detail-header { display: grid; }
+  .price-detail-header > button { width: 100%; justify-content: center; }
+  .price-item-identity img, .price-item-placeholder { width: 58px; height: 58px; }
+  .price-metrics { grid-template-columns: repeat(2, 1fr); }
+  .price-metrics dd { font-size: 16px; }
+}

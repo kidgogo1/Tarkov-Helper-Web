@@ -26,6 +26,9 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("tab", { name: /아이템/ }));
     expect(onTabChange).toHaveBeenCalledWith("items");
 
+    fireEvent.click(screen.getByRole("tab", { name: "시세" }));
+    expect(onTabChange).toHaveBeenCalledWith("prices");
+
     fireEvent.click(screen.getByRole("button", { name: "PVE 프로필" }));
     expect(onProfileChange).toHaveBeenCalledWith("pve");
   });
@@ -60,4 +63,3 @@ describe("AppShell", () => {
     expect(onSettings).toHaveBeenCalledOnce();
   });
 });
-

@@ -29,7 +29,7 @@ describe("AppShell tabs", () => {
     renderShell("items");
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, -1, 0, -1, -1]);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, -1, 0, -1, -1, -1]);
     expect(tabs[2]).toHaveAttribute("id", "app-tab-items");
     expect(tabs[2]).toHaveAttribute("aria-controls", "app-panel-items");
 
@@ -44,15 +44,15 @@ describe("AppShell tabs", () => {
 
     tabs[0].focus();
     fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
-    expect(tabs[4]).toHaveFocus();
+    expect(tabs[5]).toHaveFocus();
     expect(onTabChange).toHaveBeenLastCalledWith("map");
 
-    fireEvent.keyDown(tabs[4], { key: "Home" });
+    fireEvent.keyDown(tabs[5], { key: "Home" });
     expect(tabs[0]).toHaveFocus();
     expect(onTabChange).toHaveBeenLastCalledWith("quests");
 
     fireEvent.keyDown(tabs[0], { key: "End" });
-    expect(tabs[4]).toHaveFocus();
+    expect(tabs[5]).toHaveFocus();
     expect(onTabChange).toHaveBeenLastCalledWith("map");
   });
 });
