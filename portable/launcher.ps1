@@ -56,6 +56,41 @@ $nativeOverlayRecord = $null
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
 $appUpdateProtocolVersion = 1
 $appUpdateToken = $null
+$itemPriceProtocolVersion = 1
+$itemPriceFreshSeconds = 600
+$itemPriceStaleSeconds = 604800
+$itemPriceMaximumBytes = 4194304
+$itemPriceUpstreamBaseUrl = "https://json.tarkov.dev"
+$itemPriceTestMode = [string]$env:TARKOV_HELPER_PRICE_TEST_MODE -ceq "1"
+if ($itemPriceTestMode) {
+    try {
+        $testPriceUri = [Uri]::new([string]$env:TARKOV_HELPER_PRICE_TEST_BASE_URL)
+        if (
+            -not $testPriceUri.IsAbsoluteUri -or
+            $testPriceUri.Scheme -cne "http" -or
+            $testPriceUri.Host -cne "127.0.0.1" -or
+            $testPriceUri.Port -lt 1 -or
+            $testPriceUri.AbsolutePath -cne "/" -or
+            -not [string]::IsNullOrEmpty($testPriceUri.Query) -or
+            -not [string]::IsNullOrEmpty($testPriceUri.Fragment) -or
+            -not [string]::IsNullOrEmpty($testPriceUri.UserInfo)
+        ) {
+            throw [ArgumentException]::new("The price test endpoint is invalid.")
+        }
+        $itemPriceUpstreamBaseUrl = $testPriceUri.AbsoluteUri.TrimEnd("/")
+        if (-not [string]::IsNullOrWhiteSpace($env:TARKOV_HELPER_PRICE_TEST_FRESH_SECONDS)) {
+            $itemPriceFreshSeconds = [int]$env:TARKOV_HELPER_PRICE_TEST_FRESH_SECONDS
+            if ($itemPriceFreshSeconds -lt 1 -or $itemPriceFreshSeconds -gt 600) { throw "Invalid test freshness" }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:TARKOV_HELPER_PRICE_TEST_MAX_BYTES)) {
+            $itemPriceMaximumBytes = [int]$env:TARKOV_HELPER_PRICE_TEST_MAX_BYTES
+            if ($itemPriceMaximumBytes -lt 256 -or $itemPriceMaximumBytes -gt 4194304) { throw "Invalid test byte cap" }
+        }
+    } catch {
+        [Console]::Error.WriteLine("The internal price test configuration is invalid.")
+        exit 2
+    }
+}
 # Browsers throttle background-tab timers. A short lease made the hidden
 # launcher stop while the user was still using the map, so keep a generous
 # orphan-recovery window; normal tab close still sends /client/close immediately.
@@ -637,6 +672,347 @@ function Get-QueryParameters {
     }
 
     return $result
+}
+
+function Test-BoundedPriceInteger {
+    param(
+        [AllowNull()][object]$Value,
+        [long]$Maximum = 2000000000
+    )
+
+    if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    try {
+        $number = [Convert]::ToDouble($Value, [Globalization.CultureInfo]::InvariantCulture)
+        return (
+            -not [double]::IsNaN($number) -and
+            -not [double]::IsInfinity($number) -and
+            $number -ge 0 -and
+            $number -le $Maximum -and
+            $number -eq [Math]::Truncate($number)
+        )
+    } catch {
+        return $false
+    }
+}
+
+function Format-ItemPriceTimestamp {
+    param([Parameter(Mandatory = $true)][DateTime]$Value)
+    return $Value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Assert-PriceObjectShape {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Value,
+        [Parameter(Mandatory = $true)][string[]]$AllowedProperties,
+        [string[]]$RequiredProperties = @()
+    )
+
+    $properties = @($Value.PSObject.Properties | ForEach-Object { $_.Name })
+    foreach ($property in $properties) {
+        if ($AllowedProperties -cnotcontains $property) {
+            throw [IO.InvalidDataException]::new("The price payload contains an unsupported property.")
+        }
+    }
+    foreach ($property in $RequiredProperties) {
+        if ($properties -cnotcontains $property) {
+            throw [IO.InvalidDataException]::new("The price payload is missing a required property.")
+        }
+    }
+}
+
+function Convert-PriceHistoryPayload {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Payload,
+        [Parameter(Mandatory = $true)][string]$ItemId,
+        [Parameter(Mandatory = $true)][string]$GameMode
+    )
+
+    Assert-PriceObjectShape -Value $Payload -AllowedProperties @("data", "translations") -RequiredProperties @("data")
+    if ($Payload.data -isnot [Array]) {
+        throw [IO.InvalidDataException]::new("The price history must be an array.")
+    }
+    $rawPoints = @($Payload.data)
+    if ($rawPoints.Count -lt 1 -or $rawPoints.Count -gt 5000) {
+        throw [IO.InvalidDataException]::new("The price history count is invalid.")
+    }
+
+    $points = New-Object 'Collections.Generic.List[object]'
+    foreach ($rawPoint in $rawPoints) {
+        if ($rawPoint -isnot [pscustomobject]) {
+            throw [IO.InvalidDataException]::new("A price history point is invalid.")
+        }
+        Assert-PriceObjectShape -Value $rawPoint `
+            -AllowedProperties @("priceMin", "price", "offerCount", "timestamp") `
+            -RequiredProperties @("priceMin", "price", "timestamp")
+        if (
+            -not (Test-BoundedPriceInteger -Value $rawPoint.priceMin) -or
+            -not (Test-BoundedPriceInteger -Value $rawPoint.price) -or
+            -not (Test-BoundedPriceInteger -Value $rawPoint.timestamp -Maximum 4102444800000) -or
+            ($null -ne $rawPoint.offerCount -and -not (Test-BoundedPriceInteger -Value $rawPoint.offerCount -Maximum 1000000))
+        ) {
+            throw [IO.InvalidDataException]::new("A price history value is out of range.")
+        }
+        $points.Add([pscustomobject]@{
+            priceMin = [long]$rawPoint.priceMin
+            price = [long]$rawPoint.price
+            offerCount = if ($null -eq $rawPoint.offerCount) { $null } else { [long]$rawPoint.offerCount }
+            timestamp = [long]$rawPoint.timestamp
+        })
+    }
+
+    $orderedPoints = @($points | Sort-Object -Property timestamp)
+    $latest = $orderedPoints[$orderedPoints.Count - 1]
+    $dayStart = $latest.timestamp - 86400000
+    $twoDayStart = $latest.timestamp - 172800000
+    $lastDay = @($orderedPoints | Where-Object { $_.timestamp -ge $dayStart })
+    $lastTwoDays = @($orderedPoints | Where-Object { $_.timestamp -ge $twoDayStart })
+    if ($lastDay.Count -lt 1 -or $lastTwoDays.Count -lt 1) {
+        throw [IO.InvalidDataException]::new("The price history window is empty.")
+    }
+    $average24 = [long][Math]::Round(
+        [double](($lastDay | Measure-Object -Property price -Average).Average),
+        0,
+        [MidpointRounding]::AwayFromZero
+    )
+    $low24 = [long](($lastDay | Measure-Object -Property priceMin -Minimum).Minimum)
+    $high24 = [long](($lastDay | Measure-Object -Property price -Maximum).Maximum)
+    $oldest48 = $lastTwoDays[0]
+    $change48 = if ($oldest48.price -eq 0) {
+        $null
+    } else {
+        [Math]::Round((([double]$latest.price - [double]$oldest48.price) / [double]$oldest48.price) * 100, 2)
+    }
+    $fetchedAt = [DateTime]::UtcNow
+
+    return [ordered]@{
+        protocolVersion = $itemPriceProtocolVersion
+        itemId = $ItemId
+        gameMode = $GameMode
+        source = "LIVE"
+        fetchedAt = Format-ItemPriceTimestamp -Value $fetchedAt
+        expiresAt = Format-ItemPriceTimestamp -Value $fetchedAt.AddSeconds($itemPriceFreshSeconds)
+        isStale = $false
+        flea = [ordered]@{
+            lastLowPrice = [long]$latest.priceMin
+            avg24hPrice = $average24
+            low24hPrice = $low24
+            high24hPrice = $high24
+            changeLast48hPercent = $change48
+            offerCount = $latest.offerCount
+            updatedAt = Format-ItemPriceTimestamp -Value ([DateTimeOffset]::FromUnixTimeMilliseconds($latest.timestamp).UtcDateTime)
+        }
+    }
+}
+
+function Get-ItemPriceCacheDirectory {
+    $directory = Join-Path (Initialize-StateDirectory) "price-cache-v1"
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $info = [IO.DirectoryInfo]::new($directory)
+    if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw [IO.IOException]::new("The item price cache directory is unsafe.")
+    }
+    return $info.FullName
+}
+
+function Get-ItemPriceCachePath {
+    param([string]$ItemId, [string]$GameMode)
+    if ($ItemId -notmatch '^[0-9a-f]{24}$' -or @("pvp", "pve") -cnotcontains $GameMode) {
+        throw [ArgumentException]::new("The item price cache key is invalid.")
+    }
+    return Join-Path (Get-ItemPriceCacheDirectory) "$GameMode-$ItemId.json"
+}
+
+function Convert-CachedItemPriceQuote {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Value,
+        [Parameter(Mandatory = $true)][string]$ItemId,
+        [Parameter(Mandatory = $true)][string]$GameMode
+    )
+
+    Assert-PriceObjectShape -Value $Value `
+        -AllowedProperties @("protocolVersion", "itemId", "gameMode", "source", "fetchedAt", "expiresAt", "isStale", "flea") `
+        -RequiredProperties @("protocolVersion", "itemId", "gameMode", "source", "fetchedAt", "expiresAt", "isStale", "flea")
+    if (
+        $Value.protocolVersion -ne 1 -or
+        $Value.itemId -cne $ItemId -or
+        $Value.gameMode -cne $GameMode -or
+        $Value.source -cne "LIVE" -or
+        $Value.isStale -ne $false -or
+        $Value.flea -isnot [pscustomobject]
+    ) { throw [IO.InvalidDataException]::new("The cached price identity is invalid.") }
+    $fetchedAt = [DateTime]::MinValue
+    $expiresAt = [DateTime]::MinValue
+    if (
+        -not [DateTime]::TryParse([string]$Value.fetchedAt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$fetchedAt) -or
+        -not [DateTime]::TryParse([string]$Value.expiresAt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$expiresAt)
+    ) { throw [IO.InvalidDataException]::new("The cached price timestamp is invalid.") }
+    Assert-PriceObjectShape -Value $Value.flea `
+        -AllowedProperties @("lastLowPrice", "avg24hPrice", "low24hPrice", "high24hPrice", "changeLast48hPercent", "offerCount", "updatedAt") `
+        -RequiredProperties @("lastLowPrice", "avg24hPrice", "low24hPrice", "high24hPrice", "changeLast48hPercent", "offerCount", "updatedAt")
+    foreach ($property in @("lastLowPrice", "avg24hPrice", "low24hPrice", "high24hPrice")) {
+        if (-not (Test-BoundedPriceInteger -Value $Value.flea.$property)) {
+            throw [IO.InvalidDataException]::new("The cached price value is invalid.")
+        }
+    }
+    if ($null -ne $Value.flea.offerCount -and -not (Test-BoundedPriceInteger -Value $Value.flea.offerCount -Maximum 1000000)) {
+        throw [IO.InvalidDataException]::new("The cached offer count is invalid.")
+    }
+    if ($null -ne $Value.flea.changeLast48hPercent) {
+        try { $change = [double]$Value.flea.changeLast48hPercent } catch { throw [IO.InvalidDataException]::new("The cached change value is invalid.") }
+        if ([double]::IsNaN($change) -or [double]::IsInfinity($change) -or [Math]::Abs($change) -gt 1000000) {
+            throw [IO.InvalidDataException]::new("The cached change value is invalid.")
+        }
+    }
+    $updatedAt = [DateTime]::MinValue
+    if (-not [DateTime]::TryParse([string]$Value.flea.updatedAt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$updatedAt)) {
+        throw [IO.InvalidDataException]::new("The cached quote update timestamp is invalid.")
+    }
+
+    $now = [DateTime]::UtcNow
+    $ageSeconds = ($now - $fetchedAt.ToUniversalTime()).TotalSeconds
+    if ($ageSeconds -lt -300 -or $ageSeconds -gt $itemPriceStaleSeconds) { return $null }
+    $isStale = $ageSeconds -gt $itemPriceFreshSeconds
+    return [ordered]@{
+        protocolVersion = 1
+        itemId = $ItemId
+        gameMode = $GameMode
+        source = if ($isStale) { "STALE_CACHE" } else { "CACHE" }
+        fetchedAt = Format-ItemPriceTimestamp -Value $fetchedAt
+        expiresAt = Format-ItemPriceTimestamp -Value $expiresAt
+        isStale = [bool]$isStale
+        flea = $Value.flea
+    }
+}
+
+function Read-ItemPriceCache {
+    param([string]$ItemId, [string]$GameMode)
+    try {
+        $path = Get-ItemPriceCachePath -ItemId $ItemId -GameMode $GameMode
+        if (-not [IO.File]::Exists($path)) { return $null }
+        $info = [IO.FileInfo]::new($path)
+        if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $info.Length -lt 2 -or $info.Length -gt 32768) { return $null }
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $value = ConvertFrom-Json -InputObject $strictUtf8.GetString([IO.File]::ReadAllBytes($path)) -ErrorAction Stop
+        if ($value -isnot [pscustomobject]) { return $null }
+        return Convert-CachedItemPriceQuote -Value $value -ItemId $ItemId -GameMode $GameMode
+    } catch {
+        return $null
+    }
+}
+
+function Write-ItemPriceCache {
+    param([string]$ItemId, [string]$GameMode, [object]$Quote)
+    $temporaryPath = $null
+    try {
+        $path = Get-ItemPriceCachePath -ItemId $ItemId -GameMode $GameMode
+        $temporaryPath = "$path.$([Guid]::NewGuid().ToString('N')).tmp"
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $bytes = $encoding.GetBytes((ConvertTo-Json -InputObject $Quote -Compress -Depth 6))
+        $temporaryFile = [IO.FileStream]::new(
+            $temporaryPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        try {
+            $temporaryFile.Write($bytes, 0, $bytes.Length)
+            $temporaryFile.Flush($true)
+        } finally {
+            $temporaryFile.Dispose()
+        }
+        if ([IO.File]::Exists($path)) {
+            if (([IO.FileInfo]::new($path).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw [IO.IOException]::new("The item price cache file is unsafe.")
+            }
+            [IO.File]::Replace($temporaryPath, $path, $null)
+        } else {
+            [IO.File]::Move($temporaryPath, $path)
+        }
+        $cacheFiles = @(Get-ChildItem -LiteralPath ([IO.Path]::GetDirectoryName($path)) -File -Filter "*.json" | Sort-Object -Property LastWriteTimeUtc -Descending)
+        foreach ($oldFile in @($cacheFiles | Select-Object -Skip 256)) {
+            if ($oldFile.Name -match '^(pvp|pve)-[0-9a-f]{24}\.json$' -and ($oldFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+                Remove-Item -LiteralPath $oldFile.FullName -Force
+            }
+        }
+    } catch {
+        Write-PortableLog "Item price cache write failed: $($_.Exception.GetType().Name)"
+    } finally {
+        if (-not [string]::IsNullOrWhiteSpace($temporaryPath) -and [IO.File]::Exists($temporaryPath)) {
+            try {
+                $temporaryInfo = [IO.FileInfo]::new($temporaryPath)
+                if (($temporaryInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    Remove-Item -LiteralPath $temporaryPath -Force
+                }
+            } catch {
+                # A later cache write can safely ignore an incomplete random temporary file.
+            }
+        }
+    }
+}
+
+function Invoke-ItemPriceUpstream {
+    param([string]$ItemId, [string]$GameMode)
+    $upstreamMode = if ($GameMode -ceq "pvp") { "regular" } else { "pve" }
+    $uri = [Uri]::new("$itemPriceUpstreamBaseUrl/$upstreamMode/prices/$ItemId")
+    $request = [Net.HttpWebRequest]::Create($uri)
+    $request.Proxy = $null
+    $request.AllowAutoRedirect = $false
+    $request.KeepAlive = $false
+    $request.Method = "GET"
+    $request.Accept = "application/json"
+    $request.UserAgent = "TarkovHelper-Web-PriceBridge/1.0"
+    $request.Timeout = 8000
+    $request.ReadWriteTimeout = 8000
+    $response = $null
+    $stream = $null
+    $memory = New-Object IO.MemoryStream
+    try {
+        $response = [Net.HttpWebResponse]$request.GetResponse()
+        if ([int]$response.StatusCode -ne 200 -or $response.ResponseUri.AbsoluteUri -cne $uri.AbsoluteUri) {
+            throw [IO.InvalidDataException]::new("The price upstream response was not a direct success.")
+        }
+        if (-not ([string]$response.ContentType).StartsWith("application/json", [StringComparison]::OrdinalIgnoreCase)) {
+            throw [IO.InvalidDataException]::new("The price upstream response was not JSON.")
+        }
+        if ($response.ContentLength -gt $itemPriceMaximumBytes) {
+            throw [IO.InvalidDataException]::new("The price upstream response exceeded the byte limit.")
+        }
+        $stream = $response.GetResponseStream()
+        $buffer = New-Object byte[] 8192
+        while ($true) {
+            $count = $stream.Read($buffer, 0, $buffer.Length)
+            if ($count -le 0) { break }
+            if ($memory.Length + $count -gt $itemPriceMaximumBytes) {
+                throw [IO.InvalidDataException]::new("The price upstream response exceeded the byte limit.")
+            }
+            $memory.Write($buffer, 0, $count)
+        }
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $payload = ConvertFrom-Json -InputObject $strictUtf8.GetString($memory.ToArray()) -ErrorAction Stop
+        if ($payload -isnot [pscustomobject]) {
+            throw [IO.InvalidDataException]::new("The price upstream payload was invalid.")
+        }
+        return Convert-PriceHistoryPayload -Payload $payload -ItemId $ItemId -GameMode $GameMode
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $response) { $response.Dispose() }
+        $memory.Dispose()
+    }
+}
+
+function Get-ItemPriceQuote {
+    param([string]$ItemId, [string]$GameMode)
+    $cached = Read-ItemPriceCache -ItemId $ItemId -GameMode $GameMode
+    if ($null -ne $cached -and -not $cached.isStale) { return $cached }
+    try {
+        $live = Invoke-ItemPriceUpstream -ItemId $ItemId -GameMode $GameMode
+        Write-ItemPriceCache -ItemId $ItemId -GameMode $GameMode -Quote $live
+        return $live
+    } catch {
+        Write-PortableLog "Item price upstream failed for $GameMode/$ItemId`: $($_.Exception.GetType().Name)"
+        if ($null -ne $cached) { return $cached }
+        throw
+    }
 }
 
 function Get-TrackerEventsPayload {
@@ -3957,6 +4333,55 @@ try {
                 }
                 continue
             }
+
+            if ($requestPath -eq "/api/v1/item-prices/quote") {
+                if ($method -cne "GET") {
+                    Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
+                        -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
+                    continue
+                }
+                $expectedOrigin = "http://127.0.0.1:$boundPort"
+                if (
+                    $originHeaders.Count -gt 1 -or
+                    ($originHeaders.Count -eq 1 -and $originHeaders[0] -cne $expectedOrigin) -or
+                    $secFetchSiteHeaders.Count -ne 1 -or
+                    $secFetchSiteHeaders[0] -cne "same-origin" -or
+                    $contentLengthHeaders.Count -ne 0 -or
+                    $contentTypeHeaders.Count -ne 0 -or
+                    $transferEncodingHeaders.Count -ne 0
+                ) {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" `
+                        -Code "FORBIDDEN" -Message "The item price request was not same-origin."
+                    continue
+                }
+                try {
+                    $priceQuery = Get-QueryParameters -RequestTarget $requestTarget
+                    if (
+                        $priceQuery.Count -ne 2 -or
+                        -not $priceQuery.ContainsKey("itemId") -or
+                        -not $priceQuery.ContainsKey("gameMode") -or
+                        $priceQuery["itemId"] -notmatch '^[0-9a-f]{24}$' -or
+                        @("pvp", "pve") -cnotcontains $priceQuery["gameMode"]
+                    ) {
+                        throw [ArgumentException]::new("itemId and gameMode must be valid and appear exactly once.")
+                    }
+                } catch [ArgumentException] {
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" `
+                        -Code "INVALID_QUERY" -Message $_.Exception.Message
+                    continue
+                }
+                try {
+                    $priceQuote = Get-ItemPriceQuote `
+                        -ItemId ([string]$priceQuery["itemId"]) `
+                        -GameMode ([string]$priceQuery["gameMode"])
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value $priceQuote
+                } catch {
+                    Send-JsonError -Stream $stream -StatusCode 502 -Reason "Bad Gateway" `
+                        -Code "PRICE_UPSTREAM_UNAVAILABLE" -Message "The live item price is temporarily unavailable."
+                }
+                continue
+            }
+
             if ($method -ne "GET" -and -not $headOnly) {
                 Send-TextResponse -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
                     -Message "Method Not Allowed" -ExtraHeaders @("Allow: GET, HEAD")
