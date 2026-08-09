@@ -45,7 +45,7 @@ test("CI is read-only and every browser test remains headless", async () => {
 });
 
 test("release identity comes from GitHub context and signing is isolated from tagged code", async () => {
-  const workflow = await text(".github/workflows/release.yml");
+  const workflow = (await text(".github/workflows/release.yml")).replace(/\r\n?/g, "\n");
   const packageJob = /\n\x20{2}package:\n([\s\S]*?)\n\x20{2}finalize:\n/.exec(workflow)?.[1] ?? "";
   const finalizeJob = /\n\x20{2}finalize:\n([\s\S]*?)\n\x20{2}sign:\n/.exec(workflow)?.[1] ?? "";
   const signJob = /\n\x20{2}sign:\n([\s\S]*?)\n\x20{2}publish:\n/.exec(workflow)?.[1] ?? "";
