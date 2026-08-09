@@ -2673,10 +2673,16 @@ function Invoke-PendingAppUpdate {
         $arguments += @("-TestCrashAfterPhase", [string]$env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE)
     }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
+    # Explorer may start this launcher with the package directory as the process
+    # working directory. Windows will not rename a directory while any live
+    # process uses it as its current directory, so move both this waiting launcher
+    # process and the external update broker onto the persistent state directory
+    # before swapping the package tree.
+    [IO.Directory]::SetCurrentDirectory([IO.Path]::GetFullPath($StateDirectory))
     # Windows PowerShell 5.1 loses Process.ExitCode when Start-Process owns
     # redirected output handles. The broker writes durable status/journal state,
     # so keep the hidden process unredirected and retain a reliable exit code.
-    $process = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
+    $process = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WorkingDirectory $StateDirectory -WindowStyle Hidden -PassThru
     # Windows PowerShell's Start-Process -Wait follows the entire descendant tree.
     # A successful broker intentionally leaves the replacement server running, so
     # wait on the broker Process object itself instead of its long-lived child.

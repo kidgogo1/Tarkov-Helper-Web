@@ -40,6 +40,7 @@ function runPowerShell(script, arguments_, options = {}) {
     encoding: "utf8",
     windowsHide: true,
     timeout: options.timeout ?? 45_000,
+    cwd: options.cwd,
     env: { ...process.env, ...options.env },
   });
 }
@@ -49,6 +50,7 @@ function runPowerShellAsync(script, arguments_, options = {}) {
     const child = spawn(powershell, powerShellArguments(script, arguments_), {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      cwd: options.cwd,
       env: { ...process.env, ...options.env },
     });
     let stdout = "";
@@ -534,7 +536,7 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
   const applied = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
     "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(appPort), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
-  ], { env, timeout: 60_000 });
+  ], { cwd: fixture.packageRoot, env, timeout: 60_000 });
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
   const version = JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8"));
   assert.equal(version.version, "1.1.0");
