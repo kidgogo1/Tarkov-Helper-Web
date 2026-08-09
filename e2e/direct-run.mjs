@@ -203,7 +203,7 @@ try {
   assert(documentResponse?.status() === 200, "Direct release document did not return HTTP 200");
   assert(documentResponse.headers()["x-frame-options"] === "DENY", "Direct release is missing frame protection");
   await page.getByText("TARKOV HELPER", { exact: true }).waitFor();
-  assert(await page.getByRole("tab").count() === 5, "Expected five primary tabs");
+  assert(await page.getByRole("tab").count() === 6, "Expected six primary tabs");
   const levelInput = page.locator('input[aria-label="레벨"]');
   const expectedLevel = String(Number(await levelInput.inputValue()) + 1);
   await page.getByRole("button", { name: "레벨 증가" }).click();
@@ -224,7 +224,11 @@ try {
   assert(sampleResults[1].type === "image/png", `Wrong PNG MIME: ${sampleResults[1].type}`);
   assert(sampleResults[2].type === "image/webp", `Wrong WebP MIME: ${sampleResults[2].type}`);
 
-  await page.getByRole("tab").nth(4).click();
+  await page.getByRole("tab", { name: "시세" }).click();
+  await page.getByRole("searchbox", { name: "아이템 시세 검색" }).fill("LEDX");
+  await page.getByRole("button", { name: /LEDX Skin Transilluminator/ }).waitFor();
+
+  await page.getByRole("tab", { name: /^지도$/ }).click();
   await page.locator("object.map-svg-image").waitFor();
   await page.waitForFunction(() => Boolean(globalThis.document.querySelector("object.map-svg-image")?.contentDocument?.documentElement));
   await page.locator('.map-tracker-status[data-state="watching"]').waitFor();

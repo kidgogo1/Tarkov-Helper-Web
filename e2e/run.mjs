@@ -17,6 +17,7 @@ function assert(condition, message) {
 
 function isExpectedHostedBridgeProbe(pathname) {
   return pathname.startsWith("/api/v1/local-tracker/") ||
+    pathname.startsWith("/api/v1/item-prices/") ||
     pathname === "/api/v1/native-overlay/session" ||
     pathname === "/api/v1/client/session" ||
     pathname === "/api/v1/app-update/session";
@@ -128,7 +129,7 @@ try {
     return data.meta.counts;
   });
   await page.getByText("TARKOV HELPER", { exact: true }).waitFor();
-  assert(await page.getByRole("tab").count() === 5, "Expected five primary tabs");
+  assert(await page.getByRole("tab").count() === 6, "Expected six primary tabs");
 
   const levelInput = page.locator('input[aria-label="레벨"]');
   assert(await levelInput.inputValue() === "15", "PVP should start at level 15");
@@ -170,6 +171,12 @@ try {
 
   await page.getByRole("tab", { name: /수집가/ }).click();
   await page.getByText(/COLLECTOR|수집가/).first().waitFor();
+
+  await page.getByRole("tab", { name: "시세" }).click();
+  const priceSearch = page.getByRole("searchbox", { name: "아이템 시세 검색" });
+  await priceSearch.fill("LEDX");
+  await page.getByRole("button", { name: /LEDX Skin Transilluminator/ }).click();
+  await page.getByRole("article").getByText("LEDX Skin Transilluminator", { exact: true }).waitFor();
 
   await page.getByRole("tab", { name: /^지도$/ }).click();
   await page.getByRole("combobox", { name: "지도 선택" }).selectOption("Customs");
