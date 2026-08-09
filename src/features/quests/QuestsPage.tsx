@@ -1,4 +1,4 @@
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppStore } from "../../app/store";
@@ -8,9 +8,7 @@ import {
   createQuestStatusResolver,
   getQuestStatistics,
   isFactionRequirementMet,
-  recommendQuests,
   resetQuest,
-  type RecommendationType,
 } from "../../domain/quests";
 import type { QuestData, TarkovData } from "../../types/data";
 import type { QuestStatus, SavedQuestStatus } from "../../types/state";
@@ -40,14 +38,6 @@ const STATUS_LABELS: Record<QuestStatus, string> = {
   unavailable: "이용 불가",
   done: "완료",
   failed: "실패",
-};
-
-const RECOMMENDATION_LABELS: Record<RecommendationType, string> = {
-  readyToComplete: "바로 완료 가능",
-  itemHandInOnly: "아이템 제출",
-  kappaPriority: "카파 우선",
-  unlocksMany: "후속 다수 해금",
-  easyQuest: "빠른 진행",
 };
 
 const COMPLETABLE_STATUSES = new Set<QuestStatus>([
@@ -155,10 +145,6 @@ export function QuestsPage({
   );
   const statistics = useMemo(
     () => getQuestStatistics(data.quests, profile, statusResolver),
-    [data.quests, profile, statusResolver],
-  );
-  const recommendations = useMemo(
-    () => recommendQuests(data.quests, profile, 5, statusResolver),
     [data.quests, profile, statusResolver],
   );
   const traders = useMemo(
@@ -311,34 +297,6 @@ export function QuestsPage({
           </button>
         </div>
       </header>
-
-      <section aria-label="추천 퀘스트" className="quest-recommendations panel">
-        <div className="recommendation-heading">
-          <Sparkles aria-hidden="true" size={16} />
-          <div>
-            <h2>추천 퀘스트</h2>
-            <p>현재 진행도와 보유 아이템을 기준으로 선정했습니다.</p>
-          </div>
-        </div>
-        <div className="recommendation-strip">
-          {recommendations.map((recommendation) => (
-            <button
-              key={recommendation.quest.id}
-              onClick={() => handleOpenQuest(recommendation.quest.id)}
-              type="button"
-            >
-              <span className="badge">
-                {RECOMMENDATION_LABELS[recommendation.type]}
-              </span>
-              <strong>{questDisplayName(recommendation.quest, language)}</strong>
-              {alternateQuestDisplayName(recommendation.quest, language) ? (
-                <small>{alternateQuestDisplayName(recommendation.quest, language)}</small>
-              ) : null}
-              <small>{recommendation.quest.trader}</small>
-            </button>
-          ))}
-        </div>
-      </section>
 
       <section aria-label="전체 퀘스트 통계" className="quest-statistics">
         {(

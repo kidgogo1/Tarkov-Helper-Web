@@ -190,7 +190,7 @@ describe("QuestsPage", () => {
     window.localStorage.clear();
   });
 
-  it("shows recommendations and statistics, then filters the dense quest list", () => {
+  it("shows statistics, then filters the dense quest list", () => {
     renderPage();
 
     expect(screen.getByRole("heading", { level: 1, name: "퀘스트" })).toBeInTheDocument();
@@ -199,9 +199,6 @@ describe("QuestsPage", () => {
         "물병자리 작전",
       ),
     ).toBeInTheDocument();
-
-    const recommendations = screen.getByRole("region", { name: "추천 퀘스트" });
-    expect(within(recommendations).getAllByRole("button")).toHaveLength(5);
 
     const statistics = screen.getByRole("region", { name: "전체 퀘스트 통계" });
     expect(within(statistics).getByText("전체")).toBeInTheDocument();
@@ -291,26 +288,12 @@ describe("QuestsPage", () => {
     expect(screen.getAllByText(/Old Operation Aquarius/).length).toBeGreaterThan(0);
   });
 
-  it("clears active filters when a recommendation is opened", () => {
+  it("does not render the recommended quests section", () => {
     renderPage();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "상태" }), {
-      target: { value: "all" },
-    });
-    const search = screen.getByRole("searchbox", { name: "퀘스트 검색" });
-    fireEvent.change(search, { target: { value: "물병자리" } });
-    expect(screen.getByRole("heading", { name: "물병자리 작전" })).toBeInTheDocument();
-
-    fireEvent.click(
-      within(screen.getByRole("region", { name: "추천 퀘스트" })).getByRole(
-        "button",
-        { name: /사전 작업/ },
-      ),
-    );
-
-    expect(search).toHaveValue("");
-    expect(screen.getByRole("combobox", { name: "상태" })).toHaveValue("all");
-    expect(screen.getByRole("heading", { name: "사전 작업" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "추천 퀘스트" }),
+    ).not.toBeInTheDocument();
   });
 
   it("connects quest details, inventory, progress, faction, wiki, and map actions", () => {

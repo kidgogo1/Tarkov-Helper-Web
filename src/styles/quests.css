@@ -57,92 +57,6 @@
   color: var(--accent-strong);
 }
 
-.quest-recommendations {
-  display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
-  align-items: stretch;
-  overflow: hidden;
-}
-
-.recommendation-heading {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border-right: 1px solid var(--line);
-  padding: 10px 12px;
-  color: var(--accent);
-}
-
-.recommendation-heading h2,
-.recommendation-heading p {
-  margin: 0;
-}
-
-.recommendation-heading h2 {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.recommendation-heading p {
-  margin-top: 2px;
-  color: var(--text-dim);
-  font-size: 10px;
-  line-height: 1.25;
-}
-
-.recommendation-strip {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
-  min-width: 0;
-}
-
-.recommendation-strip button {
-  display: grid;
-  min-width: 0;
-  min-height: 66px;
-  align-content: center;
-  justify-items: start;
-  gap: 2px;
-  border-width: 0 0 0 1px;
-  border-radius: 0;
-  background: transparent;
-  padding: 7px 10px;
-  text-align: left;
-}
-
-.recommendation-strip button:first-child {
-  border-left: 0;
-}
-
-.recommendation-strip button:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.recommendation-strip strong,
-.recommendation-strip small {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recommendation-strip strong {
-  font-size: 12px;
-}
-
-.recommendation-strip small {
-  color: var(--text-dim);
-  font-size: 10px;
-}
-
-.recommendation-strip .badge {
-  min-height: 16px;
-  margin-bottom: 1px;
-  padding-block: 0;
-  color: var(--accent);
-  font-size: 9px;
-}
-
 .quest-statistics {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -691,19 +605,6 @@
 }
 
 @media (max-width: 1100px) {
-  .quest-recommendations {
-    display: block;
-  }
-
-  .recommendation-heading {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .recommendation-heading p {
-    display: none;
-  }
-
   .quest-workspace {
     grid-template-columns: minmax(300px, 350px) minmax(0, 1fr);
   }
@@ -754,17 +655,6 @@
 
   .faction-switch button {
     min-width: 56px;
-  }
-
-  .recommendation-strip {
-    display: flex;
-    overflow-x: auto;
-    scroll-snap-type: x proximity;
-  }
-
-  .recommendation-strip button {
-    min-width: 145px;
-    scroll-snap-align: start;
   }
 
   .quest-statistics {
