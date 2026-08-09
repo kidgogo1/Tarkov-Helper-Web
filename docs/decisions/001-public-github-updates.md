@@ -64,8 +64,9 @@ Windows 바로 실행 배포본은 원본 Tarkov Item Helper처럼 앱 안에서
    Environment의 승인을 받은 뒤에만 secret을 읽을 수 있다.
 4. `github-release` Environment secrets에 다음을 저장한다.
    - `UPDATE_SIGNING_PRIVATE_KEY`: RSA-3072 이상 PEM 개인키. 저장소나 artifact에 커밋하지 않는다.
-   - `IMMUTABLE_RELEASES_READ_TOKEN`: 해당 저장소의 `Administration: read`만 허용한 fine-grained
-     token. immutable releases 설정 확인에만 사용한다.
+   - `IMMUTABLE_RELEASES_READ_TOKEN`: 해당 저장소만 선택하고 `Administration: read`와
+     `Contents: read`만 허용한 fine-grained token. immutable releases 설정과 공개 전 draft
+     release/asset digest를 격리된 서명 러너가 독립 검증할 때만 사용한다.
 5. Repository Actions variable `UPDATE_SIGNING_PUBLIC_KEY`에 같은 키 쌍의 SPKI PEM 공개키를
    저장한다. package job도 사용하므로 Environment variable이 아닌 Repository variable이어야 한다.
 6. GitHub Actions가 workflow의 job별 `contents: write`, `id-token: write`, `attestations: write`와

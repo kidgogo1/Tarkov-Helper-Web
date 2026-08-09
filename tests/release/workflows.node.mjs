@@ -82,6 +82,8 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /environment:\s+github-release/);
   assert.match(signJob, /needs:\s+finalize/);
   assert.match(signJob, /permissions:\s*\n\s+contents:\s+read/);
+  assert.match(signJob, /GITHUB_TOKEN:\s*\$\{\{\s*secrets\.IMMUTABLE_RELEASES_READ_TOKEN\s*\}\}/);
+  assert.doesNotMatch(signJob, /GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
   assert.match(signJob, /download-artifact@[0-9a-f]{40}[\s\S]*release-unsigned-/);
   assert.match(signJob, /upload-artifact@[0-9a-f]{40}[\s\S]*release-signed-/);
   assert.doesNotMatch(signJob, /actions\/checkout|actions\/setup-node|pnpm|\bnode\b|scripts\/|\bgh\s+api/i);

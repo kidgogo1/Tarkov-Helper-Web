@@ -94,7 +94,9 @@ E2E 실행 전에 `pnpm exec playwright install chromium`을 한 번 실행하�
    필수로 설정합니다.
 3. `github-release` Environment를 만들고 required reviewers를 지정합니다.
 4. 이 Environment에 `UPDATE_SIGNING_PRIVATE_KEY`와 `IMMUTABLE_RELEASES_READ_TOKEN` secret을
-   추가합니다. 후자는 해당 저장소의 **Administration: read**만 허용한 fine-grained token입니다.
+   추가합니다. 후자는 해당 저장소만 선택하고 **Administration: read**와 **Contents: read**만
+   허용한 fine-grained token입니다. 불변 릴리스 설정과 공개 전 draft 릴리스·자산 digest를
+   격리된 서명 러너가 독립 검증할 때만 사용합니다.
 5. Repository Actions variable `UPDATE_SIGNING_PUBLIC_KEY`에 SPKI PEM 공개키를 추가합니다.
 
 RSA-3072 키는 네트워크에 연결되지 않은 안전한 환경에서 다음처럼 생성할 수 있습니다. 개인키 파일은

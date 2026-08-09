@@ -370,7 +370,7 @@ jobs:
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
           if ([string]::IsNullOrWhiteSpace($env:IMMUTABLE_SETTINGS_TOKEN)) {
-            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) permission"
+            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) and Contents (read) permissions"
           }
           $headers = @{
             Accept = "application/vnd.github+json"
@@ -384,7 +384,7 @@ jobs:
       - name: Independently validate and sign the raw manifest
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
           SIGNING_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
           UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
         run: |
