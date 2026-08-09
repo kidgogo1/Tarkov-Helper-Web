@@ -251,11 +251,18 @@ try {
   await page.locator("button.map-minimap-toggle").click();
   const miniMapPage = await miniMapPagePromise;
   if (miniMapPage) {
-    await miniMapPage.locator('[data-testid="map-minimap-player"]').waitFor();
-    await miniMapPage.locator("object.map-minimap-map").waitFor();
-    await miniMapPage.locator(".map-minimap").screenshot({
-      path: path.join(outputDirectory, "direct-minimap.png"),
-    });
+    try {
+      await miniMapPage.locator('[data-testid="map-minimap-player"]').waitFor();
+      await miniMapPage.locator("object.map-minimap-map").waitFor();
+      await miniMapPage.locator(".map-minimap").screenshot({
+        path: path.join(outputDirectory, "direct-minimap.png"),
+      });
+    } catch (error) {
+      if (!miniMapPage.isClosed()) throw error;
+      await page.locator('[data-testid="map-minimap-fallback"]').waitFor();
+      await page.locator('[data-testid="map-minimap-player"]').waitFor();
+      await page.locator('[data-testid="map-minimap-fallback"] object.map-minimap-map').waitFor();
+    }
   } else {
     await page.locator('[data-testid="map-minimap-fallback"]').waitFor();
     await page.locator('[data-testid="map-minimap-player"]').waitFor();
