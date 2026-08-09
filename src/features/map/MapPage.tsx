@@ -2789,7 +2789,10 @@ export function MapPage({
                           )}
                           {choiceLabel ? (
                             <span className="map-optional-label">{choiceLabel}</span>
-                          ) : mapSettings.questMarkerStyle.includes("Name") ? (
+                          ) : (
+                            mapSettings.questMarkerStyle.includes("Name") &&
+                            selectedMarkerId === point.id
+                          ) ? (
                             <span className="map-marker-label">{point.objective.description}</span>
                           ) : null}
                         </button>

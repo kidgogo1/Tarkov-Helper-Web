@@ -1176,9 +1176,11 @@
 }
 
 .map-quest-marker .map-marker-label {
-  max-width: 250px;
+  max-width: 230px;
   color: #fff3b7;
   font-size: var(--quest-name-size, 12px);
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .map-quest-marker.completed {

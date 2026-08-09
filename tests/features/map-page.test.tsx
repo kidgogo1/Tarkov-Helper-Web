@@ -1097,10 +1097,15 @@ describe("MapPage", () => {
     expect(profileState().objectiveProgress["objective-main"]).toBe(true);
 
     const marker = screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" });
+    expect(within(marker).queryByText("기숙사 물방 방문")).not.toBeInTheDocument();
+
     fireEvent.click(marker);
     expect(marker).toHaveAttribute("aria-pressed", "true");
+    expect(within(marker).getByText("기숙사 물방 방문")).toBeInTheDocument();
+
     fireEvent.click(marker);
     expect(marker).toHaveAttribute("aria-pressed", "false");
+    expect(within(marker).queryByText("기숙사 물방 방문")).not.toBeInTheDocument();
 
     const extraction = screen.getByRole("button", { name: "탈출구 마커 Crossroads" });
     fireEvent.click(extraction);

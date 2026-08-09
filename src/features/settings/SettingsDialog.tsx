@@ -281,8 +281,8 @@ export function SettingsDialog({
                   >
                     <option value="icon">아이콘</option>
                     <option value="circle">원형</option>
-                    <option value="iconWithName">아이콘 + 이름</option>
-                    <option value="circleWithName">원형 + 이름</option>
+                    <option value="iconWithName">아이콘 + 선택한 목표 이름</option>
+                    <option value="circleWithName">원형 + 선택한 목표 이름</option>
                   </select>
                 </label>
                 <div className="settings-field">
