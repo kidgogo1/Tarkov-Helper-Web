@@ -82,8 +82,8 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /environment:\s+github-release/);
   assert.match(signJob, /needs:\s+finalize/);
   assert.match(signJob, /permissions:\s*\n\s+contents:\s+read/);
-  assert.match(signJob, /GITHUB_TOKEN:\s*\$\{\{\s*secrets\.IMMUTABLE_RELEASES_READ_TOKEN\s*\}\}/);
-  assert.doesNotMatch(signJob, /GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+  assert.doesNotMatch(signJob, /GITHUB_TOKEN:/);
+  assert.doesNotMatch(signJob, /function Invoke-GitHub|Invoke-GitHub "/);
   assert.match(signJob, /download-artifact@[0-9a-f]{40}[\s\S]*release-unsigned-/);
   assert.match(signJob, /upload-artifact@[0-9a-f]{40}[\s\S]*release-signed-/);
   assert.doesNotMatch(signJob, /actions\/checkout|actions\/setup-node|pnpm|\bnode\b|scripts\/|\bgh\s+api/i);
@@ -116,8 +116,8 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /Required Direct ZIP entry is missing/);
   assert.match(signJob, /ZIP report exceeds client unpacked bounds/);
   assert.match(signJob, /UPDATE_CONFIG\.json/);
-  assert.match(signJob, /releases\/\$releaseId/);
-  assert.match(signJob, /commits\/\$\(\[uri\]::EscapeDataString\(\$env:RELEASE_TAG\)\)/);
+  assert.match(publishJob, /releases\/\$releaseId/);
+  assert.match(publishJob, /commits\/\$env:RELEASE_TAG/);
   assert.match(signJob, /SHA256SUMS\.txt/);
   assert.match(publishJob, /download-artifact@[0-9a-f]{40}[\s\S]*release-signed-/);
   assert.doesNotMatch(publishJob, /UPDATE_SIGNING_PRIVATE_KEY|SIGNING_KEY_PEM/);

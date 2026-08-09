@@ -370,7 +370,7 @@ jobs:
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
           if ([string]::IsNullOrWhiteSpace($env:IMMUTABLE_SETTINGS_TOKEN)) {
-            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) and Contents (read) permissions"
+            throw "IMMUTABLE_RELEASES_READ_TOKEN is required with repository Administration (read) permission"
           }
           $headers = @{
             Accept = "application/vnd.github+json"
@@ -384,7 +384,6 @@ jobs:
       - name: Independently validate and sign the raw manifest
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
           SIGNING_KEY_PEM: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
           UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
         run: |
@@ -393,7 +392,6 @@ jobs:
           if ($env:RELEASE_TAG -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw "Stable release tag is invalid" }
           if ($env:RELEASE_COMMIT -notmatch '^[0-9a-f]{40}$') { throw "Release commit must be a full lowercase SHA-1" }
           if ($env:RELEASE_REPOSITORY -notmatch '^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$') { throw "Repository identity is invalid" }
-          if ([string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) { throw "GitHub token is required" }
           if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY_PEM)) { throw "The update signing private key is required" }
           if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PUBLIC_KEY)) { throw "The update signing public key is required" }
           if (-not ("System.IO.Compression.ZipFile" -as [type])) { Add-Type -AssemblyName System.IO.Compression.FileSystem }
@@ -972,14 +970,6 @@ jobs:
             if ($matches.Count -ne 1) { throw "PACKAGE_INFO.txt field mismatch: $Name" }
             return $matches[0].Groups[1].Value
           }
-          function Invoke-GitHub([string]$Uri) {
-            $headers = @{
-              Accept = "application/vnd.github+json"
-              Authorization = "Bearer $($env:GITHUB_TOKEN)"
-              "X-GitHub-Api-Version" = "2026-03-10"
-            }
-            return Invoke-RestMethod -Method Get -Uri $Uri -Headers $headers -MaximumRedirection 0
-          }
           function Assert-RsaKeyPolicy([Security.Cryptography.RSA]$Key, [string]$Label) {
             if ($Key.KeySize -lt 3072 -or $Key.KeySize -gt 16384) {
               throw "$Label RSA modulus must be between 3072 and 16384 bits"
@@ -1043,20 +1033,8 @@ jobs:
               Assert-Text (Get-JsonProperty $signing "keyId" "Update manifest signing") $keyId "signing keyId"
 
               $apiRoot = "https://api.github.com/repos/$($env:RELEASE_REPOSITORY)"
-              $release = Invoke-GitHub "$apiRoot/releases/$releaseId"
-              if ([int64]$release.id -ne $releaseId -or $release.draft -ne $true -or $release.prerelease -eq $true) { throw "Draft release identity mismatch" }
-              if (-not [string]::Equals([string]$release.tag_name, $env:RELEASE_TAG, [StringComparison]::Ordinal)) { throw "Draft release tag mismatch" }
-              $allowedReleaseNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-              @($directName, $staticName, $sourceName, $manifestName, $signatureName, "SHA256SUMS.txt") | ForEach-Object { [void]$allowedReleaseNames.Add($_) }
-              if (@($release.assets | Where-Object { -not $allowedReleaseNames.Contains([string]$_.name) }).Count -ne 0) {
-                throw "Draft release contains unexpected assets"
-              }
-              $remoteCommit = Invoke-GitHub "$apiRoot/commits/$([uri]::EscapeDataString($env:RELEASE_TAG))"
-              if (-not [string]::Equals([string]$remoteCommit.sha, $env:RELEASE_COMMIT, [StringComparison]::Ordinal)) { throw "Remote tag commit mismatch" }
               $createdAtText = (Get-JsonProperty $manifest "createdAt" "Update manifest").GetString()
-              $createdAt = [DateTimeOffset]::Parse($createdAtText, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
-              $commitAt = [DateTimeOffset]::Parse([string]$remoteCommit.commit.committer.date, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
-              if ($createdAt.ToUniversalTime().Ticks -ne $commitAt.ToUniversalTime().Ticks) { throw "Manifest commit timestamp mismatch" }
+              [void][DateTimeOffset]::Parse($createdAtText, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
 
               $artifacts = Get-JsonProperty $manifest "artifacts" "Update manifest"
               Assert-ExactKeys $artifacts @("direct", "static", "source") "Update manifest artifacts"
@@ -1074,11 +1052,6 @@ jobs:
                 Assert-Text (Get-JsonProperty $artifact "sha256" "$Kind artifact") $fileHash "$Kind sha256"
                 $assetIdElement = Get-JsonProperty $artifact "assetId" "$Kind artifact"
                 Assert-PositiveInt64 $assetIdElement "$Kind assetId"
-                $assetId = $assetIdElement.GetInt64()
-                $matches = @($release.assets | Where-Object { [string]::Equals([string]$_.name, $Filename, [StringComparison]::Ordinal) })
-                if ($matches.Count -ne 1 -or [int64]$matches[0].id -ne $assetId -or [int64]$matches[0].size -ne $file.Length) { throw "$Kind GitHub asset identity mismatch" }
-                if (-not [string]::Equals([string]$matches[0].state, "uploaded", [StringComparison]::Ordinal)) { throw "$Kind GitHub asset is not uploaded" }
-                if (-not [string]::Equals([string]$matches[0].digest, "sha256:$fileHash", [StringComparison]::Ordinal)) { throw "$Kind GitHub asset digest mismatch" }
                 $unpacked = Get-JsonProperty $artifact "unpacked" "$Kind artifact"
                 Assert-ExactKeys $unpacked @("fileCount", "bytes", "treeSha256") "$Kind unpacked metadata"
                 if ($ZipReport.FileCount -lt 1 -or $ZipReport.FileCount -gt 10000 -or $ZipReport.Bytes -lt 1 -or $ZipReport.Bytes -gt 268435456) {
