@@ -1110,6 +1110,7 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
     overlayId: complete.body.overlayId,
   });
   assert.equal(failedDetach.status, 500, JSON.stringify(failedDetach.body));
+  await new Promise((resolve) => setTimeout(resolve, 1_300));
   const detached = await nativeRequest("DELETE", "api/v1/native-overlay/minimap", session.token, {
     overlayId: complete.body.overlayId,
   });

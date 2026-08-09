@@ -2063,8 +2063,7 @@ function Remove-NativeOverlay {
     )
 
     if ($null -eq $script:nativeOverlayRecord) {
-        if ($IgnoreIdentifier) { return $true }
-        return $false
+        return $true
     }
     if (-not $IgnoreIdentifier -and $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
         return $false
