@@ -1,7 +1,7 @@
 {
   "name": "tarkov-helper-web",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "packageManager": "pnpm@11.16.0",
   "engines": {
