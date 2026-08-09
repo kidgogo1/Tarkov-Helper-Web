@@ -92,6 +92,8 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /RSASignaturePadding\]::Pkcs1/);
   assert.match(signJob, /JsonDocument/);
   assert.match(signJob, /IsolatedZipValidator/);
+  assert.match(signJob, /Add-Type -TypeDefinition \$zipValidatorSource -Language CSharp\s*$/m);
+  assert.doesNotMatch(signJob, /Add-Type -TypeDefinition \$zipValidatorSource[^\r\n]*-ReferencedAssemblies/);
   assert.match(signJob, /ValidateLocalLayout/);
   assert.match(signJob, /ValidateCollisions/);
   assert.match(signJob, /MaxCompressionRatio/);

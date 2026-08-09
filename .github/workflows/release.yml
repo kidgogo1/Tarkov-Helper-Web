@@ -909,8 +909,7 @@ jobs:
           }
           '@
           if (-not ("System.IO.Compression.ZipArchive" -as [type])) { Add-Type -AssemblyName System.IO.Compression }
-          $zipReferences = @([IO.Compression.ZipArchive].Assembly.Location)
-          Add-Type -TypeDefinition $zipValidatorSource -Language CSharp -ReferencedAssemblies $zipReferences
+          Add-Type -TypeDefinition $zipValidatorSource -Language CSharp
 
           function Assert-ExactKeys([System.Text.Json.JsonElement]$Element, [string[]]$Expected, [string]$Label) {
             if ($Element.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { throw "$Label must be an object" }
