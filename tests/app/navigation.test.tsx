@@ -18,7 +18,7 @@ const data: TarkovData = {
     originalCommit: "original",
     modifiedCommit: "modified",
     exportedAt: "2026-08-07T00:00:00Z",
-    counts: { quests: 2, items: 1, hideoutStations: 0, maps: 0, mapMarkers: 0 },
+    counts: { quests: 2, items: 1, hideoutStations: 1, maps: 0, mapMarkers: 0 },
   },
   quests: [
     {
@@ -73,7 +73,34 @@ const data: TarkovData = {
       isDogtagItem: false,
     },
   ],
-  hideoutStations: [],
+  hideoutStations: [
+    {
+      id: "workbench",
+      name: "Workbench",
+      normalizedName: "workbench",
+      maxLevel: 1,
+      levels: [
+        {
+          id: "workbench-level-1",
+          level: 1,
+          constructionTime: 0,
+          items: [
+            {
+              id: "workbench-salewa",
+              itemId: "salewa",
+              itemName: "Salewa",
+              count: 1,
+              foundInRaid: false,
+              sortOrder: 0,
+            },
+          ],
+          stations: [],
+          traders: [],
+          skills: [],
+        },
+      ],
+    },
+  ],
   traders: [],
   mapConfigs: [],
   mapMarkers: [],
@@ -94,6 +121,24 @@ describe("App related navigation", () => {
     window.history.replaceState(null, "", "#/quests");
     dataMocks.loadTarkovData.mockReset();
     dataMocks.loadTarkovData.mockResolvedValue(data);
+  });
+
+  it("navigates from an item source to its quest or hideout station", async () => {
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("tab", { name: "아이템" }));
+    const itemDetail = await screen.findByRole("complementary", { name: "아이템 상세" });
+    fireEvent.click(within(itemDetail).getByRole("button", { name: "Main Quest 퀘스트 열기" }));
+
+    expect(screen.getByRole("tab", { name: "퀘스트" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "주요 임무" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "아이템" }));
+    const returnedItemDetail = await screen.findByRole("complementary", { name: "아이템 상세" });
+    fireEvent.click(within(returnedItemDetail).getByRole("button", { name: "Workbench 은신처 열기" }));
+
+    expect(screen.getByRole("tab", { name: "은신처" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Workbench" })).toBeInTheDocument();
   });
 
   it("selects a related quest without leaving the quests tab", async () => {

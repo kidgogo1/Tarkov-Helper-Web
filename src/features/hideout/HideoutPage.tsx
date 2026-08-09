@@ -8,7 +8,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "../../components/EmptyState";
 import { QuantityStepper } from "../../components/QuantityStepper";
@@ -22,6 +22,8 @@ import type {
 
 interface HideoutPageProps {
   data: TarkovData;
+  focusStationId?: string;
+  onStationFocusConsumed?: () => void;
 }
 
 function stationName(station: HideoutStation): string {
@@ -61,11 +63,39 @@ function aggregateRemainingItems(
   );
 }
 
-export function HideoutPage({ data }: HideoutPageProps) {
+export function HideoutPage({
+  data,
+  focusStationId,
+  onStationFocusConsumed,
+}: HideoutPageProps) {
   const { profile, setHideoutLevel, setInventory } = useAppStore();
   const [searchText, setSearchText] = useState("");
   const [selectedId, setSelectedId] = useState(data.hideoutStations[0]?.id ?? "");
   const [showAllRemaining, setShowAllRemaining] = useState(false);
+  const focusedStation = data.hideoutStations.find(
+    (station) => station.id === focusStationId || station.normalizedName === focusStationId,
+  );
+  const [handledStationFocusId, setHandledStationFocusId] = useState(focusStationId);
+  const consumedStationFocusRef = useRef<string | undefined>(undefined);
+
+  if (focusStationId !== handledStationFocusId) {
+    setHandledStationFocusId(focusStationId);
+    if (focusedStation) {
+      setSearchText("");
+      setShowAllRemaining(false);
+      setSelectedId(focusedStation.id);
+    }
+  }
+
+  useEffect(() => {
+    if (!focusStationId) {
+      consumedStationFocusRef.current = undefined;
+      return;
+    }
+    if (consumedStationFocusRef.current === focusStationId) return;
+    consumedStationFocusRef.current = focusStationId;
+    onStationFocusConsumed?.();
+  }, [focusStationId, onStationFocusConsumed]);
 
   const filteredStations = useMemo(() => {
     const needle = searchText.trim().toLocaleLowerCase();

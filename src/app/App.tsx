@@ -107,6 +107,7 @@ export function App() {
   const [resetOpen, setResetOpen] = useState(false);
   const [mapFocusQuestId, setMapFocusQuestId] = useState<string>();
   const [questFocusId, setQuestFocusId] = useState<string>();
+  const [hideoutFocusId, setHideoutFocusId] = useState<string>();
   const [itemFocusId, setItemFocusId] = useState<string>();
   const [logPreview, setLogPreview] = useState<LogImportPreview | null>(null);
   const [readingLogs, setReadingLogs] = useState(false);
@@ -160,6 +161,11 @@ export function App() {
   const openItem = (itemId: string) => {
     setItemFocusId(itemId);
     changeTab("items");
+  };
+
+  const openHideout = (stationId: string) => {
+    setHideoutFocusId(stationId);
+    changeTab("hideout");
   };
 
   const handleLogFiles = async (files: File[]) => {
@@ -267,13 +273,21 @@ export function App() {
           />
         );
       case "hideout":
-        return <HideoutPage data={data} />;
+        return (
+          <HideoutPage
+            data={data}
+            focusStationId={hideoutFocusId}
+            onStationFocusConsumed={() => setHideoutFocusId(undefined)}
+          />
+        );
       case "items":
         return (
           <ItemsPage
             data={data}
             focusItemId={itemFocusId}
             onItemFocusConsumed={() => setItemFocusId(undefined)}
+            onOpenHideout={openHideout}
+            onOpenQuest={openQuest}
           />
         );
       case "collector":
