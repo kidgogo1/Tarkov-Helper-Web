@@ -48,7 +48,7 @@ export function ItemsPage({
     <section className="items-page" aria-labelledby="items-title">
       <header className="items-page-header">
         <div>
-          <p className="section-title">ITEM REQUIREMENTS</p>
+          <p className="section-title">아이템 요구 사항</p>
           <h1 id="items-title">아이템</h1>
           <p>미완료 퀘스트와 남은 은신처 업그레이드에 필요한 수량을 한곳에서 관리합니다.</p>
         </div>

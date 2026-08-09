@@ -4,6 +4,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { buildItemPriceCatalog, fetchFixedJson } from "./item-price-catalog.mjs";
+import { localizeItemData } from "./item-localization.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const defaultDataPath = path.join(projectRoot, "public", "data", "tarkov-data.json");
@@ -61,9 +62,16 @@ async function main() {
   const temporaryPath = `${outputPath}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(catalog)}\n`, "utf8");
   await rename(temporaryPath, outputPath);
+  const localization = localizeItemData(pack, catalog);
+  if (localization.changed > 0) {
+    const temporaryDataPath = `${dataPath}.tmp`;
+    await writeFile(temporaryDataPath, `${JSON.stringify(pack, null, 2)}\n`, "utf8");
+    await rename(temporaryDataPath, dataPath);
+  }
   console.log(JSON.stringify({
     output: outputPath,
     omittedSyntheticItems: regularItems.omitted + pveItems.omitted,
+    itemLocalization: localization,
     ...catalog.meta,
   }, null, 2));
 }

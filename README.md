@@ -148,6 +148,8 @@ python scripts/export_data.py --source /path/to/SIGDrone-Tarkov-Helper --output 
 pnpm data:refresh-prices
 ```
 
+시세 카탈로그를 갱신하면 같은 검증된 한글·영문 이름을 아이템 데이터에도 반영합니다. 외부 접속 없이 현재 번들만 다시 적용하려면 `pnpm data:localize-items`를 사용합니다.
+
 내보내기는 수정본의 `TarkovHelper/Assets/tarkov_data.db`를 읽기 전용으로 열고,
 예상 테이블 행 수와 복사한 파일을 검증합니다. 번들 글꼴은 재배포하지 않았으며,
 설정에서 시스템 글꼴을 선택하거나 개인 글꼴 파일을 현재 세션에 불러올 수 있습니다.

@@ -69,6 +69,34 @@ const data: TarkovData = {
 describe("ItemsPage", () => {
   beforeEach(() => window.localStorage.clear());
 
+  it("shows Korean item names first and searches both Korean and English", () => {
+    const localizedData: TarkovData = {
+      ...data,
+      items: data.items.map((item) => ({
+        ...item,
+        nameKo: "\uBCFC\uD2B8",
+        nameEn: "Bolts",
+      })),
+    };
+
+    render(
+      <AppStoreProvider>
+        <ItemsPage data={localizedData} />
+      </AppStoreProvider>,
+    );
+
+    expect(screen.getAllByText("\uBCFC\uD2B8").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Bolts").length).toBeGreaterThan(0);
+    expect(screen.getByRole("option", { name: "\uAD50\uD658 \uBB3C\uD488" })).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: "\uC544\uC774\uD15C \uAC80\uC0C9" });
+
+    fireEvent.change(search, { target: { value: "\uBCFC\uD2B8" } });
+    expect(screen.getByRole("button", { name: "\uBCFC\uD2B8 \uC0C1\uC138 \uBCF4\uAE30" })).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "Bolts" } });
+    expect(screen.getByRole("button", { name: "\uBCFC\uD2B8 \uC0C1\uC138 \uBCF4\uAE30" })).toBeInTheDocument();
+  });
+
   it("shows aggregated sources and edits FIR inventory", () => {
     render(
       <AppStoreProvider>

@@ -33,6 +33,29 @@ interface ItemTrackerViewProps {
   showHideoutSort?: boolean;
 }
 
+const CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  Provisions: "식량",
+  Medical: "의료",
+  Gear: "장비",
+  Barter: "교환 물품",
+  "Info & Keys": "정보·열쇠",
+  Containers: "보관함",
+  Money: "화폐",
+  Ammo: "탄약",
+  "Weapon Mods": "무기 부품",
+  Optics: "조준경",
+  Tactical: "전술 장비",
+  "Helmet Mods": "헬멧 부품",
+  Weapons: "무기",
+  "Quest Items": "퀘스트 아이템",
+  Misc: "기타",
+  Other: "기타",
+};
+
+function localizeCategory(category: string): string {
+  return CATEGORY_LABELS[category] ?? category;
+}
+
 function localizeItemRequirements(
   requirements: readonly AggregatedItemRequirement[],
   items: readonly ItemData[],
@@ -153,7 +176,7 @@ export function ItemTrackerView({
           <input
             aria-label="아이템 검색"
             onChange={(event) => setSearchText(event.target.value)}
-            placeholder="아이템 이름 검색"
+            placeholder="한글·영문·약칭 검색"
             type="search"
             value={searchText}
           />
@@ -186,7 +209,7 @@ export function ItemTrackerView({
               >
                 <option value="All">전체</option>
                 {categories.map((value) => (
-                  <option key={value} value={value}>{value}</option>
+                  <option key={value} value={value}>{localizeCategory(value)}</option>
                 ))}
               </select>
             </label>
@@ -358,7 +381,7 @@ function ItemDetail({
       <header className="item-detail-header">
         <ItemIcon item={item} large />
         <div>
-          <span className="eyebrow">ITEM REQUIREMENT</span>
+          <span className="eyebrow">아이템 요구 사항</span>
           <h2>{item.displayName}</h2>
           {item.subtitleName ? <p>{item.subtitleName}</p> : null}
         </div>
