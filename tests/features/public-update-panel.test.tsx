@@ -30,6 +30,46 @@ const availableStatus = {
 } as const;
 
 describe("public update settings", () => {
+  it("keeps a clearly named update check button visible in every updater state", () => {
+    const onCheck = vi.fn();
+    const disabledSession = {
+      ...idleSession,
+      repository: null,
+      status: { state: "DISABLED", currentVersion: "1.0.0", reason: "NOT_CONFIGURED" },
+    } as const;
+    const { rerender } = render(
+      <PublicUpdatePanel
+        busy={null}
+        clientError={null}
+        initializing={false}
+        onCheck={onCheck}
+        onStage={vi.fn()}
+        session={disabledSession}
+        status={disabledSession.status}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "업데이트 확인" })).toHaveAttribute(
+      "title",
+      "공개 GitHub 릴리스 저장소 연결 후 사용할 수 있습니다.",
+    );
+    expect(screen.getByRole("button", { name: "업데이트 확인" })).toBeDisabled();
+
+    rerender(
+      <PublicUpdatePanel
+        busy={null}
+        clientError={null}
+        initializing={false}
+        onCheck={onCheck}
+        onStage={vi.fn()}
+        session={idleSession}
+        status={idleSession.status}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "업데이트 확인" }));
+    expect(onCheck).toHaveBeenCalledOnce();
+  });
+
   it("rechecks a settled update status on startup and every six hours", async () => {
     vi.useFakeTimers();
     try {
@@ -216,7 +256,7 @@ describe("public update settings", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "업데이트 다운로드 및 검증" }));
     expect(onStage).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "업데이트 확인" }));
     expect(onCheck).toHaveBeenCalledOnce();
 
     rerender(
@@ -237,6 +277,6 @@ describe("public update settings", () => {
       />,
     );
     expect(screen.getByText(/탭을 닫은 다음.*Tarkov Helper 실행\.vbs.*다시 실행/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "다시 확인" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "업데이트 확인" })).toBeDisabled();
   });
 });

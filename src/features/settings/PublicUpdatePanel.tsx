@@ -18,6 +18,19 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 })} MB`;
 }
 
+function updateCheckUnavailableReason(
+  session: PublicUpdateSession | null,
+  status: PublicUpdateStatus | null,
+  initializing: boolean,
+): string | null {
+  if (initializing) return "업데이트 기능을 확인하는 중입니다.";
+  if (!session) return "Windows 바로 실행 버전에서 사용할 수 있습니다.";
+  if (!status) return "업데이트 상태를 불러오는 중입니다.";
+  if (status.state === "DISABLED") return "공개 GitHub 릴리스 저장소 연결 후 사용할 수 있습니다.";
+  if (status.state === "READY_TO_RESTART") return "준비된 업데이트를 적용한 뒤 다시 확인할 수 있습니다.";
+  return null;
+}
+
 export function PublicUpdatePanel({
   session,
   status,
@@ -27,6 +40,8 @@ export function PublicUpdatePanel({
   onCheck,
   onStage,
 }: PublicUpdatePanelProps) {
+  const checkUnavailableReason = updateCheckUnavailableReason(session, status, initializing);
+
   return (
     <section aria-labelledby="public-update-title" className="public-update-panel">
       <div className="public-update-heading">
@@ -34,12 +49,15 @@ export function PublicUpdatePanel({
           <h3 id="public-update-title">프로그램 업데이트</h3>
           <p>공개 GitHub 릴리스에서 검증된 전체 앱·데이터 패키지를 확인합니다.</p>
         </div>
-        {status && status.state !== "DISABLED" && status.state !== "READY_TO_RESTART" ? (
-          <button disabled={busy !== null} onClick={onCheck} type="button">
-            <RefreshCw aria-hidden="true" className={busy === "CHECK" ? "spin" : undefined} size={15} />
-            다시 확인
-          </button>
-        ) : null}
+        <button
+          disabled={busy !== null || checkUnavailableReason !== null}
+          onClick={onCheck}
+          title={checkUnavailableReason ?? undefined}
+          type="button"
+        >
+          <RefreshCw aria-hidden="true" className={busy === "CHECK" ? "spin" : undefined} size={15} />
+          업데이트 확인
+        </button>
       </div>
 
       {initializing ? <p className="update-status">로컬 업데이트 기능을 확인하는 중입니다.</p> : null}
