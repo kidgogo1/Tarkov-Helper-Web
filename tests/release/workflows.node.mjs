@@ -77,6 +77,8 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(finalizeJob, /releases\?per_page=100/);
   assert.match(finalizeJob, /uploads\.github\.com/);
   assert.match(finalizeJob, /releases\/\$releaseId/);
+  assert.match(finalizeJob, /for \(\$attempt = 1; \$attempt -le 6; \$attempt \+= 1\)[\s\S]*?\$release = Find-Draft[\s\S]*?Start-Sleep -Seconds 2/);
+  assert.match(finalizeJob, /Created draft release was not visible within the bounded wait/);
   assert.match(signJob, /environment:\s+github-release/);
   assert.match(signJob, /needs:\s+finalize/);
   assert.match(signJob, /permissions:\s*\n\s+contents:\s+read/);

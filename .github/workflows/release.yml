@@ -261,8 +261,12 @@ jobs:
           if ($null -eq $release) {
             gh release create $env:RELEASE_TAG ($zipAssets | ForEach-Object FullName) --draft --generate-notes --title "Tarkov Helper $env:RELEASE_TAG" --verify-tag
             if ($LASTEXITCODE -ne 0) { throw "Draft release creation failed" }
-            $release = Find-Draft
-            if ($null -eq $release) { throw "Created draft release could not be resolved" }
+            for ($attempt = 1; $attempt -le 6; $attempt += 1) {
+              $release = Find-Draft
+              if ($null -ne $release) { break }
+              if ($attempt -eq 6) { throw "Created draft release was not visible within the bounded wait" }
+              Start-Sleep -Seconds 2
+            }
           }
           $releaseId = [int64]$release.id
           if ($releaseId -le 0 -or $releaseId -gt 9007199254740991) { throw "Draft release ID is invalid" }
