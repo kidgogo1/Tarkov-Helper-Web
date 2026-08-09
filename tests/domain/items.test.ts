@@ -180,7 +180,8 @@ describe("item and hideout aggregation", () => {
     );
 
     expect(result).toHaveLength(3);
-    expect(result.find((entry) => entry.itemId === "bolt")).toMatchObject({
+    const bolts = result.find((entry) => entry.itemId === "bolt");
+    expect(bolts).toMatchObject({
       displayName: "Bolts",
       parentCategory: "Barter",
       questCount: 2,
@@ -195,6 +196,12 @@ describe("item and hideout aggregation", () => {
       shortage: 1,
       firShortage: 1,
     });
+    expect(bolts?.questSources).toEqual([
+      expect.objectContaining({ questId: "active", requiredCount: 2 }),
+    ]);
+    expect(bolts?.hideoutSources).toEqual([
+      expect.objectContaining({ stationId: "workbench", level: 2, requiredCount: 4 }),
+    ]);
     expect(result.find((entry) => entry.itemId === "wire")).toMatchObject({
       questCount: 3,
       hideoutCount: 0,

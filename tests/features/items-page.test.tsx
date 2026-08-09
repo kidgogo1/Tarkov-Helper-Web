@@ -124,6 +124,63 @@ describe("ItemsPage", () => {
     expect(screen.getByText("충족")).toBeInTheDocument();
   });
 
+  it("opens the active quest or remaining hideout station from an item source", () => {
+    const onOpenQuest = vi.fn();
+    const onOpenHideout = vi.fn();
+    const linkedData: TarkovData = {
+      ...data,
+      meta: {
+        ...data.meta,
+        counts: { ...data.meta.counts, hideoutStations: 1 },
+      },
+      hideoutStations: [
+        {
+          id: "workbench",
+          name: "Workbench",
+          normalizedName: "workbench",
+          maxLevel: 1,
+          levels: [
+            {
+              id: "workbench-level-1",
+              level: 1,
+              constructionTime: 0,
+              items: [
+                {
+                  id: "workbench-bolts",
+                  itemId: "bolts",
+                  itemName: "Bolts",
+                  count: 3,
+                  foundInRaid: false,
+                  sortOrder: 0,
+                },
+              ],
+              stations: [],
+              traders: [],
+              skills: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <AppStoreProvider>
+        <ItemsPage
+          data={linkedData}
+          onOpenHideout={onOpenHideout}
+          onOpenQuest={onOpenQuest}
+        />
+      </AppStoreProvider>,
+    );
+
+    const detail = screen.getByRole("complementary", { name: "아이템 상세" });
+    fireEvent.click(within(detail).getAllByRole("button", { name: "Supply Run 퀘스트 열기" })[0]!);
+    expect(onOpenQuest).toHaveBeenCalledWith("quest");
+
+    fireEvent.click(within(detail).getByRole("button", { name: "Workbench 은신처 열기" }));
+    expect(onOpenHideout).toHaveBeenCalledWith("workbench");
+  });
+
   it("filters by search without losing the full aggregate", () => {
     render(
       <AppStoreProvider>

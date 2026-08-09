@@ -439,6 +439,7 @@
 
 .item-source-row {
   display: flex;
+  width: 100%;
   min-height: 46px;
   align-items: center;
   justify-content: space-between;
@@ -446,6 +447,19 @@
   border: 1px solid var(--line);
   background: var(--bg-elevated);
   padding: 6px 8px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.item-source-row {
+  cursor: pointer;
+}
+
+button.item-source-row:hover,
+button.item-source-row:focus-visible {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .item-source-row + .item-source-row {

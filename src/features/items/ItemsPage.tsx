@@ -15,12 +15,16 @@ interface ItemsPageProps {
   data: TarkovData;
   focusItemId?: string;
   onItemFocusConsumed?: () => void;
+  onOpenQuest?: (questId: string) => void;
+  onOpenHideout?: (stationId: string) => void;
 }
 
 export function ItemsPage({
   data,
   focusItemId,
   onItemFocusConsumed,
+  onOpenQuest,
+  onOpenHideout,
 }: ItemsPageProps) {
   const { profile, setInventory } = useAppStore();
   const items = useMemo(
@@ -68,6 +72,8 @@ export function ItemsPage({
         listLabel="아이템 목록"
         onItemFocusConsumed={onItemFocusConsumed}
         onInventoryChange={setInventory}
+        onOpenHideout={onOpenHideout}
+        onOpenQuest={onOpenQuest}
       />
     </section>
   );

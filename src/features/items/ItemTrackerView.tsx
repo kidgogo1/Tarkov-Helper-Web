@@ -27,6 +27,8 @@ interface ItemTrackerViewProps {
   focusItemId?: string;
   onItemFocusConsumed?: () => void;
   onInventoryChange: (itemId: string, amount: InventoryAmount) => void;
+  onOpenQuest?: (questId: string) => void;
+  onOpenHideout?: (stationId: string) => void;
   listLabel: string;
   showSourceFilter?: boolean;
   showCategoryFilter?: boolean;
@@ -79,6 +81,8 @@ export function ItemTrackerView({
   focusItemId,
   onItemFocusConsumed,
   onInventoryChange,
+  onOpenQuest,
+  onOpenHideout,
   listLabel,
   showSourceFilter = true,
   showCategoryFilter = true,
@@ -295,6 +299,8 @@ export function ItemTrackerView({
           <ItemDetail
             item={selectedItem!}
             onInventoryChange={onInventoryChange}
+            onOpenHideout={onOpenHideout}
+            onOpenQuest={onOpenQuest}
           />
         </div>
       ) : (
@@ -362,9 +368,13 @@ function ItemListRow({
 function ItemDetail({
   item,
   onInventoryChange,
+  onOpenQuest,
+  onOpenHideout,
 }: {
   item: AggregatedItemRequirement;
   onInventoryChange: (itemId: string, amount: InventoryAmount) => void;
+  onOpenQuest?: (questId: string) => void;
+  onOpenHideout?: (stationId: string) => void;
 }) {
   const inventory = { fir: item.ownedFir, nonFir: item.ownedNonFir };
   const isReferenceOnly = item.totalCount === 0;
@@ -441,7 +451,11 @@ function ItemDetail({
           title="퀘스트 출처"
         >
           {item.questSources.map((source, index) => (
-            <div className="item-source-row" key={`${source.questId}-${index}`}>
+            <ItemSourceRow
+              key={`${source.questId}-${index}`}
+              label={`${source.questName} 퀘스트 열기`}
+              onOpen={onOpenQuest ? () => onOpenQuest(source.questId) : undefined}
+            >
               <span>
                 <strong>{source.questName}</strong>
                 <small>{source.traderName}</small>
@@ -451,7 +465,7 @@ function ItemDetail({
                 {source.requiresFir ? <span className="badge danger">FIR</span> : null}
                 <strong>x{source.requiredCount}</strong>
               </span>
-            </div>
+            </ItemSourceRow>
           ))}
         </SourceSection>
 
@@ -461,7 +475,11 @@ function ItemDetail({
           title="은신처 출처"
         >
           {item.hideoutSources.map((source, index) => (
-            <div className="item-source-row" key={`${source.stationId}-${source.level}-${index}`}>
+            <ItemSourceRow
+              key={`${source.stationId}-${source.level}-${index}`}
+              label={`${source.stationName} 은신처 열기`}
+              onOpen={onOpenHideout ? () => onOpenHideout(source.stationId) : undefined}
+            >
               <span>
                 <strong>{source.stationName}</strong>
                 <small>레벨 {source.level}</small>
@@ -470,7 +488,7 @@ function ItemDetail({
                 {source.requiresFir ? <span className="badge danger">FIR</span> : null}
                 <strong>x{source.requiredCount}</strong>
               </span>
-            </div>
+            </ItemSourceRow>
           ))}
         </SourceSection>
       </div>
@@ -526,5 +544,23 @@ function SourceSection({
       <h3>{icon}{title}</h3>
       {hasChildren ? children : <p className="item-source-empty">{emptyText}</p>}
     </section>
+  );
+}
+
+function ItemSourceRow({
+  children,
+  label,
+  onOpen,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onOpen?: () => void;
+}) {
+  if (!onOpen) return <div className="item-source-row">{children}</div>;
+
+  return (
+    <button aria-label={label} className="item-source-row" onClick={onOpen} type="button">
+      {children}
+    </button>
   );
 }
