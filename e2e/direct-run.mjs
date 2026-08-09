@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -20,6 +20,7 @@ const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-direct
 const screenshotFolder = path.join(temporaryRoot, "Escape from Tarkov", "Screenshots");
 const stateDirectory = path.join(temporaryRoot, "state");
 await mkdir(screenshotFolder, { recursive: true });
+const canonicalScreenshotFolder = await realpath(screenshotFolder);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -227,7 +228,7 @@ try {
   await page.waitForFunction(() => Boolean(globalThis.document.querySelector("object.map-svg-image")?.contentDocument?.documentElement));
   await page.locator('.map-tracker-status[data-state="watching"]').waitFor();
   assert(
-    await page.locator(".map-tracker-path").textContent() === screenshotFolder,
+    await page.locator(".map-tracker-path").textContent() === canonicalScreenshotFolder,
     "The map did not report the watched EFT screenshot folder",
   );
 
