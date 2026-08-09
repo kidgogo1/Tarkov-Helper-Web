@@ -140,6 +140,9 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(publishJob, /\$expectedAssetNames\.Count/);
   assert.match(publishJob, /equal or newer version already exists/);
   assert.match(publishJob, /-f make_latest=legacy/);
+  assert.match(publishJob, /for \(\$latestAttempt = 1; \$latestAttempt -le 6; \$latestAttempt \+= 1\)/);
+  assert.match(publishJob, /Latest stable release did not become readable within the bounded wait/);
+  assert.match(publishJob, /Start-Sleep -Seconds 2/);
   assert.doesNotMatch(publishJob, /-f make_latest=true/);
   assert.doesNotMatch(publishJob, /gh release edit/);
   const privateKeyReferences = [...workflow.matchAll(/UPDATE_SIGNING_PRIVATE_KEY/g)];

@@ -1413,11 +1413,18 @@ jobs:
           ) {
             throw "Published ZIP asset IDs changed after manifest signing"
           }
-          $latest = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/latest" | ConvertFrom-Json
-          if (
-            $LASTEXITCODE -ne 0 -or $latest.draft -or $latest.prerelease -or
-            $latest.tag_name -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$' -or
-            [System.Version]::Parse($latest.tag_name.Substring(1)) -lt $candidate
-          ) {
-            throw "Latest stable release regressed below the published candidate"
+          $latestReady = $false
+          for ($latestAttempt = 1; $latestAttempt -le 6; $latestAttempt += 1) {
+            $latestJson = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/latest" 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$latestJson)) {
+              $latest = $latestJson | ConvertFrom-Json
+              $latestReady = (
+                -not $latest.draft -and -not $latest.prerelease -and
+                $latest.tag_name -match '^v[0-9]+\.[0-9]+\.[0-9]+$' -and
+                [System.Version]::Parse($latest.tag_name.Substring(1)) -ge $candidate
+              )
+            }
+            if ($latestReady) { break }
+            if ($latestAttempt -eq 6) { throw "Latest stable release did not become readable within the bounded wait" }
+            Start-Sleep -Seconds 2
           }
