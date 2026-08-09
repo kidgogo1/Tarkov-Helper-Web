@@ -95,4 +95,3 @@ Errors use `{ "error": { "code": "...", "message": "..." } }`.
   mode switching, loading/error/stale/empty states, and responsive structure.
 - Portable tests cover same-origin enforcement, query validation, redirects,
   body caps, cache freshness/staleness, upstream failure, and no-CORS headers.
-

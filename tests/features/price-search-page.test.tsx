@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 
 import { PriceSearchPage } from "../../src/features/prices/PriceSearchPage";
-import type { ItemPriceCatalog } from "../../src/types/prices";
+import type { ProfileType } from "../../src/types/data";
+import type { ItemPriceCatalog, LiveItemPriceQuote } from "../../src/types/prices";
 
 const catalog: ItemPriceCatalog = {
   meta: {
@@ -45,6 +46,8 @@ describe("PriceSearchPage", () => {
 
     fireEvent.change(search, { target: { value: "transilluminator" } });
     expect(screen.getByRole("button", { name: /LEDX Skin Transilluminator/ })).toBeInTheDocument();
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    expect(screen.getByRole("button", { name: /LEDX Skin Transilluminator/ })).toHaveFocus();
   });
 
   it("uses a live quote when available and keeps the snapshot when unavailable", async () => {
@@ -64,6 +67,45 @@ describe("PriceSearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Colt M4A1/ }));
     await waitFor(() => expect(screen.getByText("₽35,000")).toBeInTheDocument());
     expect(screen.getByText("실시간")).toBeInTheDocument();
+  });
+
+  it("keeps a late PVP response from replacing the active PVE quote", async () => {
+    const resolvers = new Map<ProfileType, (value: LiveItemPriceQuote | null) => void>();
+    const fetchQuote = vi.fn((_itemId: string, mode: ProfileType): Promise<LiveItemPriceQuote | null> => new Promise((resolve) => {
+      resolvers.set(mode, resolve);
+    }));
+    const view = render(<PriceSearchPage activeProfile="pvp" fetchQuote={fetchQuote} loadCatalog={() => Promise.resolve(catalog)} />);
+    const search = await screen.findByRole("searchbox", { name: "아이템 시세 검색" });
+    fireEvent.change(search, { target: { value: "M4A1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Colt M4A1/ }));
+    await waitFor(() => expect(resolvers.has("pvp")).toBe(true));
+
+    view.rerender(<PriceSearchPage activeProfile="pve" fetchQuote={fetchQuote} loadCatalog={() => Promise.resolve(catalog)} />);
+    await waitFor(() => expect(resolvers.has("pve")).toBe(true));
+    resolvers.get("pve")?.({
+      protocolVersion: 1,
+      itemId: catalog.items[0].id,
+      gameMode: "pve",
+      source: "LIVE",
+      fetchedAt: "2026-08-10T01:00:00.000Z",
+      expiresAt: "2026-08-10T01:10:00.000Z",
+      isStale: false,
+      flea: { lastLowPrice: 35_000, updatedAt: "2026-08-10T00:59:00.000Z" },
+    });
+    await waitFor(() => expect(screen.getByText("₽35,000")).toBeInTheDocument());
+
+    resolvers.get("pvp")?.({
+      protocolVersion: 1,
+      itemId: catalog.items[0].id,
+      gameMode: "pvp",
+      source: "LIVE",
+      fetchedAt: "2026-08-10T01:00:00.000Z",
+      expiresAt: "2026-08-10T01:10:00.000Z",
+      isStale: false,
+      flea: { lastLowPrice: 99_000, updatedAt: "2026-08-10T00:59:00.000Z" },
+    });
+    await waitFor(() => expect(screen.queryByText("₽99,000")).not.toBeInTheDocument());
+    expect(screen.getByText("₽35,000")).toBeInTheDocument();
   });
 
   it("announces a static fallback and an empty search without failing the page", async () => {

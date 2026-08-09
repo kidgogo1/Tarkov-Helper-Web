@@ -259,4 +259,3 @@ export async function fetchFixedJson(url, maximumBytes, fetchImpl = fetch) {
   });
   return readBoundedJsonResponse(response, maximumBytes);
 }
-

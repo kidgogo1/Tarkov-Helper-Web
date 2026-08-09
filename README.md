@@ -1,14 +1,16 @@
 # Tarkov Helper Web
 
 `Zeliper/Tarkov-Item-Helper`의 전체 기능과 `SIGDrone/Tarkov-Helper` 수정본의
-PVP/PVE 분리·지도·커스텀 마커 변경을 브라우저에서 실행하도록 이식한 정적 웹 앱입니다.
-실행 중 외부 게임 데이터 API를 호출하지 않으며, 참고 저장소에 포함된 DB와 자산만 사용합니다.
+PVP/PVE 분리·지도·커스텀 마커 변경을 브라우저에서 실행하도록 이식한 웹 앱입니다.
+퀘스트·지도·진행도 기능은 포함된 DB와 자산만 사용합니다. 시세 화면은 포함된 스냅샷으로
+오프라인 검색할 수 있고, Windows 바로 실행 버전에서는 Tarkov.dev의 최신 시세를 선택적으로 확인합니다.
 
 ## 포함 기능
 
 - 488개 퀘스트 검색·필터·상태 계산·진행 중 입력·선행 자동 완료·대안 처리·목표 체크
 - 26개 은신처 시설 레벨과 다음/전체 요구 사항
 - 퀘스트와 은신처의 필요 아이템 통합, FIR/일반 보유량과 출처 추적
+- 5,309개 아이템의 한글·영문·약칭 PVP/PVE 시세 검색과 Windows 바로 실행 버전의 실시간 갱신
 - Collector 및 재귀 선행 퀘스트의 카파 아이템 추적
 - Terminal을 포함한 SVG 지도 12개, 팬·줌·층·퀘스트/탈출구/기본 마커와 키보드 조작
 - EFT 스크린샷 폴더 자동 감지, 위치·방향·층·이동 경로 실시간 반영
@@ -132,13 +134,18 @@ git push origin v1.2.3
 ## 데이터
 
 생성된 `public/data/tarkov-data.json`과 모든 필수 지도·아이콘이 이미 포함되어 있어
-앱 기능 자체에는 원본 저장소나 네트워크가 필요하지 않습니다. 단, 공개 릴리스 업데이트 확인과
-다운로드, 사용자가 직접 여는 위키 링크에는 인터넷을 사용합니다.
+퀘스트·지도·아이템 요구량 기능에는 원본 저장소나 네트워크가 필요하지 않습니다. 시세 검색도
+릴리스 시점의 PVP/PVE 스냅샷을 포함합니다. Windows 바로 실행 버전에서 아이템을 선택하면
+`json.tarkov.dev`의 해당 아이템 가격 기록만 로컬 실행기가 조회하며, 성공한 결과는 10분 동안
+재사용하고 통신 실패 시 최대 7일 이내의 검증된 로컬 캐시를 표시합니다. 검색어, 퀘스트 진행도,
+설정은 전송하지 않습니다. 공개 릴리스 업데이트 확인·다운로드와 사용자가 직접 여는 위키 링크도
+인터넷을 사용합니다.
 
 정확한 참고 저장소 체크아웃에서 데이터를 다시 생성하려면 다음처럼 실행합니다.
 
 ```bash
 python scripts/export_data.py --source /path/to/SIGDrone-Tarkov-Helper --output public
+pnpm data:refresh-prices
 ```
 
 내보내기는 수정본의 `TarkovHelper/Assets/tarkov_data.db`를 읽기 전용으로 열고,
@@ -172,6 +179,8 @@ PiP 창 스타일과 위치를 복원합니다. 잠긴 위치와 크기는 현�
 
 - 원본: `Zeliper/Tarkov-Item-Helper` (`ef71936bd428f2abb0c1320010a8e7c29c36482f`)
 - 수정본: `SIGDrone/Tarkov-Helper` (`77ee7343ed0f98dc6aa8610519062c61120535f1`, `v1.5.7`)
+- 아이템 시세·한글/영문 이름: [Tarkov.dev API](https://github.com/the-hideout/tarkov-api) 및
+  `https://json.tarkov.dev/`
 
 자세한 귀속 정보는 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)에 있습니다.
 이 웹 포트 자체의 라이선스는 [LICENSE](./LICENSE)를 확인하세요.

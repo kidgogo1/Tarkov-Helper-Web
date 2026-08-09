@@ -9,7 +9,10 @@ Both reference repositories state **MIT License** in their README files. Their p
 SVG maps, and icons remain attributed to their respective authors and upstream sources.
 
 Both reference READMEs credit [tarkov.dev](https://tarkov.dev) as the source of game data. The
-bundled database and the JSON generated from it preserve that provenance. Some packaged item icon
+bundled database and the JSON generated from it preserve that provenance. The generated item-price
+catalog and optional live price bridge use the public JSON data service at `json.tarkov.dev`, whose
+open-source API implementation is maintained by [the-hideout/tarkov-api](https://github.com/the-hideout/tarkov-api).
+No Tarkov API source code is bundled into this application. Some packaged item icon
 identifiers refer to Escape from Tarkov community wiki/Fandom pages; those images, map artwork, game
 names, and trademarks remain the property of their respective owners. The reference repositories'
 MIT statements do not grant additional rights to third-party game or wiki artwork.

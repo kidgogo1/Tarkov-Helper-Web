@@ -301,7 +301,7 @@ export function App() {
       <div className="startup-state">
         <LoaderCircle aria-hidden="true" className="spin" size={34} />
         <strong>저장소 데이터를 불러오는 중…</strong>
-        <span>외부 API에 연결하지 않습니다.</span>
+        <span>퀘스트·지도·아이템 데이터를 로컬에서 불러옵니다.</span>
       </div>
     );
   }

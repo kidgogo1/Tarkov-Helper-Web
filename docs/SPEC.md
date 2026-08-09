@@ -16,12 +16,13 @@ The modified fork wins where behavior conflicts. Its PVP/PVE profiles, fixed-vie
 - Bundled SVG maps and local PNG/SVG/WebP icons
 - Browser `localStorage` for independent PVP/PVE progress and shared settings
 - Vitest for domain tests and Playwright for critical browser flows
-- No application backend and no runtime API dependency
+- Static/offline core with an optional loopback-only Windows Direct price bridge
 
 ## Commands
 
 - Install: `pnpm install`
 - Export bundled data/assets: `pnpm data:export`
+- Refresh the generated PVP/PVE price catalog: `pnpm data:refresh-prices`
 - Develop: `pnpm dev --host 127.0.0.1`
 - Test: `pnpm test --run`
 - Type-check: `pnpm typecheck`
@@ -33,7 +34,7 @@ The modified fork wins where behavior conflicts. Its PVP/PVE profiles, fixed-vie
 
 - `src/app` — shell, routing, persistent application state
 - `src/components` — reusable controls, drawers, dialogs, list/detail layout
-- `src/features` — quests, hideout, items, collector, map, settings
+- `src/features` — quests, hideout, items, collector, prices, map, settings
 - `src/domain` — status, aggregation, recommendations, log/screenshot parsing, map transforms
 - `src/types` — exported-data and state contracts
 - `src/styles` — tokens, base styles, responsive layout
@@ -70,9 +71,9 @@ Use semantic HTML, accessible names for icon buttons, Korean visible copy, and a
 
 ## Boundaries
 
-- Always: use only the two supplied repositories as product/data sources; preserve PVP/PVE isolation; persist user changes; keep keyboard access; run tests and build.
+- Always: preserve PVP/PVE isolation; persist user changes; keep keyboard access; run tests and build. Core quest/map data remains repository-bundled; price data uses only the fixed Tarkov.dev JSON source described by ADR-003.
 - Ask first: deployment, adding a backend, introducing accounts/cloud sync, or replacing repository data with a third-party source.
-- Never: search for related Tarkov content; scrape live data; ship secrets; reproduce known migration/profile bugs from the modified fork.
+- Never: dynamically scrape arbitrary Tarkov sites, accept a user-provided upstream URL, send progress/settings to price services, ship secrets, or reproduce known migration/profile bugs from the modified fork.
 
 ## Functional Requirements
 
@@ -104,6 +105,13 @@ Use semantic HTML, accessible names for icon buttons, Korean visible copy, and a
 - Search/filter/sort and show contributing quests/hideout levels.
 - Collector page supports prerequisite inclusion, fulfillment filters, Kappa source badges, and the same inventory.
 
+### Prices
+
+- Search the generated catalog by Korean, English, short, and normalized item names without a request per keystroke.
+- Follow the active PVP/PVE profile and always show the bundled release-time snapshot as an offline fallback.
+- In Windows Direct only, request a selected item's bounded live history through the same-origin launcher endpoint; reject cross-site requests, redirects, proxies, arbitrary URLs, malformed data, and oversized bodies.
+- Show source/update time, flea low/average/range/change/offer count, and the bundled best trader sale. Price data is advisory.
+
 ### Map
 
 - Load all 12 bundled SVG maps including Terminal.
@@ -117,12 +125,12 @@ Use semantic HTML, accessible names for icon buttons, Korean visible copy, and a
 
 - Parse user-selected EFT log files/folders for quest started/completed/failed events and map detection, then preview and apply changes.
 - The browser cannot silently watch arbitrary OS folders, register global hotkeys, or create an always-on-top game overlay. Use explicit file/folder permission, in-page keyboard controls, and page/fullscreen mini-map display to preserve the same user outcomes.
-- “API update” reloads the bundled repository dataset; it does not contact external services, matching the modified fork where live updating is disabled and honoring the no-search constraint.
+- Program updates use the signed GitHub release flow. The independent price bridge contacts only the fixed Tarkov.dev endpoint and never receives progress or settings.
 
 ## Success Criteria
 
 - Dataset counts and source commit IDs are visible in-app.
-- All listed flows work with no backend or external data request.
+- All core flows work offline; the static price snapshot remains usable when the optional live endpoint is unavailable.
 - Refreshing the page preserves state; switching profiles proves isolation.
 - Unit, type-check, lint, build, and critical browser tests pass.
 - No console errors/warnings, no horizontal overflow at required breakpoints, and all controls are keyboard reachable.

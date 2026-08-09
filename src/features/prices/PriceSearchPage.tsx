@@ -1,5 +1,6 @@
 import { BadgeRussianRuble, LoaderCircle, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import { searchPriceCatalog, selectCatalogSnapshot } from "../../domain/item-prices";
 import { fetchItemPriceQuote, loadItemPriceCatalog } from "../../services/item-prices";
@@ -25,7 +26,9 @@ export function PriceSearchPage({
   const [quote, setQuote] = useState<LiveItemPriceQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [liveAttempted, setLiveAttempted] = useState(false);
+  const [quoteRequestKey, setQuoteRequestKey] = useState<string>();
   const quoteGeneration = useRef(0);
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,6 +51,7 @@ export function PriceSearchPage({
   const refreshQuote = (item: ItemPriceCatalogItem) => {
     const controller = new AbortController();
     const generation = ++quoteGeneration.current;
+    setQuoteRequestKey(`${item.id}:${activeProfile}`);
     setQuoteLoading(true);
     setLiveAttempted(false);
     setQuote(null);
@@ -82,6 +86,17 @@ export function PriceSearchPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProfile, selectedItem]);
 
+  const handleResultKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowDown") nextIndex = Math.min(index + 1, results.length - 1);
+    else if (event.key === "ArrowUp") nextIndex = Math.max(index - 1, 0);
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = results.length - 1;
+    else return;
+    event.preventDefault();
+    resultRefs.current[nextIndex]?.focus();
+  };
+
   if (loadError) {
     return <section className="prices-page"><div className="prices-load-state error"><TriangleAlert aria-hidden="true" /><strong>시세 데이터를 불러오지 못했습니다.</strong><span>{loadError}</span></div></section>;
   }
@@ -109,6 +124,12 @@ export function PriceSearchPage({
               aria-label="아이템 시세 검색"
               autoComplete="off"
               onChange={(event) => setSearchText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" && results.length) {
+                  event.preventDefault();
+                  resultRefs.current[0]?.focus();
+                }
+              }}
               placeholder="아이템 이름, 영문명, 약칭 검색"
               type="search"
               value={searchText}
@@ -119,7 +140,7 @@ export function PriceSearchPage({
           {searchText.trim() && !results.length ? <p className="price-search-empty">검색 결과가 없습니다.</p> : null}
           {results.length ? (
             <ul className="price-search-results">
-              {results.map((item) => {
+              {results.map((item, index) => {
                 const snapshot = selectCatalogSnapshot(item, activeProfile);
                 return (
                   <li key={item.id}>
@@ -127,6 +148,10 @@ export function PriceSearchPage({
                       aria-label={`${item.nameKo} (${item.nameEn})`}
                       className={selectedId === item.id ? "active" : ""}
                       onClick={() => setSelectedId(item.id)}
+                      onKeyDown={(event) => handleResultKeyDown(event, index)}
+                      ref={(element) => {
+                        resultRefs.current[index] = element;
+                      }}
                       type="button"
                     >
                       {item.localIcon ? <img alt="" src={`${import.meta.env.BASE_URL}${item.localIcon}`} /> : <span aria-hidden="true" className="price-result-icon">₽</span>}
@@ -144,11 +169,11 @@ export function PriceSearchPage({
           {selectedItem ? (
             <PriceDetails
               item={selectedItem}
-              liveAttempted={liveAttempted}
+              liveAttempted={liveAttempted && quoteRequestKey === `${selectedItem.id}:${activeProfile}`}
               loading={quoteLoading}
               mode={activeProfile}
               onRefresh={() => refreshQuote(selectedItem)}
-              quote={quote}
+              quote={quoteRequestKey === `${selectedItem.id}:${activeProfile}` ? quote : null}
               snapshot={selectCatalogSnapshot(selectedItem, activeProfile)}
             />
           ) : (

@@ -417,7 +417,8 @@ export function SettingsDialog({
             <section aria-labelledby="data-settings-title">
               <h3 id="data-settings-title">포함된 저장소 데이터</h3>
               <p className="settings-help">
-                네트워크 API 대신 두 참고 저장소에서 패키징한 정적 데이터를 사용합니다.
+                퀘스트·지도·요구 아이템은 패키징한 정적 데이터를 사용합니다. 시세 화면은
+                포함된 스냅샷을 기본으로 사용하며 Windows 바로 실행 버전에서만 선택한 아이템의 최신 시세를 확인합니다.
               </p>
               <dl className="data-facts">
                 <div><dt>원본 커밋</dt><dd>{dataMeta.originalCommit}</dd></div>
