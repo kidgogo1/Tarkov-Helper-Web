@@ -252,9 +252,8 @@ jobs:
             if (-not $matches[0].draft -or $matches[0].prerelease) { throw "An existing release cannot be safely resumed" }
             return $matches[0]
           }
-          function Upload-Asset([int64]$releaseId, [System.IO.FileInfo]$file) {
-            $encodedName = [uri]::EscapeDataString($file.Name)
-            gh api --hostname uploads.github.com --method POST -H "X-GitHub-Api-Version: 2026-03-10" -H "Content-Type: application/octet-stream" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId/assets?name=$encodedName" --input $file.FullName | Out-Null
+          function Upload-Asset([System.IO.FileInfo]$file) {
+            gh release upload $env:RELEASE_TAG $file.FullName --repo $env:RELEASE_REPOSITORY | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed: $($file.Name)" }
           }
           $release = Find-Draft
@@ -277,7 +276,7 @@ jobs:
             $matches = @(Get-ExactAsset $release $zip.Name)
             if ($matches.Count -gt 1) { throw "Duplicate draft ZIP asset: $($zip.Name)" }
             if ($matches.Count -eq 0) {
-              Upload-Asset $releaseId $zip
+              Upload-Asset $zip
             }
           }
           for ($attempt = 1; $attempt -le 6; $attempt += 1) {
@@ -1284,9 +1283,8 @@ jobs:
           function Get-ExactAsset([object]$release, [string]$name) {
             return @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
           }
-          function Upload-Asset([int64]$releaseId, [System.IO.FileInfo]$file) {
-            $encodedName = [uri]::EscapeDataString($file.Name)
-            gh api --hostname uploads.github.com --method POST -H "X-GitHub-Api-Version: 2026-03-10" -H "Content-Type: application/octet-stream" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId/assets?name=$encodedName" --input $file.FullName | Out-Null
+          function Upload-Asset([System.IO.FileInfo]$file) {
+            gh release upload $env:RELEASE_TAG $file.FullName --repo $env:RELEASE_REPOSITORY | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed: $($file.Name)" }
           }
           function Assert-ExactAssetSet([object]$release, [string]$label) {
@@ -1320,7 +1318,7 @@ jobs:
           }
           if ($missingMetadata.Count -ne 0) {
             foreach ($metadataPath in $missingMetadata) {
-              Upload-Asset $expectedReleaseId ([System.IO.FileInfo]::new($metadataPath))
+              Upload-Asset ([System.IO.FileInfo]::new($metadataPath))
             }
           }
           for ($attempt = 1; $attempt -le 6; $attempt += 1) {

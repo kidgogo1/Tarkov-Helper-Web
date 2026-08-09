@@ -75,7 +75,7 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(finalizeJob, /--prepared[\s\S]*--finalize-unsigned/);
   assert.match(finalizeJob, /upload-artifact@[0-9a-f]{40}[\s\S]*release-unsigned-/);
   assert.match(finalizeJob, /releases\?per_page=100/);
-  assert.match(finalizeJob, /uploads\.github\.com/);
+  assert.match(finalizeJob, /gh release upload/);
   assert.match(finalizeJob, /releases\/\$releaseId/);
   assert.match(finalizeJob, /for \(\$attempt = 1; \$attempt -le 6; \$attempt \+= 1\)[\s\S]*?\$release = Find-Draft[\s\S]*?Start-Sleep -Seconds 2/);
   assert.match(finalizeJob, /Created draft release was not visible within the bounded wait/);
@@ -121,13 +121,15 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /SHA256SUMS\.txt/);
   assert.match(publishJob, /download-artifact@[0-9a-f]{40}[\s\S]*release-signed-/);
   assert.doesNotMatch(publishJob, /UPDATE_SIGNING_PRIVATE_KEY|SIGNING_KEY_PEM/);
+  assert.doesNotMatch(workflow, /--hostname\s+uploads\.github\.com/);
+  assert.match(finalizeJob, /gh release upload \$env:RELEASE_TAG \$file\.FullName --repo \$env:RELEASE_REPOSITORY/);
+  assert.match(publishJob, /gh release upload \$env:RELEASE_TAG \$file\.FullName --repo \$env:RELEASE_REPOSITORY/);
   assert.match(workflow, /concurrency:\s*\n\s+group:\s+stable-release/);
   assert.doesNotMatch(packageJob, /UPDATE_SIGNING_PRIVATE_KEY|SIGNING_KEY_PEM/);
   assert.doesNotMatch(finalizeJob, /UPDATE_SIGNING_PRIVATE_KEY|SIGNING_KEY_PEM/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|create-direct-release\.mjs/);
   assert.match(publishJob, /verify-release-bundle\.mjs[\s\S]*--release-id[\s\S]*--direct-asset-id[\s\S]*--static-asset-id[\s\S]*--source-asset-id/);
   assert.match(publishJob, /releases\/\$releaseId/);
-  assert.match(publishJob, /uploads\.github\.com/);
   assert.doesNotMatch(workflow, /releases\/tags\/\$env:RELEASE_TAG/);
   assert.match(publishJob, /StringComparison\]::Ordinal/);
   assert.match(publishJob, /Assert-ExactAssetSet \$release "Pre-publication draft"/);
