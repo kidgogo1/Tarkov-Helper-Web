@@ -18,6 +18,7 @@ import {
   alternateQuestDisplayName,
   questDisplayName,
   questLegacyNames,
+  questRewardSearchText,
   questSearchText,
   type QuestLanguage,
 } from "./quest-language";
@@ -89,6 +90,7 @@ export function QuestsPage({
     updateProfile,
   } = useAppStore();
   const [query, setQuery] = useState("");
+  const [rewardQuery, setRewardQuery] = useState("");
   const [kappaOnly, setKappaOnly] = useState(false);
   const [itemOnly, setItemOnly] = useState(false);
   const [traderFilter, setTraderFilter] = useState("all");
@@ -110,6 +112,7 @@ export function QuestsPage({
     setHandledQuestFocusId(focusQuestId);
     if (focusedQuest) {
       setQuery("");
+      setRewardQuery("");
       setKappaOnly(false);
       setItemOnly(false);
       setTraderFilter("all");
@@ -157,13 +160,20 @@ export function QuestsPage({
       Array.from(new Set(data.quests.flatMap(questMaps))).sort(),
     [data.quests],
   );
+  const itemsById = useMemo(
+    () => new Map(data.items.map((item) => [item.id, item])),
+    [data.items],
+  );
 
   const filteredQuests = useMemo(() => {
     const needle = normalize(query);
+    const rewardNeedle = normalize(rewardQuery);
     return data.quests.filter((quest) => {
       const searchable = normalize(questSearchText(quest));
+      const searchableRewards = normalize(questRewardSearchText(quest, itemsById));
       return (
         (!needle || searchable.includes(needle)) &&
+        (!rewardNeedle || searchableRewards.includes(rewardNeedle)) &&
         (!kappaOnly || quest.kappaRequired) &&
         (!itemOnly || quest.requiredItems.length > 0) &&
         (traderFilter === "all" || quest.trader === traderFilter) &&
@@ -176,10 +186,12 @@ export function QuestsPage({
   }, [
     data.quests,
     itemOnly,
+    itemsById,
     kappaOnly,
     mapFilter,
     profile,
     query,
+    rewardQuery,
     statusFilter,
     statuses,
     traderFilter,
@@ -244,6 +256,7 @@ export function QuestsPage({
       return;
     }
     setQuery("");
+    setRewardQuery("");
     setKappaOnly(false);
     setItemOnly(false);
     setTraderFilter("all");
@@ -328,6 +341,17 @@ export function QuestsPage({
                 placeholder="퀘스트 이름 검색"
                 type="search"
                 value={query}
+              />
+            </label>
+            <label className="quest-search">
+              <span className="sr-only">보상 검색</span>
+              <Search aria-hidden="true" size={15} />
+              <input
+                aria-label="보상 검색"
+                onChange={(event) => setRewardQuery(event.target.value)}
+                placeholder="보상 아이템·보상 내용 검색"
+                type="search"
+                value={rewardQuery}
               />
             </label>
             <div className="quest-select-filters">

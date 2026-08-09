@@ -86,7 +86,19 @@ const testData: TarkovData = {
   },
   quests: [
     mainQuest,
-    quest("q-prep", { nameKo: "사전 작업", nameEn: "Preparation" }),
+    quest("q-prep", {
+      nameKo: "사전 작업",
+      nameEn: "Preparation",
+      rewardItems: [
+        {
+          id: "reward-salewa",
+          itemId: "item-salewa",
+          itemName: "Salewa first aid kit",
+          count: 1,
+          sortOrder: 0,
+        },
+      ],
+    }),
     quest("q-alt", {
       nameKo: "대안 임무",
       nameEn: "Alternative",
@@ -277,10 +289,29 @@ describe("QuestsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("filters quests by Korean and English reward names below the quest name search", () => {
+    renderPage();
+
+    const list = screen.getByRole("region", { name: "퀘스트 목록" });
+    const rewardSearch = screen.getByRole("searchbox", { name: "보상 검색" });
+
+    fireEvent.change(rewardSearch, { target: { value: "살레와" } });
+    expect(within(list).getByRole("button", { name: /사전 작업/ })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: /물병자리 작전/ })).not.toBeInTheDocument();
+
+    fireEvent.change(rewardSearch, { target: { value: "Salewa" } });
+    expect(within(list).getByRole("button", { name: /사전 작업/ })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "물병자리" },
+    });
+    expect(within(list).queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("finds quests by the stored legacy name and shows that alias in the result", () => {
     renderPage();
 
-    fireEvent.change(screen.getByRole("searchbox"), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
       target: { value: "Old Operation Aquarius" },
     });
 

@@ -1,4 +1,4 @@
-import type { QuestData, QuestObjective } from "../../types/data";
+import type { ItemData, QuestData, QuestObjective } from "../../types/data";
 
 export type QuestLanguage = "ko" | "en";
 
@@ -59,6 +59,40 @@ export function questSearchText(quest: QuestData): string {
       objective.targetType,
     ]),
     ...quest.requiredItems.map((item) => item.itemName),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}
+
+/** Search reward items with both the quest's source text and localized item data. */
+export function questRewardSearchText(
+  quest: QuestData,
+  itemsById: ReadonlyMap<string, ItemData>,
+): string {
+  const rewardItems = quest.rewardItems ?? [];
+  return [
+    ...rewardItems.flatMap((reward) => {
+      const item = itemsById.get(reward.itemId);
+      return [
+        reward.itemName,
+        item?.name,
+        item?.nameEn,
+        item?.nameKo,
+        item?.nameJa,
+        item?.shortNameEn,
+        item?.shortNameKo,
+        item?.shortNameJa,
+      ];
+    }),
+    ...quest.rewardText ?? [],
+    ...(quest.rewardXp ? ["경험치 experience xp"] : []),
+    ...(quest.rewardRoubles ? ["루블 rouble roubles ruble money"] : []),
+    ...(quest.rewardReputation?.flatMap((reward) => [
+      "평판 reputation",
+      reward.trader,
+    ]) ?? []),
+    ...(quest.rewardSkills?.flatMap((reward) => ["스킬 skill", reward.skill]) ?? []),
+    ...quest.rewardUnlocks ?? [],
   ]
     .filter((value): value is string => Boolean(value))
     .join(" ");
