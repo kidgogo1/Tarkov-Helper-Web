@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -122,6 +122,7 @@ test("local tracker reports watcher state and emits debounced filename-only even
   await mkdir(appRoot);
   await mkdir(screenshotFolder);
   await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Tracker test</title>", "utf8");
+  const canonicalScreenshotFolder = await realpath(screenshotFolder);
 
   const server = startServer({ appRoot, screenshotFolder, stateDirectory });
   t.after(async () => {
@@ -135,7 +136,7 @@ test("local tracker reports watcher state and emits debounced filename-only even
   assert.equal(statusResponse.headers.get("access-control-allow-origin"), null);
   assert.deepEqual(await statusResponse.json(), {
     protocolVersion: 1,
-    screenshotWatcher: { state: "WATCHING", folderPath: screenshotFolder },
+    screenshotWatcher: { state: "WATCHING", folderPath: canonicalScreenshotFolder },
     latestCursor: 0,
   });
 
@@ -239,12 +240,13 @@ test("local tracker starts watching when a missing configured folder appears", {
   });
 
   await mkdir(screenshotFolder);
+  const canonicalScreenshotFolder = await realpath(screenshotFolder);
   const screenshotName = "folder-created-before-watcher-reattaches.png";
   await writeFile(path.join(screenshotFolder, screenshotName), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   const watching = await waitForWatcherState(baseUrl, "WATCHING");
   assert.deepEqual(watching, {
     protocolVersion: 1,
-    screenshotWatcher: { state: "WATCHING", folderPath: screenshotFolder },
+    screenshotWatcher: { state: "WATCHING", folderPath: canonicalScreenshotFolder },
     latestCursor: 0,
   });
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -85,6 +85,7 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
   await writeFile(path.join(otherAppRoot, "index.html"), "<!doctype html><title>Tarkov Helper</title>", "utf8");
   await writeFile(path.join(otherAppRoot, "data", "tarkov-data.json"), '{"version":"older"}', "utf8");
   await writeFile(path.join(temporaryParent, "secret.txt"), "must-not-leak", "utf8");
+  const canonicalAppRoot = await realpath(appRoot);
 
   const child = spawn(
     "powershell.exe",
@@ -114,7 +115,7 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
   const { url, port } = await waitForUrl(child);
   const instancePath = path.join(stateDirectory, "instance.json");
   const runningInstance = JSON.parse(await readFile(instancePath, "utf8"));
-  assert.equal(runningInstance.rootPath, appRoot);
+  assert.equal(runningInstance.rootPath, canonicalAppRoot);
   const authenticatedHealth = await fetch(new URL(".tarkov-helper-portable", url), {
     headers: { "x-tarkov-control": runningInstance.controlToken },
   });

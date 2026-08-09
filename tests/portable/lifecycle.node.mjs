@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -81,6 +81,7 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
   await mkdir(screenshotFolder);
   await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Lifecycle test</title>", "utf8");
   await writeFile(path.join(otherAppRoot, "index.html"), "<!doctype html><title>Different build</title>", "utf8");
+  const canonicalScreenshotFolderArgument = `${await realpath(screenshotFolder)}${path.sep}`;
 
   let instance;
   t.after(async () => {
@@ -107,7 +108,7 @@ test("Start reuses one hidden server and Stop gracefully terminates only its rec
   assert.match(instance.controlToken, /^[A-Za-z0-9_-]{40,}$/);
   assert.deepEqual(JSON.parse(await readFile(configPath, "utf8")), {
     protocolVersion: 1,
-    screenshotFolder: screenshotFolderArgument,
+    screenshotFolder: canonicalScreenshotFolderArgument,
   });
   const baseUrl = `http://127.0.0.1:${instance.port}/`;
   const response = await fetch(new URL("api/v1/local-tracker/status", baseUrl));
