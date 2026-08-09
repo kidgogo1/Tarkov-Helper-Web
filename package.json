@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build && node scripts/copy-release-documents.mjs",
     "data:export": "python scripts/export_data.py",
     "data:refresh-quests": "node scripts/refresh-quest-pack.mjs",
+    "data:refresh-prices": "node scripts/refresh-price-catalog.mjs",
     "release:direct": "pnpm build && node scripts/create-direct-release.mjs",
     "release:assert": "node scripts/assert-release-version.mjs",
     "release:bundle:local": "pnpm build && node scripts/create-release-bundle.mjs --output ../tarkov-helper-web-release-local --updater-disabled",
