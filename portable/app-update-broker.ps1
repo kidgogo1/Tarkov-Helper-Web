@@ -137,7 +137,14 @@ function Assert-ExactObject {
 
 function Get-Sha256 {
     param([string]$Path)
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $stream = [IO.File]::OpenRead([IO.Path]::GetFullPath($Path))
+    try {
+        $hash = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($hash.ComputeHash($stream))).Replace("-", "").ToLowerInvariant() }
+        finally { $hash.Dispose() }
+    } finally {
+        $stream.Dispose()
+    }
 }
 
 function Get-VersionDocument {

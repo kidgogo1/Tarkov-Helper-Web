@@ -2348,6 +2348,23 @@ function Read-PortableInstance {
     }
 }
 
+function Get-FileSha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [IO.File]::OpenRead([IO.Path]::GetFullPath($Path))
+    try {
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = $hasher.ComputeHash($stream)
+            return ([BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $hasher.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 function Get-AppBuildIdentity {
     param([Parameter(Mandatory = $true)][string]$AppRoot)
 
@@ -2371,15 +2388,15 @@ function Get-AppBuildIdentity {
     }
 
     if ([string]::IsNullOrWhiteSpace($appIdentity)) {
-        $identityHashes = @((Get-FileHash -LiteralPath $index -Algorithm SHA256).Hash.ToLowerInvariant())
+        $identityHashes = @(Get-FileSha256Hex -Path $index)
         $dataPath = Join-Path $normalizedRoot "data\tarkov-data.json"
         if ([IO.File]::Exists($dataPath)) {
-            $identityHashes += (Get-FileHash -LiteralPath $dataPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $identityHashes += Get-FileSha256Hex -Path $dataPath
         }
         $appIdentity = $identityHashes -join ":"
     }
 
-    $launcherIdentity = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $launcherIdentity = Get-FileSha256Hex -Path $PSCommandPath
     $identityHasher = [Security.Cryptography.SHA256]::Create()
     try {
         $combinedIdentity = $identityHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($appIdentity + ":" + $launcherIdentity))
@@ -2629,17 +2646,17 @@ function Invoke-PendingAppUpdate {
         return 2
     }
     $source = Join-Path $expectedPackageRoot "app-update-broker.ps1"
-    if (-not [IO.File]::Exists($source) -or (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$pending.brokerSha256) {
+    if (-not [IO.File]::Exists($source) -or (Get-FileSha256Hex -Path $source) -cne [string]$pending.brokerSha256) {
         [Console]::Error.WriteLine("The trusted app update broker does not match the staged update state.")
         return 2
     }
     $directory = Get-AppUpdateDirectory
     $broker = Join-Path $directory ("broker-" + [string]$pending.brokerSha256 + ".ps1")
-    if (-not [IO.File]::Exists($broker) -or (Get-FileHash -LiteralPath $broker -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$pending.brokerSha256) {
+    if (-not [IO.File]::Exists($broker) -or (Get-FileSha256Hex -Path $broker) -cne [string]$pending.brokerSha256) {
         $temporary = "$broker.$([Guid]::NewGuid().ToString('N')).tmp"
         [IO.File]::Copy($source, $temporary, $false)
         try {
-            if ((Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$pending.brokerSha256) { throw [Security.Cryptography.CryptographicException]::new("The copied app update broker hash does not match.") }
+            if ((Get-FileSha256Hex -Path $temporary) -cne [string]$pending.brokerSha256) { throw [Security.Cryptography.CryptographicException]::new("The copied app update broker hash does not match.") }
             if ([IO.File]::Exists($broker)) {
                 $brokerBackup = "$broker.$PID.bak"
                 try { [IO.File]::Replace($temporary, $broker, $brokerBackup, $true) } finally { if ([IO.File]::Exists($brokerBackup)) { [IO.File]::Delete($brokerBackup) } }

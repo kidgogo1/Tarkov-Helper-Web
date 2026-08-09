@@ -419,6 +419,7 @@ test("portable updater exposes only the authenticated candidate API and hidden h
   assert.equal((launcher.match(/Start-Process/g) ?? []).length >= 3, true);
   assert.equal((launcher.match(/-WindowStyle Hidden/g) ?? []).length >= 3, true);
   assert.doesNotMatch(launcher, /candidateUrl|downloadUrl|manifestUrl/i);
+  for (const script of [launcher, worker, broker]) assert.doesNotMatch(script, /\bGet-FileHash\b/);
   assert.match(worker, /RSA-SHA256/);
   assert.match(worker, /requireImmutableRelease/);
   assert.match(worker, /treeSha256/);

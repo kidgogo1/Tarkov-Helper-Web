@@ -63,7 +63,8 @@ test("double-click scripts start and stop the hidden broker without a console", 
   assert.equal(hiddenLauncherStarts.length, launcherStarts.length);
   assert.match(updateBroker, /Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/i);
   assert.equal((launcher.match(/Get-StateMutexName -Purpose "Control"/g) ?? []).length, 2);
-  assert.match(launcher, /Get-FileHash -LiteralPath \$PSCommandPath -Algorithm SHA256/);
+  assert.match(launcher, /function Get-FileSha256Hex/);
+  assert.match(launcher, /Get-FileSha256Hex -Path \$PSCommandPath/);
 });
 
 test("Start reuses one hidden server and Stop gracefully terminates only its recorded instance", { skip: process.platform !== "win32" }, async (t) => {
