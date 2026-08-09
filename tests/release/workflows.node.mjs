@@ -68,6 +68,9 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(packageJob, /upload-artifact@[0-9a-f]{40}[\s\S]*overwrite:\s+true/);
   assert.match(finalizeJob, /--prepared[\s\S]*--finalize-unsigned/);
   assert.match(finalizeJob, /upload-artifact@[0-9a-f]{40}[\s\S]*release-unsigned-/);
+  assert.match(finalizeJob, /releases\?per_page=100/);
+  assert.match(finalizeJob, /uploads\.github\.com/);
+  assert.match(finalizeJob, /releases\/\$releaseId/);
   assert.match(signJob, /environment:\s+github-release/);
   assert.match(signJob, /needs:\s+finalize/);
   assert.match(signJob, /permissions:\s*\n\s+contents:\s+read/);
@@ -112,6 +115,8 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|create-direct-release\.mjs/);
   assert.match(publishJob, /verify-release-bundle\.mjs[\s\S]*--release-id[\s\S]*--direct-asset-id[\s\S]*--static-asset-id[\s\S]*--source-asset-id/);
   assert.match(publishJob, /releases\/\$releaseId/);
+  assert.match(publishJob, /uploads\.github\.com/);
+  assert.doesNotMatch(workflow, /releases\/tags\/\$env:RELEASE_TAG/);
   assert.match(publishJob, /StringComparison\]::Ordinal/);
   assert.match(publishJob, /Assert-ExactAssetSet \$release "Pre-publication draft"/);
   assert.match(publishJob, /\$expectedReleaseId = \[int64\]\$manifest\.releaseId/);

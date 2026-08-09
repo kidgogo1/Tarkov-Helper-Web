@@ -201,6 +201,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Prepared release verification failed on the protected runner" }
 
       - name: Create or safely reuse the verified draft
+        id: draft
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,38 +222,62 @@ jobs:
           function Get-ExactAsset([object]$release, [string]$name) {
             return @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
           }
-          function Read-Draft() {
-            $json = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG"
+          function Read-Draft([int64]$releaseId) {
+            $json = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId"
             if ($LASTEXITCODE -ne 0) { throw "Unable to read the draft release" }
             $value = $json | ConvertFrom-Json
-            if (-not $value.draft -or $value.prerelease -or -not [string]::Equals([string]$value.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)) {
+            if (
+              [int64]$value.id -ne $releaseId -or -not $value.draft -or $value.prerelease -or
+              -not [string]::Equals([string]$value.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)
+            ) {
               throw "An existing release cannot be safely resumed"
             }
             return $value
           }
-          $existingJson = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            $release = $existingJson | ConvertFrom-Json
-            if (-not $release.draft -or $release.prerelease -or -not [string]::Equals([string]$release.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)) {
-              throw "An existing release cannot be safely resumed"
-            }
-          } else {
+          function Find-Draft() {
+            $json = gh api -H "X-GitHub-Api-Version: 2026-03-10" --paginate --slurp "repos/$env:RELEASE_REPOSITORY/releases?per_page=100"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to list draft releases" }
+            $pages = $json | ConvertFrom-Json
+            $matches = @(
+              foreach ($page in @($pages)) {
+                foreach ($candidate in @($page)) {
+                  if ([string]::Equals([string]$candidate.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)) {
+                    $candidate
+                  }
+                }
+              }
+            )
+            if ($matches.Count -gt 1) { throw "Multiple releases use the requested tag" }
+            if ($matches.Count -eq 0) { return $null }
+            if (-not $matches[0].draft -or $matches[0].prerelease) { throw "An existing release cannot be safely resumed" }
+            return $matches[0]
+          }
+          function Upload-Asset([int64]$releaseId, [System.IO.FileInfo]$file) {
+            $encodedName = [uri]::EscapeDataString($file.Name)
+            gh api --hostname uploads.github.com --method POST -H "X-GitHub-Api-Version: 2026-03-10" -H "Content-Type: application/octet-stream" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId/assets?name=$encodedName" --input $file.FullName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed: $($file.Name)" }
+          }
+          $release = Find-Draft
+          if ($null -eq $release) {
             gh release create $env:RELEASE_TAG ($zipAssets | ForEach-Object FullName) --draft --generate-notes --title "Tarkov Helper $env:RELEASE_TAG" --verify-tag
             if ($LASTEXITCODE -ne 0) { throw "Draft release creation failed" }
-            $release = Read-Draft
+            $release = Find-Draft
+            if ($null -eq $release) { throw "Created draft release could not be resolved" }
           }
+          $releaseId = [int64]$release.id
+          if ($releaseId -le 0 -or $releaseId -gt 9007199254740991) { throw "Draft release ID is invalid" }
+          $release = Read-Draft $releaseId
           $unexpected = @($release.assets | Where-Object { -not $allowedNames.Contains([string]$_.name) })
           if ($unexpected.Count -ne 0) { throw "Existing draft contains unexpected or case-mismatched assets" }
           foreach ($zip in $zipAssets) {
             $matches = @(Get-ExactAsset $release $zip.Name)
             if ($matches.Count -gt 1) { throw "Duplicate draft ZIP asset: $($zip.Name)" }
             if ($matches.Count -eq 0) {
-              gh release upload $env:RELEASE_TAG $zip.FullName
-              if ($LASTEXITCODE -ne 0) { throw "Missing ZIP upload failed; the draft was retained" }
+              Upload-Asset $releaseId $zip
             }
           }
           for ($attempt = 1; $attempt -le 6; $attempt += 1) {
-            $release = Read-Draft
+            $release = Read-Draft $releaseId
             $ready = $true
             foreach ($zip in $zipAssets) {
               $matches = @(Get-ExactAsset $release $zip.Name)
@@ -269,17 +294,24 @@ jobs:
               throw "Existing draft ZIP does not match the deterministic seed: $($zip.Name)"
             }
           }
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "release_id=$releaseId"
 
       - name: Finalize unsigned metadata bound to GitHub IDs
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
           UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
         run: |
           $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
           $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets-unsigned"
-          $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or -not $release.draft) { throw "Unable to resolve the draft release" }
+          $releaseId = [int64]$env:RELEASE_ID
+          if ($releaseId -le 0 -or $releaseId -gt 9007199254740991) { throw "Draft release ID is invalid" }
+          $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId" | ConvertFrom-Json
+          if (
+            $LASTEXITCODE -ne 0 -or [int64]$release.id -ne $releaseId -or -not $release.draft -or $release.prerelease -or
+            -not [string]::Equals([string]$release.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)
+          ) { throw "Unable to resolve the draft release" }
           function Get-AssetId([string]$name) {
             $matches = @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
             if ($matches.Count -ne 1) { throw "Draft asset identity mismatch for $name" }
@@ -1223,8 +1255,15 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not [string]::Equals($tagCommit.Trim(), $env:RELEASE_COMMIT, [System.StringComparison]::Ordinal)) {
             throw "Remote tag changed before signed bundle verification"
           }
-          $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or -not $release.draft -or $release.prerelease) { throw "Unable to resolve the verified draft" }
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
+          $manifest = Get-Content -LiteralPath (Join-Path $bundleRoot "update-manifest-v1.json") -Raw | ConvertFrom-Json
+          $expectedReleaseId = [int64]$manifest.releaseId
+          if ($expectedReleaseId -le 0 -or $expectedReleaseId -gt 9007199254740991) { throw "Signed manifest release ID is invalid" }
+          $release = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$expectedReleaseId" | ConvertFrom-Json
+          if (
+            $LASTEXITCODE -ne 0 -or [int64]$release.id -ne $expectedReleaseId -or -not $release.draft -or $release.prerelease -or
+            -not [string]::Equals([string]$release.tag_name, $env:RELEASE_TAG, [System.StringComparison]::Ordinal)
+          ) { throw "Unable to resolve the verified draft" }
           function Get-AssetId([string]$name) {
             $matches = @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
             if ($matches.Count -ne 1) { throw "Draft asset identity mismatch for $name" }
@@ -1234,8 +1273,7 @@ jobs:
           $directId = Get-AssetId "tarkov-helper-web-direct-v$version.zip"
           $staticId = Get-AssetId "tarkov-helper-web-static-v$version.zip"
           $sourceId = Get-AssetId "tarkov-helper-web-source-v$version.zip"
-          $bundleRoot = Join-Path $env:RUNNER_TEMP "release-assets"
-          node scripts/verify-release-bundle.mjs --bundle $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $release.id --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
+          node scripts/verify-release-bundle.mjs --bundle $bundleRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --release-id $expectedReleaseId --direct-asset-id $directId --static-asset-id $staticId --source-asset-id $sourceId
           if ($LASTEXITCODE -ne 0) { throw "Signed manifest is not bound to the current GitHub release and asset IDs" }
 
       - name: Attest every finalized release asset
@@ -1270,6 +1308,11 @@ jobs:
           function Get-ExactAsset([object]$release, [string]$name) {
             return @($release.assets | Where-Object { [string]::Equals([string]$_.name, $name, [System.StringComparison]::Ordinal) })
           }
+          function Upload-Asset([int64]$releaseId, [System.IO.FileInfo]$file) {
+            $encodedName = [uri]::EscapeDataString($file.Name)
+            gh api --hostname uploads.github.com --method POST -H "X-GitHub-Api-Version: 2026-03-10" -H "Content-Type: application/octet-stream" "repos/$env:RELEASE_REPOSITORY/releases/$releaseId/assets?name=$encodedName" --input $file.FullName | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed: $($file.Name)" }
+          }
           function Assert-ExactAssetSet([object]$release, [string]$label) {
             if (@($release.assets).Count -ne $expectedAssetNames.Count) { throw "$label contains an unexpected asset count" }
             foreach ($asset in @($release.assets)) {
@@ -1280,7 +1323,7 @@ jobs:
             }
           }
           function Read-Draft() {
-            $value = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+            $value = gh api -H "X-GitHub-Api-Version: 2026-03-10" "repos/$env:RELEASE_REPOSITORY/releases/$expectedReleaseId" | ConvertFrom-Json
             if (
               $LASTEXITCODE -ne 0 -or -not $value.draft -or $value.prerelease -or
               [int64]$value.id -ne $expectedReleaseId -or
@@ -1300,8 +1343,9 @@ jobs:
             }
           }
           if ($missingMetadata.Count -ne 0) {
-            gh release upload $env:RELEASE_TAG $missingMetadata.ToArray()
-            if ($LASTEXITCODE -ne 0) { throw "Signed release metadata upload failed; the draft was retained" }
+            foreach ($metadataPath in $missingMetadata) {
+              Upload-Asset $expectedReleaseId ([System.IO.FileInfo]::new($metadataPath))
+            }
           }
           for ($attempt = 1; $attempt -le 6; $attempt += 1) {
             $release = Read-Draft
