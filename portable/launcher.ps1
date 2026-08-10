@@ -2692,14 +2692,12 @@ function Try-ArchiveStalePendingAppUpdate {
         [Parameter(Mandatory = $true)][string]$ExpectedPackageRoot
     )
 
-    $requiredProperties = @(
-        "schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port",
-        "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount",
-        "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt"
-    )
-    if (-not (Test-AppUpdateObjectShape $Pending $requiredProperties)) { return $false }
+    # This path only retires an update that will never be applied.  Older
+    # releases wrote a different set of bookkeeping fields, so do not make
+    # startup depend on hashes, byte counts, or broker metadata from that
+    # obsolete schema.  The live apply path below remains fully strict.
     if (
-        $Pending.schemaVersion -ne 1 -or
+        $null -eq $Pending -or
         $Pending.state -cne "READY_TO_RESTART" -or
         $Pending.packageRoot -isnot [string] -or
         [string]::IsNullOrWhiteSpace([string]$Pending.packageRoot) -or
@@ -2708,15 +2706,7 @@ function Try-ArchiveStalePendingAppUpdate {
         $Pending.port -ne $Port -or
         $Pending.candidateId -isnot [string] -or
         [string]$Pending.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
-        -not (Test-AppUpdateVersion $Pending.currentVersion) -or
-        -not (Test-AppUpdateVersion $Pending.latestVersion) -or
-        $Pending.currentCommit -isnot [string] -or $Pending.currentCommit -notmatch '^[0-9a-f]{40}$' -or
-        $Pending.latestCommit -isnot [string] -or $Pending.latestCommit -notmatch '^[0-9a-f]{40}$' -or
-        $Pending.treeSha256 -isnot [string] -or $Pending.treeSha256 -notmatch '^[0-9a-f]{64}$' -or
-        $Pending.brokerSha256 -isnot [string] -or $Pending.brokerSha256 -notmatch '^[0-9a-f]{64}$' -or
-        $Pending.healthNonce -isnot [string] -or $Pending.healthNonce -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
-        -not (Test-AppUpdateInteger $Pending.fileCount 1 100000) -or
-        -not (Test-AppUpdateInteger $Pending.unpackedBytes 1 1073741824)
+        -not (Test-AppUpdateVersion $Pending.latestVersion)
     ) { return $false }
 
     $pendingPackageRoot = $null
