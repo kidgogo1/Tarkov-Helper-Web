@@ -117,7 +117,7 @@ function waitForUrl(child) {
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error(`Timed out waiting for launcher URL.\nstdout: ${stdout}\nstderr: ${stderr}`));
-    }, 10_000);
+    }, 30_000);
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");

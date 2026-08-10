@@ -3456,7 +3456,11 @@ function Start-PortableBroker {
             -WorkingDirectory $directory -WindowStyle Hidden -PassThru `
             -RedirectStandardOutput $serveOut -RedirectStandardError $serveError
 
-        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        # Antivirus scans and first-run PowerShell/JIT startup can make a cold
+        # launch exceed ten seconds even though the child is healthy. Keep the
+        # readiness window bounded, but give the authenticated health probe
+        # enough time to complete on slower machines.
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
         while ([DateTime]::UtcNow -lt $deadline) {
             Start-Sleep -Milliseconds 100
             $instance = Read-PortableInstance

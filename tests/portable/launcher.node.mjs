@@ -10,6 +10,15 @@ const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const launcherPath = path.join(projectRoot, "portable", "launcher.ps1");
 const commandPath = path.join(projectRoot, "portable", "문제 해결용 실행.cmd");
 
+test("portable Start allows slow machines to finish authenticated readiness", async () => {
+  const launcher = await readFile(launcherPath, "utf8");
+  assert.match(
+    launcher,
+    /\$deadline = \[DateTime\]::UtcNow\.AddSeconds\(30\)/,
+    "Start readiness must allow Defender/slow-disk initialization to complete",
+  );
+});
+
 function waitForUrl(child) {
   return new Promise((resolve, reject) => {
     let stdout = "";
@@ -17,7 +26,7 @@ function waitForUrl(child) {
     const timeout = setTimeout(() => {
       child.kill();
       reject(new Error(`Timed out waiting for launcher URL.\nstdout: ${stdout}\nstderr: ${stderr}`));
-    }, 10_000);
+    }, 30_000);
 
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
