@@ -2605,6 +2605,24 @@ function Test-AppUpdateVersion {
     return $true
 }
 
+function Compare-AppUpdateVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$Left,
+        [Parameter(Mandatory = $true)][string]$Right
+    )
+
+    if (-not (Test-AppUpdateVersion $Left) -or -not (Test-AppUpdateVersion $Right)) {
+        throw [ArgumentException]::new("The app update version is invalid.")
+    }
+    $leftParts = @($Left.Split('.') | ForEach-Object { [decimal]$_ })
+    $rightParts = @($Right.Split('.') | ForEach-Object { [decimal]$_ })
+    for ($index = 0; $index -lt 3; $index++) {
+        $comparison = [decimal]::Compare($leftParts[$index], $rightParts[$index])
+        if ($comparison -ne 0) { return $comparison }
+    }
+    return 0
+}
+
 function Test-AppUpdateInteger {
     param([object]$Value, [long]$Minimum = 0, [long]$Maximum = 9007199254740991)
     if ($Value -isnot [byte] -and $Value -isnot [int16] -and $Value -isnot [int32] -and $Value -isnot [int64] -and $Value -isnot [decimal]) { return $false }
@@ -2666,6 +2684,74 @@ function Test-AppUpdateWorkerAlive {
         $process = Get-Process -Id ([int]$record.pid) -ErrorAction Stop
         return $process.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture) -ceq [string]$record.processStartTimeUtc
     } catch { return $false }
+}
+
+function Try-ArchiveStalePendingAppUpdate {
+    param(
+        [object]$Pending,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageRoot
+    )
+
+    $requiredProperties = @(
+        "schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port",
+        "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount",
+        "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt"
+    )
+    if (-not (Test-AppUpdateObjectShape $Pending $requiredProperties)) { return $false }
+    if (
+        $Pending.schemaVersion -ne 1 -or
+        $Pending.state -cne "READY_TO_RESTART" -or
+        $Pending.packageRoot -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$Pending.packageRoot) -or
+        $Pending.stateDirectory -isnot [string] -or
+        -not ([string]$Pending.stateDirectory).Equals([IO.Path]::GetFullPath($StateDirectory), [StringComparison]::OrdinalIgnoreCase) -or
+        $Pending.port -ne $Port -or
+        $Pending.candidateId -isnot [string] -or
+        [string]$Pending.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+        -not (Test-AppUpdateVersion $Pending.currentVersion) -or
+        -not (Test-AppUpdateVersion $Pending.latestVersion) -or
+        $Pending.currentCommit -isnot [string] -or $Pending.currentCommit -notmatch '^[0-9a-f]{40}$' -or
+        $Pending.latestCommit -isnot [string] -or $Pending.latestCommit -notmatch '^[0-9a-f]{40}$' -or
+        $Pending.treeSha256 -isnot [string] -or $Pending.treeSha256 -notmatch '^[0-9a-f]{64}$' -or
+        $Pending.brokerSha256 -isnot [string] -or $Pending.brokerSha256 -notmatch '^[0-9a-f]{64}$' -or
+        $Pending.healthNonce -isnot [string] -or $Pending.healthNonce -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+        -not (Test-AppUpdateInteger $Pending.fileCount 1 100000) -or
+        -not (Test-AppUpdateInteger $Pending.unpackedBytes 1 1073741824)
+    ) { return $false }
+
+    $pendingPackageRoot = $null
+    try { $pendingPackageRoot = [IO.Path]::GetFullPath([string]$Pending.packageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) } catch { return $false }
+    $normalizedExpectedRoot = [IO.Path]::GetFullPath($ExpectedPackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if ($pendingPackageRoot.Equals($normalizedExpectedRoot, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    if (Test-AppUpdateWorkerAlive) { return $false }
+
+    $versionPath = Join-Path $normalizedExpectedRoot "app\version.json"
+    $version = Read-AppUpdateJson -Path $versionPath -MaximumBytes 8192
+    if (
+        -not (Test-AppUpdateObjectShape $version @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -or
+        $version.schemaVersion -ne 1 -or
+        $version.product -cne "tarkov-helper-web" -or
+        -not (Test-AppUpdateVersion $version.version) -or
+        (Compare-AppUpdateVersion -Left ([string]$version.version) -Right ([string]$Pending.latestVersion)) -lt 0
+    ) { return $false }
+
+    try {
+        $sourceDirectory = [IO.Path]::GetFullPath((Get-AppUpdateDirectory))
+        $stateDirectory = [IO.Path]::GetFullPath((Initialize-StateDirectory))
+        $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff", [Globalization.CultureInfo]::InvariantCulture)
+        $candidate = ([string]$Pending.candidateId -replace '[^A-Za-z0-9_-]', '')
+        if ([string]::IsNullOrWhiteSpace($candidate)) { $candidate = [Guid]::NewGuid().ToString("N") }
+        if ($candidate.Length -gt 12) { $candidate = $candidate.Substring(0, 12) }
+        $backupDirectory = Join-Path $stateDirectory ("app-update-stale-backup-$stamp-$candidate")
+        if ([IO.Directory]::Exists($backupDirectory)) { $backupDirectory = Join-Path $stateDirectory ("app-update-stale-backup-$stamp-$candidate-$([Guid]::NewGuid().ToString('N'))") }
+        [IO.Directory]::Move($sourceDirectory, $backupDirectory)
+        Write-PortableLog "Archived stale staged update state from package '$pendingPackageRoot' as '$backupDirectory'; current version '$($version.version)' is already at or above staged version '$($Pending.latestVersion)'."
+        [Console]::Error.WriteLine("An old staged update from another installation was archived; the current installation is already up to date.")
+        return $true
+    } catch {
+        Write-PortableLog "A stale staged update could not be archived safely: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 function Get-AppUpdateStatus {
@@ -3039,6 +3125,9 @@ function Invoke-PendingAppUpdate {
     $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
     $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
     $expectedAppRoot = [IO.Path]::GetFullPath((Join-Path $expectedPackageRoot "app")).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if ([string]::IsNullOrWhiteSpace($ExpectedCandidate) -and (Try-ArchiveStalePendingAppUpdate -Pending $pending -ExpectedPackageRoot $expectedPackageRoot)) {
+        return $null
+    }
     if (
         -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
         $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or

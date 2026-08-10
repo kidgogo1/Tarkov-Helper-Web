@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +17,90 @@ test("portable Start allows slow machines to finish authenticated readiness", as
     /\$deadline = \[DateTime\]::UtcNow\.AddSeconds\(30\)/,
     "Start readiness must allow Defender/slow-disk initialization to complete",
   );
+});
+
+test("portable Start archives a stale staged update from another completed installation", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-stale-update-"));
+  const packageRoot = path.join(temporaryParent, "Tarkov Helper 바로 실행 v1.0.20");
+  const appRoot = path.join(packageRoot, "app");
+  const stateDirectory = path.join(temporaryParent, "state");
+  const appUpdateDirectory = path.join(stateDirectory, "app-update");
+  await mkdir(appRoot, { recursive: true });
+  await mkdir(appUpdateDirectory, { recursive: true });
+  await copyFile(launcherPath, path.join(packageRoot, "launcher.ps1"));
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>stale state recovery</title>", "utf8");
+  await writeFile(
+    path.join(appRoot, "version.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      product: "tarkov-helper-web",
+      version: "1.0.20",
+      commit: "a".repeat(40),
+      updaterProtocolVersion: 1,
+    }),
+    "utf8",
+  );
+  await writeFile(
+    path.join(appUpdateDirectory, "pending.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      state: "READY_TO_RESTART",
+      candidateId: "b".repeat(40),
+      packageRoot: path.join(temporaryParent, "old-install-v1.0.14"),
+      stageRoot: path.join(temporaryParent, "old-stage"),
+      stateDirectory,
+      port: 41753,
+      currentVersion: "1.0.19",
+      currentCommit: "c".repeat(40),
+      latestVersion: "1.0.20",
+      latestCommit: "d".repeat(40),
+      treeSha256: "e".repeat(64),
+      fileCount: 1,
+      unpackedBytes: 1,
+      brokerSha256: "f".repeat(64),
+      healthNonce: "g".repeat(40),
+      stagedAt: "2026-01-01T00:00:00.0000000Z",
+    }),
+    "utf8",
+  );
+
+  const child = spawn(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      path.join(packageRoot, "launcher.ps1"),
+      "-Action",
+      "Start",
+      "-Root",
+      appRoot,
+      "-NoBrowser",
+      "-StateDirectory",
+      stateDirectory,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+  );
+  t.after(async () => {
+    if (child.exitCode === null) child.kill();
+    await rm(temporaryParent, { recursive: true, force: true });
+  });
+
+  const { url } = await waitForUrl(child);
+  assert.match(url, /^http:\/\/127\.0\.0\.1:41753\/$/);
+  const stateEntries = await readdir(stateDirectory);
+  const staleBackups = stateEntries.filter((entry) => entry.startsWith("app-update-stale-backup-"));
+  assert.equal(staleBackups.length, 1);
+  assert.equal(await readFile(path.join(appRoot, "version.json"), "utf8").then((value) => JSON.parse(value).version), "1.0.20");
+
+  const stopped = spawnSync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(packageRoot, "launcher.ps1"), "-Action", "Stop", "-StateDirectory", stateDirectory],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
 });
 
 function waitForUrl(child) {
