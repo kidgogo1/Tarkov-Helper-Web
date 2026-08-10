@@ -1178,7 +1178,13 @@
 .map-quest-marker .map-marker-label {
   max-width: 230px;
   color: #fff3b7;
-  font-size: var(--quest-name-size, 12px);
+  /* A large saved label size must not let one objective cover the map. Keep
+     the user's setting as a preference while bounding the on-canvas footprint
+     and clipping long wiki descriptions to a readable preview. */
+  max-height: 3.45em;
+  overflow: hidden;
+  font-size: min(var(--quest-name-size, 12px), 16px);
+  line-height: 1.15;
   overflow-wrap: anywhere;
   white-space: normal;
 }

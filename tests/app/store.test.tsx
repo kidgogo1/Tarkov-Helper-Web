@@ -310,7 +310,7 @@ describe("AppStoreProvider", () => {
     });
   });
 
-  it("reports a blocked localStorage flush instead of claiming the state is safe", () => {
+  it("reports a blocked localStorage flush instead of claiming the state is safe", async () => {
     const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("Storage is full", "QuotaExceededError");
@@ -321,6 +321,7 @@ describe("AppStoreProvider", () => {
     } finally {
       setItem.mockRestore();
     }
+    await waitFor(() => expect(result.current.storageWarning).toBe(true));
   });
 
   it("sanitizes, deduplicates, and shares hidden marker types across profiles", () => {

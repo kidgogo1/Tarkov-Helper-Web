@@ -626,7 +626,7 @@ describe("public update settings", () => {
     });
   });
 
-  it("does not reload a follower tab when its latest progress cannot be saved", async () => {
+  it("does not rewrite a follower tab's stale progress before reconnecting", async () => {
     let messageListener: ((event: MessageEvent<unknown>) => void) | undefined;
     const channel = {
       postMessage: vi.fn(),
@@ -666,10 +666,11 @@ describe("public update settings", () => {
       candidateId: availableStatus.candidateId,
     } })));
 
-    await waitFor(() => expect(result.current.clientError).toContain("진행도와 설정을 저장하지 못해"));
-    expect(persistState).toHaveBeenCalledOnce();
-    expect(request).toHaveBeenCalledOnce();
-    expect(reload).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(reload).toHaveBeenCalledOnce();
+      expect(result.current.session?.token).toBe("f".repeat(43));
+    });
+    expect(persistState).not.toHaveBeenCalled();
   });
 
   it("releases another tab when an ambiguous apply attempt leaves the old candidate ready", async () => {

@@ -58,6 +58,7 @@ export interface AppStoreValue {
   updateSettings: (patch: SettingsPatch) => void;
   updateMapSettings: (patch: Partial<MapDisplaySettings>) => void;
   persistState: () => boolean;
+  storageWarning: boolean;
 }
 
 function createDefaultProfile(): ProfileState {
@@ -514,8 +515,10 @@ const AppStoreContext = createContext<AppStoreValue | null>(null);
 
 export function AppStoreProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<PersistedAppState>(readPersistedState);
+  const [storageWarning, setStorageWarning] = useState(false);
   const stateRef = useRef(state);
   const persistedSnapshotRef = useRef<string | null>(null);
+  const storageWarningRef = useRef(false);
 
   const persistState = useCallback(() => {
     try {
@@ -533,9 +536,19 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       }
       window.localStorage.setItem(APP_STATE_STORAGE_KEY, serialized);
       persistedSnapshotRef.current = serialized;
+      if (storageWarningRef.current) {
+        storageWarningRef.current = false;
+        window.setTimeout(() => setStorageWarning(false), 0);
+      }
       return true;
     } catch {
-      // The app remains usable when storage is blocked or full.
+      // The app remains usable when storage is blocked or full, but expose the
+      // condition so a user does not mistake an in-memory-only session for a
+      // durable save.
+      if (!storageWarningRef.current) {
+        storageWarningRef.current = true;
+        window.setTimeout(() => setStorageWarning(true), 0);
+      }
       return false;
     }
   }, []);
@@ -715,6 +728,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       updateSettings,
       updateMapSettings,
       persistState,
+      storageWarning,
     }),
     [
       state,
@@ -730,6 +744,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       updateSettings,
       updateMapSettings,
       persistState,
+      storageWarning,
     ],
   );
 

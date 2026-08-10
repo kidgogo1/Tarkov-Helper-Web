@@ -296,6 +296,7 @@ const QUEST_MARKER_TYPES = new Map(
 
 function normalized(value: string | undefined): string {
   return (value ?? "")
+    .normalize("NFKC")
     .trim()
     .toLocaleLowerCase("en-US")
     .replace(/[\s_-]+/g, "");

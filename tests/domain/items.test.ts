@@ -429,6 +429,12 @@ describe("item display and filtering helpers", () => {
     ).toEqual(["wire"]);
     expect(
       filterAndSortItems(entries, {
+        searchText: "ｗｉｒｅ",
+        sortBy: "name",
+      }).map((entry) => entry.itemId),
+    ).toEqual(["wire"]);
+    expect(
+      filterAndSortItems(entries, {
         hideFulfilled: true,
         sortBy: "name",
       }).map((entry) => entry.itemId),

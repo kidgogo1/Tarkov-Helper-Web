@@ -48,9 +48,37 @@ describe("loadTarkovData", () => {
   });
 
   it("reports an HTTP loading failure", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(loadTarkovData()).rejects.toThrow("404");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("retries a transient core-data failure before showing the startup error", async () => {
+    const payload = {
+      meta: {
+        originalCommit: "ef71936",
+        modifiedCommit: "77ee734",
+        exportedAt: "2026-08-07T00:00:00Z",
+        counts: { quests: 1, items: 1, hideoutStations: 1, maps: 1, mapMarkers: 1 },
+      },
+      quests: [{}],
+      items: [{}],
+      hideoutStations: [{}],
+      traders: [],
+      mapConfigs: [{}],
+      mapMarkers: [{}],
+      mapFloorLocations: [],
+    };
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("temporary connection reset"))
+      .mockResolvedValueOnce({ ok: true, json: () => payload })
+      .mockResolvedValueOnce({ ok: false, status: 503 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(loadTarkovData()).resolves.toBe(payload);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("rejects quest item requirements without a resolvable item ID", async () => {

@@ -27,6 +27,7 @@ interface AppShellProps {
   onLevelChange: (level: number) => void;
   onReset: () => void;
   onSettings: () => void;
+  storageWarning?: boolean;
 }
 
 interface TabDefinition {
@@ -54,6 +55,7 @@ export function AppShell({
   onLevelChange,
   onReset,
   onSettings,
+  storageWarning = false,
 }: AppShellProps) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -170,6 +172,13 @@ export function AppShell({
           })}
         </nav>
       </header>
+
+      {storageWarning ? (
+        <div className="app-storage-warning" role="alert">
+          브라우저 저장공간을 사용할 수 없습니다. 현재 변경 내용은 임시로만 유지될 수 있으니
+          시크릿 모드를 끄고 이 사이트의 저장을 허용한 뒤 새로고침하세요.
+        </div>
+      ) : null}
 
       <main
         aria-labelledby={`app-tab-${activeTab}`}

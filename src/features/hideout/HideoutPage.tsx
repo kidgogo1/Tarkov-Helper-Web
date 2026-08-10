@@ -98,12 +98,12 @@ export function HideoutPage({
   }, [focusStationId, onStationFocusConsumed]);
 
   const filteredStations = useMemo(() => {
-    const needle = searchText.trim().toLocaleLowerCase();
+    const needle = searchText.normalize("NFKC").trim().toLocaleLowerCase("ko-KR");
     if (!needle) return data.hideoutStations;
     return data.hideoutStations.filter((station) =>
       [station.name, station.nameKo, station.nameJa]
         .filter(Boolean)
-        .some((name) => name!.toLocaleLowerCase().includes(needle)),
+        .some((name) => name!.normalize("NFKC").toLocaleLowerCase("ko-KR").includes(needle)),
     );
   }, [data.hideoutStations, searchText]);
 

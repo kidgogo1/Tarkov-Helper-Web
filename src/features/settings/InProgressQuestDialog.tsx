@@ -57,11 +57,11 @@ export function InProgressQuestDialog({
     [availableQuests],
   );
   const filteredQuests = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase();
+    const term = search.normalize("NFKC").trim().toLocaleLowerCase("ko-KR");
     return availableQuests.filter((quest) => {
       const matchesTrader = trader === "all" || quest.trader === trader;
       const matchesSearch = !term || [quest.name, quest.nameEn, quest.nameKo, quest.nameJa]
-        .some((name) => name?.toLocaleLowerCase().includes(term));
+        .some((name) => name?.normalize("NFKC").toLocaleLowerCase("ko-KR").includes(term));
       return matchesTrader && matchesSearch;
     });
   }, [availableQuests, search, trader]);

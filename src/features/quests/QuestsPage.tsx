@@ -53,7 +53,7 @@ function canCompleteQuest(status: QuestStatus | undefined): boolean {
 }
 
 function normalize(value: string): string {
-  return value.trim().toLocaleLowerCase("ko-KR");
+  return value.normalize("NFKC").trim().toLocaleLowerCase("ko-KR");
 }
 
 function questMaps(quest: QuestData): string[] {

@@ -61,6 +61,21 @@ describe("client lifecycle", () => {
     expect(request).toHaveBeenCalledTimes(3);
   });
 
+  it("retries a transient startup transport failure before acquiring the lease", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("launcher is still starting"))
+      .mockResolvedValueOnce(jsonResponse(session))
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    const stop = startClientLifecycle(request);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(request.mock.calls[1]?.[0]).toBe("/api/v1/client/session");
+    stop();
+  });
+
   it("does nothing on a static host that has no lifecycle endpoint", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 404));
     const stop = startClientLifecycle(request);

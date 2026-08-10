@@ -46,6 +46,7 @@ describe("item price search", () => {
     expect(searchPriceCatalog(catalog.items, "transilluminator")[0]?.shortNameEn).toBe("LEDX");
     expect(searchPriceCatalog(catalog.items, "m4a1")[0]?.shortNameEn).toBe("M4A1");
     expect(searchPriceCatalog(catalog.items, "ledx-skin")[0]?.shortNameEn).toBe("LEDX");
+    expect(searchPriceCatalog(catalog.items, "Ｍ４Ａ１")[0]?.shortNameEn).toBe("M4A1");
   });
 
   it("returns a bounded result set with exact and prefix matches first", () => {

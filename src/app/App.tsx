@@ -331,6 +331,7 @@ export function App() {
         onReset={() => setResetOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onTabChange={changeTab}
+        storageWarning={store.storageWarning}
       >
         <div
           aria-hidden={activeTab === "map" ? undefined : true}

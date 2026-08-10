@@ -36,6 +36,56 @@ async function readJson(response: Response): Promise<unknown | null> {
   }
 }
 
+interface SessionAttempt {
+  session: ClientLifecycleSession | null;
+  retryable: boolean;
+}
+
+async function requestSession(
+  signal: AbortSignal | undefined,
+  request: LifecycleRequest,
+): Promise<SessionAttempt> {
+  try {
+    const response = await request(SESSION_PATH, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    if (response.status === 404) return { session: null, retryable: false };
+    if (response.status !== 200) {
+      return { session: null, retryable: response.status >= 500 || response.status === 429 };
+    }
+    const session = parseSession(await readJson(response));
+    // A malformed successful response is a bad build/configuration, not a
+    // transient startup race; stop rather than polling a broken server.
+    return { session, retryable: false };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { session: null, retryable: false };
+    }
+    return { session: null, retryable: true };
+  }
+}
+
+function waitForRetry(signal: AbortSignal, delayMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, delayMs);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve(false);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function parseSession(value: unknown): ClientLifecycleSession | null {
   if (
     !isRecord(value) ||
@@ -71,17 +121,7 @@ export async function fetchClientLifecycleSession(
   signal?: AbortSignal,
   request: LifecycleRequest = globalThis.fetch,
 ): Promise<ClientLifecycleSession | null> {
-  try {
-    const response = await request(SESSION_PATH, {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-      signal,
-    });
-    if (response.status !== 200) return null;
-    return parseSession(await readJson(response));
-  } catch {
-    return null;
-  }
+  return (await requestSession(signal, request)).session;
 }
 
 function sendLeaseCommand(
@@ -138,7 +178,18 @@ export function startClientLifecycle(
 
   window.addEventListener("pagehide", closeLease, { once: true });
 
-  void fetchClientLifecycleSession(controller.signal, request).then((session) => {
+  void (async () => {
+    // The direct launcher can need a few seconds to finish binding its
+    // listener on slower disks/antivirus scans. Retry only transport/server
+    // failures; a static host's 404 and malformed contracts remain one-shot.
+    const retryDelays = [100, 250, 500, 1_000, 2_000] as const;
+    let session: ClientLifecycleSession | null = null;
+    for (let attempt = 0; attempt <= retryDelays.length && !stopped; attempt += 1) {
+      const result = await requestSession(controller.signal, request);
+      session = result.session;
+      if (session || !result.retryable || stopped || attempt === retryDelays.length) break;
+      if (!await waitForRetry(controller.signal, retryDelays[attempt])) return;
+    }
     if (!session || stopped) {
       window.removeEventListener("pagehide", closeLease);
       return;
@@ -148,7 +199,7 @@ export function startClientLifecycle(
       if (stopped || !leaseToken) return;
       void sendLeaseCommand(HEARTBEAT_PATH, leaseToken, request, controller.signal);
     }, session.heartbeatIntervalMs);
-  });
+  })();
 
   return closeLease;
 }

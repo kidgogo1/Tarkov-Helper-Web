@@ -2,6 +2,8 @@ import type { TarkovData } from "../types/data";
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/tarkov-data.json`;
 const QUEST_WIKI_GUIDES_URL = `${import.meta.env.BASE_URL}data/quest-wiki-guides.json`;
+const CORE_FETCH_ATTEMPTS = 3;
+const CORE_RETRY_DELAYS_MS = [100, 250] as const;
 
 const ARRAY_COUNTS: ReadonlyArray<
   readonly [keyof TarkovData, keyof TarkovData["meta"]["counts"], string]
@@ -68,11 +70,53 @@ function validateTarkovData(value: unknown): asserts value is TarkovData {
   }
 }
 
-export async function loadTarkovData(signal?: AbortSignal): Promise<TarkovData> {
-  const response = await fetch(DATA_URL, { signal });
-  if (!response.ok) {
-    throw new Error(`번들 데이터를 불러오지 못했습니다. (HTTP ${response.status})`);
+function waitForRetry(signal: AbortSignal | undefined, delayMs: number): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function fetchCoreData(signal?: AbortSignal): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < CORE_FETCH_ATTEMPTS; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(DATA_URL, { signal, cache: "no-store" });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      lastError = error;
+      if (attempt < CORE_FETCH_ATTEMPTS - 1) {
+        await waitForRetry(signal, CORE_RETRY_DELAYS_MS[attempt] ?? 250);
+      }
+      continue;
+    }
+    if (response.ok) return response;
+    const status = response.status;
+    if (status < 500 && status !== 429) {
+      throw new Error(`번들 데이터를 불러오지 못했습니다. (HTTP ${status})`);
+    }
+    lastError = new Error(`번들 데이터를 불러오지 못했습니다. (HTTP ${status})`);
+    if (attempt < CORE_FETCH_ATTEMPTS - 1) {
+      await waitForRetry(signal, CORE_RETRY_DELAYS_MS[attempt] ?? 250);
+    }
   }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("번들 데이터를 불러오지 못했습니다.");
+}
+
+export async function loadTarkovData(signal?: AbortSignal): Promise<TarkovData> {
+  const response = await fetchCoreData(signal);
 
   const payload: unknown = await response.json();
   validateTarkovData(payload);

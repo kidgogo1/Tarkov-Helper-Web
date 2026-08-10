@@ -401,12 +401,10 @@ export function usePublicUpdate(
     setClientError(null);
 
     void (async () => {
-      if (persistState && !persistState()) {
-        throw new PublicUpdateApiError(
-          "STATE_SAVE_FAILED",
-          "진행도와 설정을 저장하지 못해 다른 탭의 업데이트 후 자동 새로고침을 중단했습니다.",
-        );
-      }
+      // The tab that accepted the update already flushed its own state before
+      // broadcasting. A follower can have an older in-memory snapshot; writing
+      // it here would race the initiating tab and overwrite newer progress in
+      // shared localStorage. Followers only reconnect and reload.
       let baseline = session;
       if (!baseline) {
         const deadline = Date.now() + RECONNECT_TIMEOUT_MS;

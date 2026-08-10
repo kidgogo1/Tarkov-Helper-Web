@@ -108,7 +108,7 @@ const FAILED_REQUIREMENT_TYPES = new Set(["failed", "fail"]);
 const COMPLETED_REQUIREMENT_TYPES = new Set(["complete", "completed", "done"]);
 
 function normalizeKey(value: string | undefined): string {
-  return value?.trim().toLocaleLowerCase("en-US") ?? "";
+  return value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 function questStorageKey(quest: QuestData): string {
@@ -560,6 +560,7 @@ function isItemHandInOnly(quest: QuestData): boolean {
     ]
       .filter(Boolean)
       .join(" ")
+      .normalize("NFKC")
       .toLocaleLowerCase("en-US");
     return !complexKeywords.some((keyword) => searchable.includes(keyword));
   });

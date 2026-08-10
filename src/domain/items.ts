@@ -208,7 +208,7 @@ const CATEGORY_MAPPING = new Map<string, string>([
 ]);
 
 function normalize(value: string | undefined): string {
-  return value?.trim().toLocaleLowerCase("en-US") ?? "";
+  return value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 function getRecordValue<T>(
