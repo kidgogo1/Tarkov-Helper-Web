@@ -823,6 +823,24 @@ function Test-AllowedDownloadUri {
     return $Uri.Host -cin @("api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com", "github-releases.githubusercontent.com")
 }
 
+function Get-UpdateRetryDelayMilliseconds {
+    param([Net.HttpWebResponse]$Response, [int]$Attempt)
+    $override = 0
+    if ([int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_RETRY_DELAY_MS, [ref]$override) -and $override -ge 0 -and $override -le 30000) {
+        return [Math]::Min(30000, $override * [Math]::Pow(2, $Attempt))
+    }
+    $retryAfter = 0
+    if ($null -ne $Response -and [int]::TryParse([string]$Response.Headers["Retry-After"], [ref]$retryAfter) -and $retryAfter -ge 0) {
+        return [Math]::Min(30000, $retryAfter * 1000)
+    }
+    return [Math]::Min(30000, 1000 * [Math]::Pow(2, $Attempt))
+}
+
+function Test-TransientUpdateStatus {
+    param([int]$Status)
+    return $Status -in @(408, 425, 500, 502, 503, 504)
+}
+
 function Invoke-BoundedDownload {
     param(
         [Parameter(Mandatory = $true)][Uri]$Uri,
@@ -835,10 +853,22 @@ function Invoke-BoundedDownload {
         [scriptblock]$Progress
     )
     $current = $Uri
-    for ($redirect = 0; $redirect -le 5; $redirect++) {
+    $redirect = 0
+    $retryAttempt = 0
+    while ($redirect -le 5) {
         if (-not (Test-AllowedDownloadUri -Uri $current -ReleaseApi $ReleaseApi)) { throw [Net.WebException]::new("The update download URI is not allowed.") }
         $request = [Net.HttpWebRequest]::Create($current)
-        $request.Proxy = $null
+        if ($AllowTestHttpLoopback -or $env:TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP -ceq "1") {
+            $request.Proxy = $null
+        } else {
+            # Respect a user's Windows/enterprise proxy. The URI allow-list above
+            # still prevents redirects to arbitrary hosts, so proxy support does
+            # not widen the updater's trust boundary.
+            $request.Proxy = [Net.WebRequest]::DefaultWebProxy
+            if ($null -ne $request.Proxy -and $null -eq $request.Proxy.Credentials) {
+                $request.Proxy.Credentials = [Net.CredentialCache]::DefaultCredentials
+            }
+        }
         $request.AllowAutoRedirect = $false
         $request.KeepAlive = $false
         $request.Timeout = 30000
@@ -851,7 +881,13 @@ function Invoke-BoundedDownload {
         try {
             try { $response = [Net.HttpWebResponse]$request.GetResponse() }
             catch [Net.WebException] {
-                if ($null -ne $_.Exception.Response) { $response = [Net.HttpWebResponse]$_.Exception.Response } else { throw }
+                if ($null -ne $_.Exception.Response) { $response = [Net.HttpWebResponse]$_.Exception.Response }
+                elseif ($retryAttempt -lt 2 -and $_.Exception.Status -in @([Net.WebExceptionStatus]::ConnectFailure, [Net.WebExceptionStatus]::ConnectionClosed, [Net.WebExceptionStatus]::NameResolutionFailure, [Net.WebExceptionStatus]::Timeout)) {
+                    $delay = Get-UpdateRetryDelayMilliseconds -Response $null -Attempt $retryAttempt
+                    $retryAttempt += 1
+                    Start-Sleep -Milliseconds $delay
+                    continue
+                } else { throw }
             }
             $status = [int]$response.StatusCode
             if ($status -in @(301, 302, 303, 307, 308)) {
@@ -859,9 +895,17 @@ function Invoke-BoundedDownload {
                 $location = $response.Headers["Location"]
                 if ([string]::IsNullOrWhiteSpace($location)) { throw [Net.WebException]::new("The update redirect is missing its destination.") }
                 $current = [Uri]::new($current, $location)
+                $redirect += 1
+                $retryAttempt = 0
                 continue
             }
             if ($status -ne 200) {
+                if (Test-TransientUpdateStatus -Status $status -and $retryAttempt -lt 2) {
+                    $delay = Get-UpdateRetryDelayMilliseconds -Response $response -Attempt $retryAttempt
+                    $retryAttempt += 1
+                    Start-Sleep -Milliseconds $delay
+                    continue
+                }
                 $diagnostics = @("The update server returned HTTP $status.")
                 foreach ($header in @("X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After")) {
                     $value = $response.Headers[$header]
@@ -869,6 +913,7 @@ function Invoke-BoundedDownload {
                 }
                 throw [Net.WebException]::new(($diagnostics -join " "))
             }
+            $retryAttempt = 0
             if ($response.ContentLength -gt $MaximumBytes -or ($ExpectedBytes -ge 0 -and $response.ContentLength -ge 0 -and $response.ContentLength -ne $ExpectedBytes)) {
                 throw [IO.InvalidDataException]::new("The update download length is invalid.")
             }

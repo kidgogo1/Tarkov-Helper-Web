@@ -387,6 +387,55 @@ describe("public update settings", () => {
     expect(request.mock.calls.some(([url]) => url === "/api/v1/app-update/apply")).toBe(false);
   });
 
+  it("accepts a progress reset when the worker restarted with a newer start time", async () => {
+    const firstAttempt = {
+      state: "DOWNLOADING",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      downloadedBytes: 100,
+      downloadBytes: availableStatus.downloadBytes,
+      startedAt: "2026-08-09T03:05:05.000Z",
+    } as const;
+    const restartedAttempt = { ...firstAttempt, downloadedBytes: 0, startedAt: "2026-08-09T03:05:06.000Z" } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: availableStatus }))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: firstAttempt }, 202))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: restartedAttempt }))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "READY_TO_RESTART",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          candidateId: availableStatus.candidateId,
+          stagedAt: "2026-08-09T03:05:07.000Z",
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "APPLYING",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          startedAt: "2026-08-09T03:05:08.000Z",
+        },
+      }, 202))
+      .mockRejectedValueOnce(new TypeError("server restarting"))
+      .mockResolvedValueOnce(jsonResponse({
+        ...idleSession,
+        token: "r".repeat(43),
+        status: { state: "UPDATED", currentVersion: "1.1.0", previousVersion: "1.0.0", updatedAt: "2026-08-09T03:05:10.000Z" },
+      }));
+    const { result } = renderHook(() => usePublicUpdate(request));
+    await waitFor(() => expect(result.current.status).toEqual(availableStatus));
+
+    await act(async () => result.current.install());
+
+    expect(result.current.clientError).toBeNull();
+    expect(result.current.status?.state).toBe("UPDATED");
+  });
+
   it("keeps polling a slow stage operation beyond 30 minutes", async () => {
     vi.useFakeTimers();
     try {

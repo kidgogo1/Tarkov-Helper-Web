@@ -22,6 +22,10 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
 $utf8 = New-Object Text.UTF8Encoding($false, $true)
 $healthPath = "/.tarkov-helper-portable"
+$script:testMoveFailuresRemaining = 0
+if ([int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_MOVE_FAILURES, [ref]$script:testMoveFailuresRemaining) -and $script:testMoveFailuresRemaining -lt 0) {
+    $script:testMoveFailuresRemaining = 0
+}
 
 $treeVerifierSource = @'
 using System;
@@ -256,6 +260,28 @@ function Test-SafeSibling {
     $full = [IO.Path]::GetFullPath($Candidate)
     $prefix = [IO.Path]::GetFullPath($Parent).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
     return $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($full) -match $Pattern
+}
+
+function Move-UpdateDirectory {
+    param([Parameter(Mandatory = $true)][string]$Source, [Parameter(Mandatory = $true)][string]$Destination)
+    $lastError = $null
+    for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
+        try {
+            if ($script:testMoveFailuresRemaining -gt 0) {
+                $script:testMoveFailuresRemaining -= 1
+                throw [IO.IOException]::new("Injected transient directory move failure.")
+            }
+            [IO.Directory]::Move($Source, $Destination)
+            return
+        } catch [IO.IOException] {
+            $lastError = $_.Exception
+        } catch [UnauthorizedAccessException] {
+            $lastError = $_.Exception
+        }
+        if ($attempt -eq 7) { throw $lastError }
+        Start-Sleep -Milliseconds ([Math]::Min(2000, [int](250 * [Math]::Pow(2, $attempt))))
+    }
+    throw $lastError
 }
 
 function Remove-SafeTree {
@@ -785,12 +811,12 @@ try {
 
     if ($rootIsOld -and [IO.Directory]::Exists($stageRoot)) {
         Remove-SafeTree -Path $backupRoot -Parent $parent -Pattern ("^\." + $escapedLeaf + "\.update-backup$")
-        [IO.Directory]::Move($packageRoot, $backupRoot)
+        Move-UpdateDirectory -Source $packageRoot -Destination $backupRoot
         Write-Journal -Plan $plan -Phase "OLD_MOVED" -BackupRoot $backupRoot -FailedRoot $failedRoot
         $rootIdentity = $null; $rootIsOld = $false; $backupIsOld = $true
     }
     if (-not [IO.Directory]::Exists($packageRoot) -and [IO.Directory]::Exists($backupRoot) -and [IO.Directory]::Exists($stageRoot)) {
-        [IO.Directory]::Move($stageRoot, $packageRoot)
+        Move-UpdateDirectory -Source $stageRoot -Destination $packageRoot
         Write-Journal -Plan $plan -Phase "NEW_MOVED" -BackupRoot $backupRoot -FailedRoot $failedRoot
         $rootIdentity = Get-IdentityIfPresent $packageRoot
         $rootIsNew = Test-Identity -Identity $rootIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)
@@ -853,9 +879,9 @@ try {
         $rootIdentity = Get-IdentityIfPresent $packageRoot
         if (Test-Identity -Identity $rootIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)) {
             if ([IO.Directory]::Exists($failedRoot)) { throw [IO.IOException]::new("The failed update evidence path is already occupied.") }
-            [IO.Directory]::Move($packageRoot, $failedRoot)
+            Move-UpdateDirectory -Source $packageRoot -Destination $failedRoot
         }
-        if (-not [IO.Directory]::Exists($packageRoot) -and [IO.Directory]::Exists($backupRoot)) { [IO.Directory]::Move($backupRoot, $packageRoot) }
+        if (-not [IO.Directory]::Exists($packageRoot) -and [IO.Directory]::Exists($backupRoot)) { Move-UpdateDirectory -Source $backupRoot -Destination $packageRoot }
         $restored = Get-VersionDocument $packageRoot
         if ($restored.version -cne $plan.currentVersion -or $restored.commit -cne $plan.currentCommit) { throw [IO.InvalidDataException]::new("The rollback tree is not the previous package.") }
         Complete-Rollback -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -BackupRoot $backupRoot -FailedRoot $failedRoot -Parent $parent -EscapedLeaf $escapedLeaf -HealthyOldInstance $null

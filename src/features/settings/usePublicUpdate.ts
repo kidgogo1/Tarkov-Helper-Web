@@ -147,7 +147,8 @@ function assertReviewedStageStatus(
   if (
     previous.state === "DOWNLOADING" &&
     next.state === "DOWNLOADING" &&
-    (next.downloadedBytes < previous.downloadedBytes || next.startedAt !== previous.startedAt)
+    next.downloadedBytes < previous.downloadedBytes &&
+    (next.startedAt === previous.startedAt || Date.parse(next.startedAt) < Date.parse(previous.startedAt))
   ) {
     throw new PublicUpdateApiError("INVALID_RESPONSE", "업데이트 다운로드 진행 상태가 이전 값으로 되돌아갔습니다.");
   }

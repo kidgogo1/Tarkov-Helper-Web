@@ -111,6 +111,7 @@ function startReleaseServer() {
     releaseBody: null,
     releaseHeaders: {},
     releaseStatus: 200,
+    releaseStatusSequence: null,
     requests: [],
   };
   const server = http.createServer((request, response) => {
@@ -130,7 +131,10 @@ function startReleaseServer() {
     ) {
       const body = state.releaseBody ?? `${JSON.stringify(state.release)}\n`;
       const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
-      response.writeHead(state.releaseStatus, {
+      const releaseStatus = Array.isArray(state.releaseStatusSequence) && state.releaseStatusSequence.length > 0
+        ? state.releaseStatusSequence.shift()
+        : state.releaseStatus;
+      response.writeHead(releaseStatus, {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Length": payload.length,
         Connection: "close",
@@ -468,11 +472,13 @@ test("portable updater exposes only the authenticated candidate API and hidden h
   assert.match(worker, /requireImmutableRelease/);
   assert.match(worker, /treeSha256/);
   assert.match(worker, /FileMode\]::CreateNew|FileMode\.CreateNew/);
+  assert.match(worker, /DefaultWebProxy/);
   assert.match(launcher, /"-StartedAt", \$now/);
   assert.match(worker, /\[string\]\$StartedAt/);
   assert.match(worker, /\$startedAt = \$StartedAt/);
   assert.match(broker, /ROLLING_BACK/);
   assert.match(broker, /READY_TO_RESTART/);
+  assert.match(broker, /Move-UpdateDirectory/);
 });
 
 test("authenticated API verifies, stages, and applies an immutable signed public release", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
@@ -480,6 +486,7 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   const env = {
     TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
     TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+    TARKOV_HELPER_UPDATE_TEST_MOVE_FAILURES: "2",
   };
   let appPort;
   t.after(async () => {
@@ -1457,6 +1464,31 @@ test("distinguishes GitHub API rate limits from other 403 responses", { skip: pr
         await rm(fixture.temporaryRoot, { recursive: true, force: true });
       }
     });
+  }
+});
+
+test("retries a transient GitHub release response before reporting an update failure", { skip: process.platform !== "win32", timeout: 60_000 }, async () => {
+  const fixture = await createUpdateFixture();
+  fixture.state.releaseStatusSequence = [503, 200];
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_RETRY_DELAY_MS: "10",
+  };
+  try {
+    const result = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), [
+      "-Action", "Check",
+      "-PackageRoot", fixture.packageRoot,
+      "-StateDirectory", fixture.stateDirectory,
+      "-Port", "41753",
+      "-AllowTestHttpLoopback",
+    ], { env, timeout: 20_000 });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const status = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
+    assert.equal(status.state, "AVAILABLE", JSON.stringify(status));
+    assert.equal(fixture.state.requests.filter(({ url }) => url === `/repos/${repository}/releases/latest`).length, 2);
+  } finally {
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
   }
 });
 
