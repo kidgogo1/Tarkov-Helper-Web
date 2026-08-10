@@ -715,7 +715,10 @@ try {
     $rootIsNew = Test-Identity -Identity $rootIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)
     $backupIsOld = Test-Identity -Identity $backupIdentity -Version ([string]$plan.currentVersion) -Commit ([string]$plan.currentCommit)
     if ($null -ne $rootIdentity -and -not $rootIsOld -and -not $rootIsNew) { throw [IO.InvalidDataException]::new("The installed package identity is outside the update transaction.") }
-    if ($null -ne $backupIdentity -and -not $backupIsOld) { throw [IO.InvalidDataException]::new("The rollback package identity is outside the update transaction.") }
+    $staleBackup = $null -ne $backupIdentity -and -not $backupIsOld
+    if ($staleBackup -and -not ($rootIsOld -and [IO.Directory]::Exists($stageRoot) -and [string]$journal.phase -eq "PREPARED")) {
+        throw [IO.InvalidDataException]::new("The rollback package identity is outside the update transaction.")
+    }
 
     if ([IO.Directory]::Exists($stageRoot)) {
         $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($stageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
@@ -723,6 +726,15 @@ try {
         $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
     } elseif ($journal.phase -notin @("ROLLING_BACK", "ROLLED_BACK")) {
         throw [IO.DirectoryNotFoundException]::new("Neither the staged nor applied update tree is available.")
+    }
+    if ($staleBackup) {
+        # A previous transaction may have left the fixed backup sibling behind.
+        # Only discard it when the current package is still the authenticated old
+        # tree and the new staged tree has already passed verification. An active
+        # journal or a missing old root remains fail-closed above.
+        Remove-SafeTree -Path $backupRoot -Parent $parent -Pattern ("^\." + $escapedLeaf + "\.update-backup$")
+        $backupIdentity = $null
+        $backupIsOld = $false
     }
 
     $instance = Read-Instance

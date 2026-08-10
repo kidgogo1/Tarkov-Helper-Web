@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { appendFile, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -1298,6 +1298,35 @@ test("health failure rolls back safely and a fresh candidate can later apply", {
   const instance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
   assert.equal(instance.port, port, "the browser origin port must survive update and rollback");
   assert.equal((await readFile(stateMarker, "utf8")).trim(), "origin state survives package swaps");
+});
+
+test("a stale rollback backup from an older transaction is replaced before a fresh apply", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = { TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1", TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1" };
+  const backupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-backup`);
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  await cp(fixture.packageRoot, backupRoot, { recursive: true });
+  await writeFile(path.join(backupRoot, "app", "version.json"), `${JSON.stringify({
+    schemaVersion: 1,
+    product: "tarkov-helper-web",
+    version: "0.9.0",
+    commit: "9".repeat(40),
+    updaterProtocolVersion: 1,
+  }, null, 2)}\n`, "utf8");
+  await prepareStagedFixture(fixture, port);
+
+  const applied = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 40_000 });
+  assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.1.0");
+  assert.equal(JSON.parse(await readFile(path.join(backupRoot, "app", "version.json"), "utf8")).version, "1.0.0");
 });
 
 test("pending update is bound to the staged browser-origin port", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
