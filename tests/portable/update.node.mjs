@@ -99,7 +99,7 @@ async function getFreePort() {
 }
 
 function startReleaseServer() {
-  const state = { assets: new Map(), release: null, requests: [] };
+  const state = { assets: new Map(), delayedAssetIds: new Map(), release: null, requests: [] };
   const server = http.createServer((request, response) => {
     state.requests.push({ method: request.method, url: request.url });
     const send = (status, contents, contentType) => {
@@ -120,7 +120,22 @@ function startReleaseServer() {
     }
     const match = new RegExp(`^/repos/${repository.replace("/", "\\/")}/releases/assets/(\\d+)$`).exec(request.url ?? "");
     if (request.method === "GET" && match && state.assets.has(Number(match[1]))) {
-      send(200, state.assets.get(Number(match[1])), "application/octet-stream");
+      const assetId = Number(match[1]);
+      const contents = state.assets.get(assetId);
+      const delayMilliseconds = state.delayedAssetIds.get(assetId);
+      if (Number.isInteger(delayMilliseconds) && delayMilliseconds > 0) {
+        const body = Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
+        const splitAt = Math.min(body.length, 1);
+        response.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": body.length,
+          Connection: "close",
+        });
+        response.write(body.subarray(0, splitAt));
+        setTimeout(() => response.end(body.subarray(splitAt)), delayMilliseconds);
+        return;
+      }
+      send(200, contents, "application/octet-stream");
       return;
     }
     send(404, "not found", "text/plain; charset=utf-8");
@@ -426,6 +441,9 @@ test("portable updater exposes only the authenticated candidate API and hidden h
   assert.match(worker, /requireImmutableRelease/);
   assert.match(worker, /treeSha256/);
   assert.match(worker, /FileMode\]::CreateNew|FileMode\.CreateNew/);
+  assert.match(launcher, /"-StartedAt", \$now/);
+  assert.match(worker, /\[string\]\$StartedAt/);
+  assert.match(worker, /\$startedAt = \$StartedAt/);
   assert.match(broker, /ROLLING_BACK/);
   assert.match(broker, /READY_TO_RESTART/);
 });
@@ -520,12 +538,25 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   assert.equal(mismatchedCandidate.status, 409);
   assert.equal((await mismatchedCandidate.json()).error.code, "CANDIDATE_MISMATCH");
 
+  fixture.state.delayedAssetIds.set(203, 1_000);
   const stagingResponse = await fetch(new URL("api/v1/app-update/stage", base), {
     method: "POST",
     headers: mutationHeaders,
     body: JSON.stringify({ candidateId: available.candidateId }),
   });
   assert.equal(stagingResponse.status, 202);
+  const initialDownloading = (await stagingResponse.clone().json()).status;
+  assert.equal(initialDownloading.state, "DOWNLOADING");
+  await waitFor(
+    async () => JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "worker.json"), "utf8")),
+    (worker) => worker?.operation === "STAGE",
+    3_000,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const downloadingResponse = await fetch(new URL("api/v1/app-update/status", base), { headers: statusHeaders });
+  const workerDownloading = (await downloadingResponse.json()).status;
+  assert.equal(workerDownloading.state, "DOWNLOADING", JSON.stringify(workerDownloading));
+  assert.equal(workerDownloading.startedAt, initialDownloading.startedAt);
   const ready = await waitFor(async () => {
     const response = await fetch(new URL("api/v1/app-update/status", base), { headers: statusHeaders });
     return (await response.json()).status;

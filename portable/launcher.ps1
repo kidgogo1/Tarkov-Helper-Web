@@ -2709,7 +2709,7 @@ function Start-AppUpdateWorker {
     else { $initial = [pscustomobject]@{ state = "DOWNLOADING"; currentVersion = [string]$Context.CurrentVersion; latestVersion = [string]$current.latestVersion; candidateId = $ReviewedCandidate; downloadedBytes = [long]0; downloadBytes = [long]$current.downloadBytes; startedAt = $now } }
     Write-AppUpdateJson -Path (Get-AppUpdateStatusPath) -Value $initial
     $powershell = Join-Path $PSHOME "powershell.exe"; if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
-    $arguments = @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $worker, "-Action", $WorkerAction, "-PackageRoot", $Context.PackageRoot, "-StateDirectory", $StateDirectory, "-Port", [string]$BoundPort)
+    $arguments = @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $worker, "-Action", $WorkerAction, "-PackageRoot", $Context.PackageRoot, "-StateDirectory", $StateDirectory, "-Port", [string]$BoundPort, "-StartedAt", $now)
     if ($WorkerAction -eq "Stage") { $arguments += @("-CandidateId", $ReviewedCandidate) }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
     $directory = Get-AppUpdateDirectory

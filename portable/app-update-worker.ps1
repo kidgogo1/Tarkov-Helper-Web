@@ -11,6 +11,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port,
     [string]$CandidateId,
+    [string]$StartedAt,
     [switch]$AllowTestHttpLoopback
 )
 
@@ -24,6 +25,13 @@ $maximumReleaseBytes = 2MB
 $maximumArchiveBytes = 512MB
 $candidateLifetimeHours = 24
 $utf8 = New-Object Text.UTF8Encoding($false, $true)
+
+if (
+    -not [string]::IsNullOrWhiteSpace($StartedAt) -and
+    $StartedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$'
+) {
+    throw [ArgumentException]::new("The update operation start time is invalid.")
+}
 
 $supportSource = @'
 using System;
@@ -1322,7 +1330,10 @@ function Invoke-Stage {
         [IO.Directory]::CreateDirectory($stageRoot) | Out-Null
         $stageCreated = $true
         if (([IO.File]::GetAttributes($stageRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The staging directory became a reparse point.") }
-        $startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+        $startedAt = $StartedAt
+        if ([string]::IsNullOrWhiteSpace($startedAt)) {
+            $startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+        }
         $progressState = [pscustomobject]@{ Last = [long]-1 }
         $progress = {
             param([long]$Downloaded)
