@@ -109,6 +109,7 @@ describe("ItemsPage", () => {
     );
 
     expect(screen.getAllByText("볼트").length).toBeGreaterThan(0);
+    expect(screen.getByRole("region", { name: "시세 요약" })).toBeInTheDocument();
     expect(screen.getAllByText("Supply Run")).toHaveLength(2);
     expect(screen.getByText("2F+4 필요")).toBeInTheDocument();
     expect(screen.getAllByText("2F+4")).toHaveLength(2);

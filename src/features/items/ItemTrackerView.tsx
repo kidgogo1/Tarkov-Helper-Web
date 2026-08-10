@@ -20,6 +20,7 @@ import {
 } from "../../domain/items";
 import type { ItemData } from "../../types/data";
 import type { InventoryAmount } from "../../types/state";
+import { ItemMarketSummary } from "./ItemMarketSummary";
 
 interface ItemTrackerViewProps {
   items: readonly AggregatedItemRequirement[];
@@ -408,6 +409,13 @@ function ItemDetail({
         <span><small>남은 필요</small><strong>{formatCountDisplay(item.totalCount, item.totalFirCount)}</strong></span>
         <span><small>부족</small><strong>{item.shortage}</strong></span>
       </div>
+
+      <ItemMarketSummary
+        itemEnglishName={item.subtitleName}
+        itemId={item.itemId}
+        itemName={item.displayName}
+        remainingCount={item.totalCount}
+      />
 
       {isReferenceOnly ? (
         <p className="item-reference-note">현재 남은 요구 사항 없음</p>
