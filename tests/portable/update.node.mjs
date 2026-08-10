@@ -23,6 +23,11 @@ const repository = "example-owner/example-repository";
 const oldCommit = "1".repeat(40);
 const newCommit = "2".repeat(40);
 
+test("the PowerShell updater is UTF-8 BOM encoded for Windows PowerShell", async () => {
+  const bytes = await readFile(workerPath);
+  assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+});
+
 function digest(contents) {
   return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
