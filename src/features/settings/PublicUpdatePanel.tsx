@@ -58,6 +58,19 @@ function updateAnnouncement(
   }
 }
 
+function formatUpdateError(status: Extract<PublicUpdateStatus, { state: "ERROR" }>): string {
+  switch (status.code) {
+    case "GITHUB_RATE_LIMIT":
+      return "GitHub 공개 API 요청 제한에 도달했습니다. 잠시 후 다시 확인하세요. GitHub 계정이 차단된 것은 아닙니다.";
+    case "GITHUB_FORBIDDEN":
+      return "GitHub가 업데이트 요청을 거부했습니다(HTTP 403). VPN, 프록시 또는 방화벽 설정을 확인하세요.";
+    case "NETWORK_ERROR":
+      return "GitHub 업데이트 서버에 연결할 수 없습니다. 네트워크 또는 방화벽 설정을 확인하세요.";
+    default:
+      return status.message;
+  }
+}
+
 export function PublicUpdatePanel({
   session,
   status,
@@ -164,7 +177,7 @@ export function PublicUpdatePanel({
       {status?.state === "ERROR" ? (
         <div className="update-status error" role="alert">
           <TriangleAlert aria-hidden="true" size={18} />
-          <span>{status.message}</span>
+          <span>{formatUpdateError(status)}</span>
         </div>
       ) : null}
       {clientError ? (

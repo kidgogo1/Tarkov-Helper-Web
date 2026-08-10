@@ -104,6 +104,31 @@ describe("public update settings", () => {
     );
   });
 
+  it("explains that GitHub API limits are not an account ban", () => {
+    const rateLimited = {
+      state: "ERROR",
+      currentVersion: "1.0.15",
+      operation: "CHECK",
+      code: "GITHUB_RATE_LIMIT",
+      message: "GitHub API rate limit exceeded.",
+    } as const;
+    render(
+      <PublicUpdatePanel
+        busy={null}
+        clientError={null}
+        initializing={false}
+        onApply={vi.fn()}
+        onCheck={vi.fn()}
+        onInstall={vi.fn()}
+        session={{ ...idleSession, status: rateLimited }}
+        status={rateLimited}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("GitHub 공개 API 요청 제한");
+    expect(screen.getByRole("alert")).toHaveTextContent("계정이 차단된 것은 아닙니다");
+  });
+
   it("rechecks a settled update status on startup and every six hours", async () => {
     vi.useFakeTimers();
     try {

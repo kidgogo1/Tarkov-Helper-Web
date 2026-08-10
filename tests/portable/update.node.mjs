@@ -99,7 +99,15 @@ async function getFreePort() {
 }
 
 function startReleaseServer() {
-  const state = { assets: new Map(), delayedAssetIds: new Map(), release: null, requests: [] };
+  const state = {
+    assets: new Map(),
+    delayedAssetIds: new Map(),
+    release: null,
+    releaseBody: null,
+    releaseHeaders: {},
+    releaseStatus: 200,
+    requests: [],
+  };
   const server = http.createServer((request, response) => {
     state.requests.push({ method: request.method, url: request.url });
     const send = (status, contents, contentType) => {
@@ -115,7 +123,15 @@ function startReleaseServer() {
       request.method === "GET" &&
       (request.url === `/repos/${repository}/releases/latest` || request.url === `/repos/${repository}/releases/101`)
     ) {
-      send(200, `${JSON.stringify(state.release)}\n`, "application/json; charset=utf-8");
+      const body = state.releaseBody ?? `${JSON.stringify(state.release)}\n`;
+      const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
+      response.writeHead(state.releaseStatus, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": payload.length,
+        Connection: "close",
+        ...state.releaseHeaders,
+      });
+      response.end(payload);
       return;
     }
     const match = new RegExp(`^/repos/${repository.replace("/", "\\/")}/releases/assets/(\\d+)$`).exec(request.url ?? "");
@@ -188,6 +204,9 @@ async function createUpdateFixture({
   mutateArchive,
   mutateManifest,
   mutateRelease,
+  releaseBody = null,
+  releaseHeaders = {},
+  releaseStatus = 200,
 } = {}) {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-public-update-"));
   const packageRoot = path.join(temporaryRoot, "Tarkov Helper Direct");
@@ -307,6 +326,9 @@ async function createUpdateFixture({
       asset(203, path.basename(archivePath), archive),
     ],
   };
+  state.releaseBody = releaseBody;
+  state.releaseHeaders = releaseHeaders;
+  state.releaseStatus = releaseStatus;
   mutateRelease?.(state.release, { archive, manifestBytes, signature });
   return {
     archivePath,
@@ -1389,6 +1411,48 @@ test("disabled updater exposes a disabled session and rejects mutations", { skip
   });
   assert.equal(mutation.status, 409);
   assert.equal((await mutation.json()).error.code, "NOT_CONFIGURED");
+});
+
+test("distinguishes GitHub API rate limits from other 403 responses", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
+  for (const scenario of [
+    {
+      name: "rate limit",
+      releaseHeaders: { "X-RateLimit-Remaining": "0" },
+      releaseBody: `${JSON.stringify({ message: "API rate limit exceeded" })}\n`,
+      expectedCode: "GITHUB_RATE_LIMIT",
+    },
+    {
+      name: "forbidden",
+      releaseHeaders: { "X-RateLimit-Remaining": "12" },
+      releaseBody: `${JSON.stringify({ message: "Forbidden" })}\n`,
+      expectedCode: "GITHUB_FORBIDDEN",
+    },
+  ]) {
+    await t.test(scenario.name, async () => {
+      const fixture = await createUpdateFixture({
+        releaseBody: scenario.releaseBody,
+        releaseHeaders: scenario.releaseHeaders,
+        releaseStatus: 403,
+      });
+      const env = { TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1" };
+      try {
+        const checked = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), [
+          "-Action", "Check",
+          "-PackageRoot", fixture.packageRoot,
+          "-StateDirectory", fixture.stateDirectory,
+          "-Port", "41753",
+          "-AllowTestHttpLoopback",
+        ], { env, timeout: 20_000 });
+        assert.equal(checked.status, 5, `${checked.stdout}\n${checked.stderr}`);
+        const status = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
+        assert.equal(status.code, scenario.expectedCode);
+        assert.match(status.message, /GitHub|403|API/);
+      } finally {
+        await closeServer(fixture.releaseServer);
+        await rm(fixture.temporaryRoot, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 test("external broker recovers every durable apply phase idempotently", { skip: process.platform !== "win32", timeout: 180_000 }, async (t) => {

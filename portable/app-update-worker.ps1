@@ -861,7 +861,14 @@ function Invoke-BoundedDownload {
                 $current = [Uri]::new($current, $location)
                 continue
             }
-            if ($status -ne 200) { throw [Net.WebException]::new("The update server returned HTTP $status.") }
+            if ($status -ne 200) {
+                $diagnostics = @("The update server returned HTTP $status.")
+                foreach ($header in @("X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After")) {
+                    $value = $response.Headers[$header]
+                    if (-not [string]::IsNullOrWhiteSpace($value)) { $diagnostics += "$header=$value" }
+                }
+                throw [Net.WebException]::new(($diagnostics -join " "))
+            }
             if ($response.ContentLength -gt $MaximumBytes -or ($ExpectedBytes -ge 0 -and $response.ContentLength -ge 0 -and $response.ContentLength -ne $ExpectedBytes)) {
                 throw [IO.InvalidDataException]::new("The update download length is invalid.")
             }
@@ -1414,8 +1421,19 @@ try {
     Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code $code -Message "The downloaded update could not be authenticated."
     exit 4
 } catch [Net.WebException] {
-    Write-WorkerLog "$operation network rejection: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-    Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "NETWORK_ERROR" -Message "The public GitHub release could not be reached."
+    $message = [string]$_.Exception.Message
+    Write-WorkerLog "$operation network rejection: $($_.Exception.GetType().Name): $message"
+    $httpMatch = [regex]::Match($message, 'HTTP (?<status>\d{3})')
+    $httpStatus = if ($httpMatch.Success) { [int]$httpMatch.Groups["status"].Value } else { 0 }
+    $remainingMatch = [regex]::Match($message, 'X-RateLimit-Remaining=(?<remaining>\d+)')
+    $remaining = if ($remainingMatch.Success) { [int64]$remainingMatch.Groups["remaining"].Value } else { -1 }
+    if ($httpStatus -eq 429 -or ($httpStatus -eq 403 -and $remaining -eq 0)) {
+        Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "GITHUB_RATE_LIMIT" -Message "GitHub 공개 API 요청 제한에 도달했습니다. 잠시 후 다시 확인하세요. GitHub 계정이 차단된 것은 아닙니다."
+    } elseif ($httpStatus -eq 403) {
+        Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "GITHUB_FORBIDDEN" -Message "GitHub가 업데이트 요청을 거부했습니다(HTTP 403). VPN, 프록시 또는 방화벽 설정을 확인하세요."
+    } else {
+        Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "NETWORK_ERROR" -Message "The public GitHub release could not be reached."
+    }
     exit 5
 } catch [InvalidOperationException] {
     Write-WorkerLog "$operation configuration rejection: $($_.Exception.GetType().Name): $($_.Exception.Message)"
