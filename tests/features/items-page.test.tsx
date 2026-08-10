@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppStoreProvider } from "../../src/app/store";
+import {
+  APP_STATE_STORAGE_KEY,
+  AppStoreProvider,
+  createDefaultState,
+} from "../../src/app/store";
 import { ItemsPage } from "../../src/features/items/ItemsPage";
 import type { TarkovData } from "../../src/types/data";
 
@@ -107,7 +111,7 @@ describe("ItemsPage", () => {
     expect(screen.getAllByText("볼트").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Supply Run")).toHaveLength(2);
     expect(screen.getByText("2F+4 필요")).toBeInTheDocument();
-    expect(screen.getByText("2F+4")).toBeInTheDocument();
+    expect(screen.getAllByText("2F+4")).toHaveLength(2);
 
     const firEditor = screen.getByRole("group", { name: "볼트 FIR 보유량" });
     const generalEditor = screen.getByRole("group", { name: "볼트 일반 보유량" });
@@ -178,6 +182,115 @@ describe("ItemsPage", () => {
     expect(onOpenQuest).toHaveBeenCalledWith("quest");
 
     fireEvent.click(within(detail).getByRole("button", { name: "Workbench 은신처 열기" }));
+    expect(onOpenHideout).toHaveBeenCalledWith("workbench");
+  });
+
+  it("shows completed quest and hideout item sources separately from remaining needs", () => {
+    const onOpenQuest = vi.fn();
+    const onOpenHideout = vi.fn();
+    const state = createDefaultState();
+    state.profiles.pvp.questProgress["completed-quest"] = "done";
+    state.profiles.pvp.hideoutLevels.workbench = 1;
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    const historyData: TarkovData = {
+      ...data,
+      meta: {
+        ...data.meta,
+        counts: { ...data.meta.counts, quests: 2, hideoutStations: 1 },
+      },
+      quests: [
+        ...data.quests,
+        {
+          ...data.quests[0],
+          id: "completed-quest",
+          normalizedName: "completed-quest",
+          name: "Completed Delivery",
+          nameEn: "Completed Delivery",
+          requiredItems: [
+            {
+              id: "completed-bolts",
+              itemId: "bolts",
+              itemName: "Bolts",
+              count: 7,
+              requiresFir: false,
+              requirementType: "handover",
+              sortOrder: 0,
+            },
+          ],
+        },
+      ],
+      hideoutStations: [
+        {
+          id: "workbench",
+          name: "Completed Workbench",
+          normalizedName: "workbench",
+          maxLevel: 2,
+          levels: [
+            {
+              id: "workbench-level-1",
+              level: 1,
+              constructionTime: 0,
+              items: [
+                {
+                  id: "completed-workbench-bolts",
+                  itemId: "bolts",
+                  itemName: "Bolts",
+                  count: 9,
+                  foundInRaid: false,
+                  sortOrder: 0,
+                },
+              ],
+              stations: [],
+              traders: [],
+              skills: [],
+            },
+            {
+              id: "workbench-level-2",
+              level: 2,
+              constructionTime: 0,
+              items: [
+                {
+                  id: "remaining-workbench-bolts",
+                  itemId: "bolts",
+                  itemName: "Bolts",
+                  count: 3,
+                  foundInRaid: false,
+                  sortOrder: 0,
+                },
+              ],
+              stations: [],
+              traders: [],
+              skills: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <AppStoreProvider>
+        <ItemsPage
+          data={historyData}
+          onOpenHideout={onOpenHideout}
+          onOpenQuest={onOpenQuest}
+        />
+      </AppStoreProvider>,
+    );
+
+    const detail = screen.getByRole("complementary", { name: "아이템 상세" });
+    expect(within(detail).getByText("전체 필요")).toBeInTheDocument();
+    expect(within(detail).getByText("완료 처리")).toBeInTheDocument();
+    expect(within(detail).getByText("남은 필요")).toBeInTheDocument();
+    const completedQuest = within(detail).getByText("Completed Delivery");
+    const completedHideout = within(detail).getAllByRole("button", {
+      name: "Completed Workbench 은신처 열기",
+    })[1]!;
+    expect(completedQuest).toBeInTheDocument();
+    expect(completedHideout).toBeInTheDocument();
+
+    fireEvent.click(completedQuest.closest("button")!);
+    fireEvent.click(completedHideout);
+    expect(onOpenQuest).toHaveBeenCalledWith("completed-quest");
     expect(onOpenHideout).toHaveBeenCalledWith("workbench");
   });
 

@@ -54,7 +54,7 @@ export function ItemsPage({
         <div>
           <p className="section-title">아이템 요구 사항</p>
           <h1 id="items-title">아이템</h1>
-          <p>미완료 퀘스트와 남은 은신처 업그레이드에 필요한 수량을 한곳에서 관리합니다.</p>
+          <p>미완료 퀘스트와 남은 은신처 업그레이드 수량을 관리하고, 완료한 요구 사항은 이력으로 분리해 확인합니다.</p>
         </div>
       </header>
 

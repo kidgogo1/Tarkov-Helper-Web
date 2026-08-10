@@ -437,6 +437,22 @@
   margin: 0 0 8px;
 }
 
+.item-source-group + .item-source-group {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.item-source-group h4 {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.item-source-group.completed h4 {
+  color: var(--success);
+}
+
 .item-source-row {
   display: flex;
   width: 100%;

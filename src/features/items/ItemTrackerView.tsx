@@ -327,7 +327,7 @@ function ItemListRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const isReferenceOnly = item.totalCount === 0;
+  const isReferenceOnly = item.allRequiredCount === 0;
   return (
     <li>
       <button
@@ -344,7 +344,11 @@ function ItemListRow({
           {item.subtitleName ? <small>{item.subtitleName}</small> : null}
         </span>
         <span className="item-list-counts">
-          <strong>{formatCountDisplay(item.totalCount, item.totalFirCount)} 필요</strong>
+          <strong>
+            {item.totalCount > 0
+              ? `${formatCountDisplay(item.totalCount, item.totalFirCount)} 필요`
+              : `완료 ${formatCountDisplay(item.allRequiredCount, item.allRequiredFirCount)}`}
+          </strong>
           <small>보유 {formatOwnedDisplay({ fir: item.ownedFir, nonFir: item.ownedNonFir })}</small>
         </span>
         <span
@@ -377,7 +381,7 @@ function ItemDetail({
   onOpenHideout?: (stationId: string) => void;
 }) {
   const inventory = { fir: item.ownedFir, nonFir: item.ownedNonFir };
-  const isReferenceOnly = item.totalCount === 0;
+  const isReferenceOnly = item.allRequiredCount === 0;
   const statusLabel = isReferenceOnly
     ? "참조"
     : item.isFulfilled
@@ -399,9 +403,9 @@ function ItemDetail({
       </header>
 
       <div className="item-detail-metrics">
-        <span><small>총 필요</small><strong>{formatCountDisplay(item.totalCount, item.totalFirCount)}</strong></span>
-        <span><small>퀘스트</small><strong>{item.questCount}</strong></span>
-        <span><small>은신처</small><strong>{item.hideoutCount}</strong></span>
+        <span><small>전체 필요</small><strong>{formatCountDisplay(item.allRequiredCount, item.allRequiredFirCount)}</strong></span>
+        <span><small>완료 처리</small><strong>{formatCountDisplay(item.completedCount, item.completedFirCount)}</strong></span>
+        <span><small>남은 필요</small><strong>{formatCountDisplay(item.totalCount, item.totalFirCount)}</strong></span>
         <span><small>부족</small><strong>{item.shortage}</strong></span>
       </div>
 
@@ -446,50 +450,89 @@ function ItemDetail({
 
       <div className="item-source-columns">
         <SourceSection
-          emptyText="남은 퀘스트 요구 사항이 없습니다."
           icon={<ClipboardList aria-hidden="true" size={15} />}
           title="퀘스트 출처"
         >
-          {item.questSources.map((source, index) => (
-            <ItemSourceRow
-              key={`${source.questId}-${index}`}
-              label={`${source.questName} 퀘스트 열기`}
-              onOpen={onOpenQuest ? () => onOpenQuest(source.questId) : undefined}
-            >
-              <span>
-                <strong>{source.questName}</strong>
-                <small>{source.traderName}</small>
-              </span>
-              <span className="source-badges">
-                {source.kappaRequired ? <span className="badge kappa">카파 필수</span> : null}
-                {source.requiresFir ? <span className="badge danger">FIR</span> : null}
-                <strong>x{source.requiredCount}</strong>
-              </span>
-            </ItemSourceRow>
-          ))}
+          <SourceGroup emptyText="남은 퀘스트 요구 사항이 없습니다." title="남은 요구">
+            {item.questSources.map((source, index) => (
+              <ItemSourceRow
+                key={`${source.questId}-${index}`}
+                label={`${source.questName} 퀘스트 열기`}
+                onOpen={onOpenQuest ? () => onOpenQuest(source.questId) : undefined}
+              >
+                <span>
+                  <strong>{source.questName}</strong>
+                  <small>{source.traderName}</small>
+                </span>
+                <span className="source-badges">
+                  {source.kappaRequired ? <span className="badge kappa">카파 필수</span> : null}
+                  {source.requiresFir ? <span className="badge danger">FIR</span> : null}
+                  <strong>x{source.requiredCount}</strong>
+                </span>
+              </ItemSourceRow>
+            ))}
+          </SourceGroup>
+          <SourceGroup completed emptyText="완료한 퀘스트 요구 사항이 없습니다." title="완료 기록">
+            {item.completedQuestSources.map((source, index) => (
+              <ItemSourceRow
+                key={`${source.questId}-${index}`}
+                label={`${source.questName} 퀘스트 열기`}
+                onOpen={onOpenQuest ? () => onOpenQuest(source.questId) : undefined}
+              >
+                <span>
+                  <strong>{source.questName}</strong>
+                  <small>{source.traderName}</small>
+                </span>
+                <span className="source-badges">
+                  {source.kappaRequired ? <span className="badge kappa">카파 필수</span> : null}
+                  {source.requiresFir ? <span className="badge danger">FIR</span> : null}
+                  <strong>x{source.requiredCount}</strong>
+                </span>
+              </ItemSourceRow>
+            ))}
+          </SourceGroup>
         </SourceSection>
 
         <SourceSection
-          emptyText="남은 은신처 요구 사항이 없습니다."
           icon={<Hammer aria-hidden="true" size={15} />}
           title="은신처 출처"
         >
-          {item.hideoutSources.map((source, index) => (
-            <ItemSourceRow
-              key={`${source.stationId}-${source.level}-${index}`}
-              label={`${source.stationName} 은신처 열기`}
-              onOpen={onOpenHideout ? () => onOpenHideout(source.stationId) : undefined}
-            >
-              <span>
-                <strong>{source.stationName}</strong>
-                <small>레벨 {source.level}</small>
-              </span>
-              <span className="source-badges">
-                {source.requiresFir ? <span className="badge danger">FIR</span> : null}
-                <strong>x{source.requiredCount}</strong>
-              </span>
-            </ItemSourceRow>
-          ))}
+          <SourceGroup emptyText="남은 은신처 요구 사항이 없습니다." title="남은 요구">
+            {item.hideoutSources.map((source, index) => (
+              <ItemSourceRow
+                key={`${source.stationId}-${source.level}-${index}`}
+                label={`${source.stationName} 은신처 열기`}
+                onOpen={onOpenHideout ? () => onOpenHideout(source.stationId) : undefined}
+              >
+                <span>
+                  <strong>{source.stationName}</strong>
+                  <small>레벨 {source.level}</small>
+                </span>
+                <span className="source-badges">
+                  {source.requiresFir ? <span className="badge danger">FIR</span> : null}
+                  <strong>x{source.requiredCount}</strong>
+                </span>
+              </ItemSourceRow>
+            ))}
+          </SourceGroup>
+          <SourceGroup completed emptyText="완료한 은신처 요구 사항이 없습니다." title="완료 기록">
+            {item.completedHideoutSources.map((source, index) => (
+              <ItemSourceRow
+                key={`${source.stationId}-${source.level}-${index}`}
+                label={`${source.stationName} 은신처 열기`}
+                onOpen={onOpenHideout ? () => onOpenHideout(source.stationId) : undefined}
+              >
+                <span>
+                  <strong>{source.stationName}</strong>
+                  <small>레벨 {source.level}</small>
+                </span>
+                <span className="source-badges">
+                  {source.requiresFir ? <span className="badge danger">FIR</span> : null}
+                  <strong>x{source.requiredCount}</strong>
+                </span>
+              </ItemSourceRow>
+            ))}
+          </SourceGroup>
         </SourceSection>
       </div>
 
@@ -530,20 +573,37 @@ function ItemIcon({
 function SourceSection({
   title,
   icon,
-  emptyText,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="item-source-section">
+      <h3>{icon}{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function SourceGroup({
+  title,
+  completed = false,
+  emptyText,
+  children,
+}: {
+  title: string;
+  completed?: boolean;
   emptyText: string;
   children: React.ReactNode;
 }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
   return (
-    <section className="item-source-section">
-      <h3>{icon}{title}</h3>
+    <div className={`item-source-group${completed ? " completed" : ""}`}>
+      <h4>{title}</h4>
       {hasChildren ? children : <p className="item-source-empty">{emptyText}</p>}
-    </section>
+    </div>
   );
 }
 

@@ -45,6 +45,14 @@ export interface AggregatedItemRequirement {
   questFirCount: number;
   hideoutCount: number;
   hideoutFirCount: number;
+  completedQuestCount: number;
+  completedQuestFirCount: number;
+  completedHideoutCount: number;
+  completedHideoutFirCount: number;
+  completedCount: number;
+  completedFirCount: number;
+  allRequiredCount: number;
+  allRequiredFirCount: number;
   totalCount: number;
   totalFirCount: number;
   foundInRaid: boolean;
@@ -61,6 +69,8 @@ export interface AggregatedItemRequirement {
   isBothRequired: boolean;
   questSources: QuestItemSource[];
   hideoutSources: HideoutItemSource[];
+  completedQuestSources: QuestItemSource[];
+  completedHideoutSources: HideoutItemSource[];
 }
 
 interface MutableAggregate {
@@ -69,8 +79,14 @@ interface MutableAggregate {
   questFirCount: number;
   hideoutCount: number;
   hideoutFirCount: number;
+  completedQuestCount: number;
+  completedQuestFirCount: number;
+  completedHideoutCount: number;
+  completedHideoutFirCount: number;
   questSources: QuestItemSource[];
   hideoutSources: HideoutItemSource[];
+  completedQuestSources: QuestItemSource[];
+  completedHideoutSources: HideoutItemSource[];
 }
 
 export interface ItemFulfillment {
@@ -276,8 +292,14 @@ function getOrCreateAggregate(
     questFirCount: 0,
     hideoutCount: 0,
     hideoutFirCount: 0,
+    completedQuestCount: 0,
+    completedQuestFirCount: 0,
+    completedHideoutCount: 0,
+    completedHideoutFirCount: 0,
     questSources: [],
     hideoutSources: [],
+    completedQuestSources: [],
+    completedHideoutSources: [],
   };
   aggregates.set(key, created);
   return created;
@@ -293,6 +315,12 @@ function finalizeAggregate(
 ): AggregatedItemRequirement {
   const totalCount = aggregate.questCount + aggregate.hideoutCount;
   const totalFirCount = aggregate.questFirCount + aggregate.hideoutFirCount;
+  const completedCount =
+    aggregate.completedQuestCount + aggregate.completedHideoutCount;
+  const completedFirCount =
+    aggregate.completedQuestFirCount + aggregate.completedHideoutFirCount;
+  const allRequiredCount = totalCount + completedCount;
+  const allRequiredFirCount = totalFirCount + completedFirCount;
   const inventory = getInventory(profile, aggregate.item);
   const ownedTotal = inventory.fir + inventory.nonFir;
   const fulfillment = evaluateItemFulfillment(
@@ -313,6 +341,14 @@ function finalizeAggregate(
     questFirCount: aggregate.questFirCount,
     hideoutCount: aggregate.hideoutCount,
     hideoutFirCount: aggregate.hideoutFirCount,
+    completedQuestCount: aggregate.completedQuestCount,
+    completedQuestFirCount: aggregate.completedQuestFirCount,
+    completedHideoutCount: aggregate.completedHideoutCount,
+    completedHideoutFirCount: aggregate.completedHideoutFirCount,
+    completedCount,
+    completedFirCount,
+    allRequiredCount,
+    allRequiredFirCount,
     totalCount,
     totalFirCount,
     foundInRaid: totalFirCount > 0,
@@ -328,11 +364,19 @@ function finalizeAggregate(
     fulfillmentStatus: fulfillment.status,
     progressPercent: fulfillment.progressPercent,
     isFulfilled: fulfillment.isFulfilled,
-    isQuestOnly: aggregate.questCount > 0 && aggregate.hideoutCount === 0,
-    isHideoutOnly: aggregate.hideoutCount > 0 && aggregate.questCount === 0,
-    isBothRequired: aggregate.questCount > 0 && aggregate.hideoutCount > 0,
+    isQuestOnly:
+      aggregate.questCount + aggregate.completedQuestCount > 0 &&
+      aggregate.hideoutCount + aggregate.completedHideoutCount === 0,
+    isHideoutOnly:
+      aggregate.hideoutCount + aggregate.completedHideoutCount > 0 &&
+      aggregate.questCount + aggregate.completedQuestCount === 0,
+    isBothRequired:
+      aggregate.questCount + aggregate.completedQuestCount > 0 &&
+      aggregate.hideoutCount + aggregate.completedHideoutCount > 0,
     questSources: aggregate.questSources,
     hideoutSources: aggregate.hideoutSources,
+    completedQuestSources: aggregate.completedQuestSources,
+    completedHideoutSources: aggregate.completedHideoutSources,
   };
 }
 
@@ -347,8 +391,14 @@ export function createItemReferenceRequirement(
       questFirCount: 0,
       hideoutCount: 0,
       hideoutFirCount: 0,
+      completedQuestCount: 0,
+      completedQuestFirCount: 0,
+      completedHideoutCount: 0,
+      completedHideoutFirCount: 0,
       questSources: [],
       hideoutSources: [],
+      completedQuestSources: [],
+      completedHideoutSources: [],
     },
     profile,
   );
@@ -359,6 +409,7 @@ function addQuestRequirements(
   questsToInclude: readonly QuestData[],
   itemLookup: ReadonlyMap<string, ItemData>,
   includeQuestItems: boolean,
+  completed = false,
 ): void {
   for (const quest of questsToInclude) {
     for (const requirement of quest.requiredItems) {
@@ -368,9 +419,7 @@ function addQuestRequirements(
 
       const aggregate = getOrCreateAggregate(aggregates, item);
       const count = isCurrency(item, requirement.itemName) ? 1 : requirement.count;
-      aggregate.questCount += count;
-      if (requirement.requiresFir) aggregate.questFirCount += count;
-      aggregate.questSources.push({
+      const source: QuestItemSource = {
         questId: quest.id,
         questNormalizedName: quest.normalizedName,
         questName: quest.name,
@@ -378,7 +427,16 @@ function addQuestRequirements(
         requiredCount: requirement.count,
         requiresFir: requirement.requiresFir,
         kappaRequired: quest.kappaRequired,
-      });
+      };
+      if (completed) {
+        aggregate.completedQuestCount += count;
+        if (requirement.requiresFir) aggregate.completedQuestFirCount += count;
+        aggregate.completedQuestSources.push(source);
+      } else {
+        aggregate.questCount += count;
+        if (requirement.requiresFir) aggregate.questFirCount += count;
+        aggregate.questSources.push(source);
+      }
     }
   }
 }
@@ -435,26 +493,36 @@ export function aggregateItemRequirements(
     return status !== "done" && status !== "failed" && status !== "unavailable";
   });
   addQuestRequirements(aggregates, includedQuests, itemLookup, false);
+  const completedQuests = quests.filter(
+    (quest) => statusResolver.getStatus(quest) === "done",
+  );
+  addQuestRequirements(aggregates, completedQuests, itemLookup, false, true);
 
   for (const station of hideoutStations) {
     const currentLevel = getHideoutLevel(profile, station);
     for (const level of station.levels) {
-      if (level.level <= currentLevel) continue;
       for (const requirement of level.items) {
         const item = findItem(itemLookup, requirement.itemId, requirement.itemName);
         if (!item) continue;
         const aggregate = getOrCreateAggregate(aggregates, item);
         const count = isCurrency(item, requirement.itemName) ? 1 : requirement.count;
-        aggregate.hideoutCount += count;
-        if (requirement.foundInRaid) aggregate.hideoutFirCount += count;
-        aggregate.hideoutSources.push({
+        const source: HideoutItemSource = {
           stationId: station.id,
           stationNormalizedName: station.normalizedName,
           stationName: station.name,
           level: level.level,
           requiredCount: requirement.count,
           requiresFir: requirement.foundInRaid,
-        });
+        };
+        if (level.level <= currentLevel) {
+          aggregate.completedHideoutCount += count;
+          if (requirement.foundInRaid) aggregate.completedHideoutFirCount += count;
+          aggregate.completedHideoutSources.push(source);
+        } else {
+          aggregate.hideoutCount += count;
+          if (requirement.foundInRaid) aggregate.hideoutFirCount += count;
+          aggregate.hideoutSources.push(source);
+        }
       }
     }
   }
@@ -587,8 +655,12 @@ export function filterAndSortItems(
     ) {
       return false;
     }
-    if (source === "quest" && item.questCount === 0) return false;
-    if (source === "hideout" && item.hideoutCount === 0) return false;
+    if (source === "quest" && item.questCount + item.completedQuestCount === 0) {
+      return false;
+    }
+    if (source === "hideout" && item.hideoutCount + item.completedHideoutCount === 0) {
+      return false;
+    }
     if (normalize(category) !== "all" && normalize(item.parentCategory) !== normalize(category)) {
       return false;
     }
@@ -611,9 +683,19 @@ export function filterAndSortItems(
 
   return [...filtered].sort((left, right) => {
     if (sortBy === "total") return right.totalCount - left.totalCount || compareName(left, right);
-    if (sortBy === "quest") return right.questCount - left.questCount || compareName(left, right);
+    if (sortBy === "quest") {
+      return (
+        right.questCount + right.completedQuestCount -
+          (left.questCount + left.completedQuestCount) ||
+        compareName(left, right)
+      );
+    }
     if (sortBy === "hideout") {
-      return right.hideoutCount - left.hideoutCount || compareName(left, right);
+      return (
+        right.hideoutCount + right.completedHideoutCount -
+          (left.hideoutCount + left.completedHideoutCount) ||
+        compareName(left, right)
+      );
     }
     if (sortBy === "progress") {
       return right.progressPercent - left.progressPercent || compareName(left, right);

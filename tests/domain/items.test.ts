@@ -214,6 +214,71 @@ describe("item and hideout aggregation", () => {
     });
   });
 
+  it("keeps completed quest and hideout requirements as separate item history", () => {
+    const active = quest("active", {
+      requiredItems: [itemRequirement("active-bolt", "bolt", "Bolts", 2, true)],
+    });
+    const completed = quest("completed", {
+      requiredItems: [itemRequirement("completed-bolt", "bolt", "Bolts", 50)],
+    });
+    const failed = quest("failed", {
+      requiredItems: [itemRequirement("failed-bolt", "bolt", "Bolts", 80)],
+    });
+
+    const result = aggregateItemRequirements(
+      [active, completed, failed],
+      [hideoutStation()],
+      [bolt],
+      profile({
+        questProgress: { completed: "done", failed: "failed" },
+        hideoutLevels: { workbench: 1 },
+      }),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      questCount: 2,
+      questFirCount: 2,
+      hideoutCount: 4,
+      totalCount: 6,
+      totalFirCount: 2,
+      completedQuestCount: 50,
+      completedQuestFirCount: 0,
+      completedHideoutCount: 99,
+      completedHideoutFirCount: 0,
+      completedCount: 149,
+      completedFirCount: 0,
+      allRequiredCount: 155,
+      allRequiredFirCount: 2,
+    });
+    expect(result[0]?.completedQuestSources).toEqual([
+      expect.objectContaining({ questId: "completed", requiredCount: 50 }),
+    ]);
+    expect(result[0]?.completedHideoutSources).toEqual([
+      expect.objectContaining({ stationId: "workbench", level: 1, requiredCount: 99 }),
+    ]);
+    expect(result[0]?.completedQuestSources).not.toEqual([
+      expect.objectContaining({ questId: "failed" }),
+    ]);
+
+    const completedQuestOnly = aggregateItemRequirements(
+      [completed],
+      [],
+      [bolt],
+      profile({ questProgress: { completed: "done" } }),
+    );
+    expect(completedQuestOnly[0]).toMatchObject({
+      totalCount: 0,
+      completedCount: 50,
+      allRequiredCount: 50,
+      fulfillmentStatus: "fulfilled",
+      isQuestOnly: true,
+    });
+    expect(
+      filterAndSortItems(completedQuestOnly, { source: "quest" }),
+    ).toHaveLength(1);
+  });
+
   it("requires FIR inventory for FIR needs and total inventory otherwise", () => {
     expect(
       evaluateItemFulfillment(6, 2, { fir: 1, nonFir: 10 }),
