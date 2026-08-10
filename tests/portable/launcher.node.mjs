@@ -50,23 +50,9 @@ test("portable Start archives a stale staged update from another completed insta
   await writeFile(
     path.join(appUpdateDirectory, "pending.json"),
     JSON.stringify({
-      schemaVersion: 1,
       state: "READY_TO_RESTART",
-      candidateId: "b".repeat(40),
       packageRoot: path.join(temporaryParent, "old-install-v1.0.14"),
-      stageRoot: path.join(temporaryParent, "old-stage"),
-      stateDirectory,
-      port: testPort,
-      currentVersion: "1.0.19",
-      currentCommit: "c".repeat(40),
       latestVersion: "1.0.20",
-      latestCommit: "d".repeat(40),
-      treeSha256: "e".repeat(64),
-      fileCount: 1,
-      unpackedBytes: 1,
-      brokerSha256: "f".repeat(64),
-      healthNonce: "g".repeat(40),
-      stagedAt: "2026-01-01T00:00:00.0000000Z",
     }),
     "utf8",
   );

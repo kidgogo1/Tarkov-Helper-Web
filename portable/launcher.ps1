@@ -2701,11 +2701,6 @@ function Try-ArchiveStalePendingAppUpdate {
         $Pending.state -cne "READY_TO_RESTART" -or
         $Pending.packageRoot -isnot [string] -or
         [string]::IsNullOrWhiteSpace([string]$Pending.packageRoot) -or
-        $Pending.stateDirectory -isnot [string] -or
-        -not ([string]$Pending.stateDirectory).Equals([IO.Path]::GetFullPath($StateDirectory), [StringComparison]::OrdinalIgnoreCase) -or
-        $Pending.port -ne $Port -or
-        $Pending.candidateId -isnot [string] -or
-        [string]$Pending.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
         -not (Test-AppUpdateVersion $Pending.latestVersion)
     ) { return $false }
 
