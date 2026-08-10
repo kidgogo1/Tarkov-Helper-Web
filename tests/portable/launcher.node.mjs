@@ -25,6 +25,13 @@ test("portable Start archives a stale staged update from another completed insta
   const appRoot = path.join(packageRoot, "app");
   const stateDirectory = path.join(temporaryParent, "state");
   const appUpdateDirectory = path.join(stateDirectory, "app-update");
+  const portProbe = net.createServer();
+  await new Promise((resolve, reject) => {
+    portProbe.once("error", reject);
+    portProbe.listen(0, "127.0.0.1", resolve);
+  });
+  const testPort = portProbe.address().port;
+  await new Promise((resolve, reject) => portProbe.close((error) => error ? reject(error) : resolve()));
   await mkdir(appRoot, { recursive: true });
   await mkdir(appUpdateDirectory, { recursive: true });
   await copyFile(launcherPath, path.join(packageRoot, "launcher.ps1"));
@@ -49,7 +56,7 @@ test("portable Start archives a stale staged update from another completed insta
       packageRoot: path.join(temporaryParent, "old-install-v1.0.14"),
       stageRoot: path.join(temporaryParent, "old-stage"),
       stateDirectory,
-      port: 41753,
+      port: testPort,
       currentVersion: "1.0.19",
       currentCommit: "c".repeat(40),
       latestVersion: "1.0.20",
@@ -77,6 +84,8 @@ test("portable Start archives a stale staged update from another completed insta
       "Start",
       "-Root",
       appRoot,
+      "-Port",
+      String(testPort),
       "-NoBrowser",
       "-StateDirectory",
       stateDirectory,
@@ -89,7 +98,7 @@ test("portable Start archives a stale staged update from another completed insta
   });
 
   const { url } = await waitForUrl(child);
-  assert.match(url, /^http:\/\/127\.0\.0\.1:41753\/$/);
+  assert.match(url, new RegExp(`^http://127\\.0\\.0\\.1:${testPort}/$`));
   const stateEntries = await readdir(stateDirectory);
   const staleBackups = stateEntries.filter((entry) => entry.startsWith("app-update-stale-backup-"));
   assert.equal(staleBackups.length, 1);
