@@ -308,6 +308,20 @@ describe("QuestsPage", () => {
     expect(within(list).queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("filters quests by the items that must be submitted", () => {
+    renderPage();
+
+    const list = screen.getByRole("region", { name: "퀘스트 목록" });
+    const itemSearch = screen.getByRole("searchbox", { name: "제출 아이템 검색" });
+
+    fireEvent.change(itemSearch, { target: { value: "Salewa" } });
+    expect(within(list).getByRole("button", { name: /Operation Aquarius/ })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: /Preparation/ })).not.toBeInTheDocument();
+
+    fireEvent.change(itemSearch, { target: { value: "does-not-exist" } });
+    expect(within(list).queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("finds quests by the stored legacy name and shows that alias in the result", () => {
     renderPage();
 

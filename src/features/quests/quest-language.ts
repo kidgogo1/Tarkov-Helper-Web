@@ -97,3 +97,26 @@ export function questRewardSearchText(
     .filter((value): value is string => Boolean(value))
     .join(" ");
 }
+
+/** Search items that a quest asks the player to hand over, including localized names. */
+export function questRequiredItemSearchText(
+  quest: QuestData,
+  itemsById: ReadonlyMap<string, ItemData>,
+): string {
+  return quest.requiredItems
+    .flatMap((requirement) => {
+      const item = itemsById.get(requirement.itemId);
+      return [
+        requirement.itemName,
+        item?.name,
+        item?.nameEn,
+        item?.nameKo,
+        item?.nameJa,
+        item?.shortNameEn,
+        item?.shortNameKo,
+        item?.shortNameJa,
+      ];
+    })
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}

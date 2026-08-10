@@ -18,6 +18,7 @@ import {
   alternateQuestDisplayName,
   questDisplayName,
   questLegacyNames,
+  questRequiredItemSearchText,
   questRewardSearchText,
   questSearchText,
   type QuestLanguage,
@@ -90,6 +91,7 @@ export function QuestsPage({
     updateProfile,
   } = useAppStore();
   const [query, setQuery] = useState("");
+  const [requiredItemQuery, setRequiredItemQuery] = useState("");
   const [rewardQuery, setRewardQuery] = useState("");
   const [kappaOnly, setKappaOnly] = useState(false);
   const [itemOnly, setItemOnly] = useState(false);
@@ -112,6 +114,7 @@ export function QuestsPage({
     setHandledQuestFocusId(focusQuestId);
     if (focusedQuest) {
       setQuery("");
+      setRequiredItemQuery("");
       setRewardQuery("");
       setKappaOnly(false);
       setItemOnly(false);
@@ -167,12 +170,15 @@ export function QuestsPage({
 
   const filteredQuests = useMemo(() => {
     const needle = normalize(query);
+    const requiredItemNeedle = normalize(requiredItemQuery);
     const rewardNeedle = normalize(rewardQuery);
     return data.quests.filter((quest) => {
       const searchable = normalize(questSearchText(quest));
+      const searchableRequiredItems = normalize(questRequiredItemSearchText(quest, itemsById));
       const searchableRewards = normalize(questRewardSearchText(quest, itemsById));
       return (
         (!needle || searchable.includes(needle)) &&
+        (!requiredItemNeedle || searchableRequiredItems.includes(requiredItemNeedle)) &&
         (!rewardNeedle || searchableRewards.includes(rewardNeedle)) &&
         (!kappaOnly || quest.kappaRequired) &&
         (!itemOnly || quest.requiredItems.length > 0) &&
@@ -191,6 +197,7 @@ export function QuestsPage({
     mapFilter,
     profile,
     query,
+    requiredItemQuery,
     rewardQuery,
     statusFilter,
     statuses,
@@ -256,6 +263,7 @@ export function QuestsPage({
       return;
     }
     setQuery("");
+    setRequiredItemQuery("");
     setRewardQuery("");
     setKappaOnly(false);
     setItemOnly(false);
@@ -341,6 +349,17 @@ export function QuestsPage({
                 placeholder="퀘스트 이름 검색"
                 type="search"
                 value={query}
+              />
+            </label>
+            <label className="quest-search">
+              <span className="sr-only">제출 아이템 검색</span>
+              <Search aria-hidden="true" size={15} />
+              <input
+                aria-label="제출 아이템 검색"
+                onChange={(event) => setRequiredItemQuery(event.target.value)}
+                placeholder="퀘스트 제출 아이템 검색"
+                type="search"
+                value={requiredItemQuery}
               />
             </label>
             <label className="quest-search">
