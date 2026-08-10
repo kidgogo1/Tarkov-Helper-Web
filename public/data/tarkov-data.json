@@ -23,7 +23,10 @@
       "wikiRewardQuestCount": 441,
       "wikiRewardItemCount": 713,
       "wikiRewardUnmappedLineCount": 20,
-      "wikiRewardRevisionTimestamp": "2026-08-07T14:28:05Z"
+      "wikiRewardRevisionTimestamp": "2026-08-07T14:28:05Z",
+      "wikiLocationVerifiedAt": "2026-08-10T11:08:43.737Z",
+      "wikiLocationVerifiedQuests": 463,
+      "wikiLocationCorrections": 4
     }
   },
   "quests": [
@@ -45152,7 +45155,9 @@
       "nameJa": "Stirrup",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Stirrup",
       "trader": "Skier",
-      "locations": [],
+      "locations": [
+        "Factory"
+      ],
       "minLevel": 8,
       "kappaRequired": true,
       "requirements": [
@@ -46367,7 +46372,10 @@
       "nameJa": "The Tarkov Import",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Tarkov_Import",
       "trader": "Prapor",
-      "locations": [],
+      "locations": [
+        "Lighthouse",
+        "Reserve"
+      ],
       "minLevel": 18,
       "kappaRequired": true,
       "requirements": [
@@ -57943,7 +57951,10 @@
       "nameEn": "Saving Private Roman",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Saving_Private_Roman",
       "trader": "BTR Driver",
-      "locations": [],
+      "locations": [
+        "Woods",
+        "Lighthouse"
+      ],
       "kappaRequired": false,
       "requirements": [],
       "alternativeQuestIds": [],
@@ -57998,7 +58009,9 @@
       "nameEn": "Stick to It",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Stick_to_It",
       "trader": "BTR Driver",
-      "locations": [],
+      "locations": [
+        "Lighthouse"
+      ],
       "kappaRequired": false,
       "requirements": [],
       "alternativeQuestIds": [],

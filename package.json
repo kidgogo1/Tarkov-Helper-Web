@@ -1,7 +1,7 @@
 {
   "name": "tarkov-helper-web",
   "private": true,
-  "version": "1.0.15",
+  "version": "1.0.16",
   "type": "module",
   "packageManager": "pnpm@11.16.0",
   "engines": {
@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build && node scripts/copy-release-documents.mjs",
     "data:export": "python scripts/export_data.py",
     "data:refresh-quests": "node scripts/refresh-quest-pack.mjs",
+    "data:refresh-quest-wiki": "node scripts/refresh-quest-wiki-guides.mjs && node scripts/apply-quest-wiki-corrections.mjs",
     "data:refresh-prices": "node scripts/refresh-price-catalog.mjs",
     "data:localize-items": "node scripts/refresh-item-localization.mjs",
     "release:direct": "pnpm build && node scripts/create-direct-release.mjs",

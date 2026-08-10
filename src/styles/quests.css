@@ -471,6 +471,178 @@
   white-space: normal !important;
 }
 
+.quest-wiki-guide {
+  background: color-mix(in srgb, var(--bg-elevated) 64%, transparent);
+}
+
+.quest-wiki-guide-heading,
+.quest-wiki-guide-footer,
+.quest-wiki-guide-images-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quest-wiki-guide-heading h3,
+.quest-wiki-guide-images-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.quest-wiki-guide-status,
+.quest-wiki-guide-unavailable {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.quest-wiki-guide-status.verified {
+  border-color: rgb(85 201 119 / 35%);
+  color: var(--success);
+}
+
+.quest-wiki-guide-status.review {
+  border-color: rgb(255 187 79 / 40%);
+  color: var(--warning);
+}
+
+.quest-wiki-guide-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.quest-wiki-guide-facts span {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 7px 8px;
+}
+
+.quest-wiki-guide-facts small,
+.quest-wiki-guide-footer small {
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.quest-wiki-guide-facts strong {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quest-wiki-guide-summary {
+  margin-top: 8px;
+  border-left: 2px solid var(--accent);
+  padding: 4px 9px;
+}
+
+.quest-wiki-guide-summary strong {
+  color: var(--accent-strong);
+  font-size: 10px;
+}
+
+.quest-wiki-guide-summary p,
+.quest-wiki-guide-empty,
+.quest-wiki-guide-warning {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.quest-wiki-guide-warning {
+  color: var(--warning);
+}
+
+.quest-wiki-guide-objectives {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.quest-wiki-guide-objectives summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+}
+
+.quest-wiki-guide-objectives ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.quest-wiki-guide-images {
+  margin-top: 10px;
+}
+
+.quest-wiki-guide-images-title {
+  justify-content: flex-start;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.quest-wiki-guide-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.quest-wiki-guide-gallery a {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.quest-wiki-guide-gallery a:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.quest-wiki-guide-gallery img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+.quest-wiki-guide-gallery span {
+  padding: 5px 6px;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.quest-wiki-guide-footer {
+  justify-content: flex-end;
+  margin-top: 9px;
+}
+
+.quest-wiki-guide-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-strong);
+  font-size: 10px;
+}
+
 .quest-required-items {
   gap: 5px;
 }

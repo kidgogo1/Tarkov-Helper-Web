@@ -15,6 +15,7 @@ import {
   questLegacyNames,
   type QuestLanguage,
 } from "./quest-language";
+import { QuestWikiGuidePanel } from "./QuestWikiGuidePanel";
 
 interface QuestDetailProps {
   data: TarkovData;
@@ -283,6 +284,12 @@ export function QuestDetail({
           </ul>
         </section>
       ) : null}
+
+      <QuestWikiGuidePanel
+        guide={data.questWikiGuides?.[quest.id]}
+        language={language}
+        quest={quest}
+      />
 
       {quest.requiredItems.length > 0 ? (
         <section className="quest-detail-section">

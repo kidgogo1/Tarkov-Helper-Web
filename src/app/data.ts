@@ -1,6 +1,7 @@
 import type { TarkovData } from "../types/data";
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/tarkov-data.json`;
+const QUEST_WIKI_GUIDES_URL = `${import.meta.env.BASE_URL}data/quest-wiki-guides.json`;
 
 const ARRAY_COUNTS: ReadonlyArray<
   readonly [keyof TarkovData, keyof TarkovData["meta"]["counts"], string]
@@ -75,5 +76,25 @@ export async function loadTarkovData(signal?: AbortSignal): Promise<TarkovData> 
 
   const payload: unknown = await response.json();
   validateTarkovData(payload);
+  // The Wiki guide index is an optional enrichment. A stale/older package can
+  // still open with its core data when the separate index is unavailable.
+  try {
+    const guideResponse = await fetch(QUEST_WIKI_GUIDES_URL, { signal });
+    if (guideResponse.ok) {
+      const guidePayload: unknown = await guideResponse.json();
+      if (
+        typeof guidePayload === "object" &&
+        guidePayload !== null &&
+        typeof (guidePayload as { entries?: unknown }).entries === "object" &&
+        (guidePayload as { entries?: unknown }).entries !== null
+      ) {
+        payload.questWikiGuides = (guidePayload as {
+          entries: NonNullable<TarkovData["questWikiGuides"]>;
+        }).entries;
+      }
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+  }
   return payload;
 }
