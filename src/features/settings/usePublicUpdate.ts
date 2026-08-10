@@ -16,7 +16,6 @@ type UpdateRequest = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-const AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const RECONNECT_POLL_INTERVAL_MS = 250;
 const RECONNECT_SLOW_POLL_INTERVAL_MS = 1_000;
 const RECONNECT_FAST_POLL_COUNT = 40;
@@ -72,15 +71,6 @@ function isWorkerStatus(status: PublicUpdateStatus): boolean {
   return status.state === "CHECKING" ||
     status.state === "DOWNLOADING" ||
     status.state === "VERIFYING";
-}
-
-function isStartupCheckStatus(status: PublicUpdateStatus): boolean {
-  return status.state === "IDLE" ||
-    status.state === "CURRENT";
-}
-
-function isScheduledCheckStatus(status: PublicUpdateStatus): boolean {
-  return isStartupCheckStatus(status) || status.state === "UPDATED" || status.state === "ERROR";
 }
 
 function waitForNextPoll(signal: AbortSignal, delayMs = RECONNECT_POLL_INTERVAL_MS): Promise<void> {
@@ -343,12 +333,12 @@ export function usePublicUpdate(
       if (
         !loadedSession ||
         loadedSession.status.state === "DISABLED" ||
-        (!isStartupCheckStatus(loadedSession.status) && !isPendingStatus(loadedSession.status)) ||
+        !isPendingStatus(loadedSession.status) ||
         busyRef.current
       ) return;
 
       busyRef.current = true;
-      const operation = isStartupCheckStatus(loadedSession.status) || loadedSession.status.state === "CHECKING"
+      const operation = loadedSession.status.state === "CHECKING"
         ? "CHECK"
         : loadedSession.status.state === "APPLYING" || loadedSession.status.state === "ROLLING_BACK"
           ? "APPLY"
@@ -359,15 +349,10 @@ export function usePublicUpdate(
         if (loadedSession.status.state === "APPLYING" || loadedSession.status.state === "ROLLING_BACK") {
           await reconnect(loadedSession, loadedSession.status.latestVersion, controller, false);
         } else {
-          const initial = isStartupCheckStatus(loadedSession.status)
-            ? await checkForPublicUpdate(loadedSession, controller.signal, request)
-            : loadedSession.status;
-          if (active) setStatus(initial);
-          const settled = isWorkerStatus(initial)
-            ? await pollUntilSettled(loadedSession, initial, controller.signal, request, (nextStatus) => {
-                if (active) setStatus(nextStatus);
-              })
-            : initial;
+          const initial = loadedSession.status;
+          const settled = await pollUntilSettled(loadedSession, initial, controller.signal, request, (nextStatus) => {
+            if (active) setStatus(nextStatus);
+          });
           if (active) setStatus(settled);
         }
       } catch (error: unknown) {
@@ -686,14 +671,6 @@ export function usePublicUpdate(
       if (mountedRef.current) setBusy(null);
     }
   }, [applyReady, session, status]);
-
-  useEffect(() => {
-    if (!session || !status || !isScheduledCheckStatus(status)) return;
-    const interval = window.setInterval(() => {
-      if (!busyRef.current) void check();
-    }, AUTO_CHECK_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, [check, session, status]);
 
   return { session, status, initializing, busy, clientError, check, install, apply };
 }

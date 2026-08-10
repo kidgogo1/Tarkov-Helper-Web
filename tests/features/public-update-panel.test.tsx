@@ -129,7 +129,7 @@ describe("public update settings", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("계정이 차단된 것은 아닙니다");
   });
 
-  it("rechecks a settled update status on startup and every six hours", async () => {
+  it("does not check GitHub on startup or on a six-hour timer", async () => {
     vi.useFakeTimers();
     try {
       const currentStatus = {
@@ -140,8 +140,7 @@ describe("public update settings", () => {
       } as const;
       const currentSession = { ...idleSession, status: currentStatus } as const;
       const request = vi.fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse(currentSession))
-        .mockResolvedValue(jsonResponse({ protocolVersion: 1, status: currentStatus }));
+        .mockResolvedValueOnce(jsonResponse(currentSession));
 
       const { result } = renderHook(() => usePublicUpdate(request));
       await act(async () => {
@@ -149,18 +148,18 @@ describe("public update settings", () => {
       });
 
       expect(result.current.status).toEqual(currentStatus);
-      expect(request).toHaveBeenCalledTimes(2);
+      expect(request).toHaveBeenCalledOnce();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1_000);
       });
-      expect(request).toHaveBeenCalledTimes(3);
+      expect(request).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("preserves a fresh updated terminal state until the scheduled recheck", async () => {
+  it("preserves a fresh updated terminal state until a manual check", async () => {
     vi.useFakeTimers();
     try {
       const updatedStatus = {
@@ -169,15 +168,8 @@ describe("public update settings", () => {
         previousVersion: "1.0.0",
         updatedAt: "2026-08-09T03:05:10.000Z",
       } as const;
-      const currentStatus = {
-        state: "CURRENT",
-        currentVersion: "1.1.0",
-        latestVersion: "1.1.0",
-        checkedAt: "2026-08-09T09:05:10.000Z",
-      } as const;
       const request = vi.fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: updatedStatus }))
-        .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: currentStatus }));
+        .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: updatedStatus }));
 
       const { result } = renderHook(() => usePublicUpdate(request));
       await act(async () => {
@@ -190,14 +182,14 @@ describe("public update settings", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1_000);
       });
-      expect(result.current.status).toEqual(currentStatus);
-      expect(request).toHaveBeenCalledTimes(2);
+      expect(result.current.status).toEqual(updatedStatus);
+      expect(request).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps a startup update error visible before retrying it on schedule", async () => {
+  it("keeps a startup update error visible until a manual check", async () => {
     vi.useFakeTimers();
     try {
       const errorStatus = {
@@ -207,15 +199,8 @@ describe("public update settings", () => {
         code: "NETWORK_ERROR",
         message: "The release service could not be reached.",
       } as const;
-      const currentStatus = {
-        state: "CURRENT",
-        currentVersion: "1.0.0",
-        latestVersion: "1.0.0",
-        checkedAt: "2026-08-09T09:04:05.000Z",
-      } as const;
       const request = vi.fn<typeof fetch>()
-        .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: errorStatus }))
-        .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: currentStatus }));
+        .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: errorStatus }));
 
       const { result } = renderHook(() => usePublicUpdate(request));
       await act(async () => {
@@ -227,8 +212,8 @@ describe("public update settings", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1_000);
       });
-      expect(result.current.status).toEqual(currentStatus);
-      expect(request).toHaveBeenCalledTimes(2);
+      expect(result.current.status).toEqual(errorStatus);
+      expect(request).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
@@ -307,8 +292,9 @@ describe("public update settings", () => {
 
     const { result } = renderHook(() => usePublicUpdate(request, { reload, persistState }));
 
+    await waitFor(() => expect(result.current.session).toEqual(idleSession));
+    await act(async () => result.current.check());
     await waitFor(() => expect(result.current.status).toEqual(availableStatus));
-    expect(request).toHaveBeenCalledTimes(3);
 
     await act(async () => result.current.install());
     expect(reload).toHaveBeenCalledOnce();
