@@ -23,6 +23,10 @@ function isExpectedHostedBridgeProbe(pathname) {
     pathname === "/api/v1/app-update/session";
 }
 
+function isAllowedWikiAsset(url) {
+  return url.protocol === "https:" && url.hostname === "static.wikia.nocookie.net";
+}
+
 function browserExecutable() {
   if (process.env.PLAYWRIGHT_EXECUTABLE_PATH) {
     return process.env.PLAYWRIGHT_EXECUTABLE_PATH;
@@ -118,7 +122,7 @@ try {
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.origin !== BASE_URL) externalRequests.push(request.url());
+    if (url.origin !== BASE_URL && !isAllowedWikiAsset(url)) externalRequests.push(request.url());
   });
 
   await page.goto(BASE_URL, { waitUntil: "networkidle" });

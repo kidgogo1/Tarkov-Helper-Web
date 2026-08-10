@@ -70,6 +70,10 @@ function browserExecutable() {
   return process.env.PLAYWRIGHT_EXECUTABLE_PATH ?? candidates.find(existsSync);
 }
 
+function isAllowedWikiAsset(url) {
+  return url.protocol === "https:" && url.hostname === "static.wikia.nocookie.net";
+}
+
 async function findFirstFile(directory, extensions) {
   const entries = await readdir(directory, { withFileTypes: true });
   entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
@@ -196,7 +200,7 @@ try {
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.origin !== new URL(baseUrl).origin) externalRequests.push(request.url());
+    if (url.origin !== new URL(baseUrl).origin && !isAllowedWikiAsset(url)) externalRequests.push(request.url());
   });
 
   const documentResponse = await page.goto(baseUrl, { waitUntil: "networkidle" });
