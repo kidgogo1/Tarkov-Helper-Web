@@ -432,7 +432,9 @@ describe("MapMiniMap", () => {
       code: "NumpadAdd",
       key: "+",
     });
-    expect(pipWorld.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
+    await waitFor(() => {
+      expect(pipWorld.style.transform).toBe("translate(118.5px, 87px) scale(0.315)");
+    });
 
     act(() => window.dispatchEvent(new CustomEvent("tarkov-helper:native-hotkey", {
       detail: { protocolVersion: 1, action: "MINIMAP_ZOOM_OUT" },
