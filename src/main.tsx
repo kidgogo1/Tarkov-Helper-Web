@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./app/App";
+import { AppErrorBoundary } from "./app/AppErrorBoundary";
 import { AppStoreProvider } from "./app/store";
 import { startClientLifecycle } from "./services/client-lifecycle";
 import "./styles/global.css";
@@ -19,8 +20,10 @@ startClientLifecycle();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AppStoreProvider>
-      <App />
-    </AppStoreProvider>
+    <AppErrorBoundary>
+      <AppStoreProvider>
+        <App />
+      </AppStoreProvider>
+    </AppErrorBoundary>
   </StrictMode>,
 );

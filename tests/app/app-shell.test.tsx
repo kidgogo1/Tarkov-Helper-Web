@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppShell, type AppTab } from "../../src/app/AppShell";
+import packageManifest from "../../package.json";
 
 function renderShell(activeTab: AppTab = "quests") {
   const onTabChange = vi.fn();
@@ -25,6 +26,12 @@ function renderShell(activeTab: AppTab = "quests") {
 }
 
 describe("AppShell tabs", () => {
+  it("shows the installed app version beside the brand", () => {
+    renderShell();
+
+    expect(screen.getByText(`v${packageManifest.version}`)).toHaveClass("brand-version");
+  });
+
   it("uses a roving tab stop and links each tab to the active panel", () => {
     renderShell("items");
 

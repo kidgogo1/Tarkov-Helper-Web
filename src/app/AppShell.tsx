@@ -13,6 +13,7 @@ import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 
 import { QuantityStepper } from "../components/QuantityStepper";
 import type { ProfileType } from "../types/data";
+import packageManifest from "../../package.json";
 
 export type AppTab = "quests" | "hideout" | "items" | "collector" | "prices" | "map";
 
@@ -93,6 +94,9 @@ export function AppShell({
             <span>
               <strong>TARKOV HELPER</strong>
               <small>QUEST &amp; HIDEOUT TRACKER</small>
+            </span>
+            <span aria-label={`앱 버전 ${packageManifest.version}`} className="brand-version">
+              v{packageManifest.version}
             </span>
           </button>
 
