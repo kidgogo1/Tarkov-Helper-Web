@@ -84,6 +84,18 @@ async function waitForChildExit(child, timeoutMs) {
   });
 }
 
+async function waitForFile(filePath, attempts = 100, delayMs = 50) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await stat(filePath);
+      return;
+    } catch (error) {
+      if (error?.code !== "ENOENT" || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 async function makePackage(parent, leaf) {
   const packageRoot = path.join(parent, leaf);
   await mkdir(packageRoot, { recursive: true });
@@ -120,13 +132,28 @@ async function assertSamePath(actual, expected) {
 }
 
 async function assertLauncherArguments(actual, expectedLauncherPath) {
-  const encodedLauncherPath = Buffer.from(expectedLauncherPath, "utf8").toString("base64");
-  const command = `$launcherPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedLauncherPath}')); & ([IO.Path]::Combine($env:SystemRoot, 'System32\\wscript.exe')) //Nologo $launcherPath; exit $LASTEXITCODE`;
-  const encodedCommand = Buffer.from(command, "utf16le").toString("base64");
-  const expected = `-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${encodedCommand}`;
-  assert.equal(actual, expected);
-  assert.match(actual, /^[\x20-\x7e]+$/);
+  assert.notEqual(actual.length, 0);
+  assert.doesNotMatch(actual, /[^\x20-\x7e]/);
   assert.equal(actual.includes(expectedLauncherPath), false);
+
+  const argumentsMatch = actual.match(
+    /^-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ([A-Za-z0-9+/]+={0,2})$/,
+  );
+  assert.ok(argumentsMatch, "shortcut must contain only the fixed encoded-command wrapper");
+  const encodedCommand = argumentsMatch[1];
+  assert.equal(Buffer.from(encodedCommand, "base64").toString("base64"), encodedCommand);
+
+  const commandBytes = Buffer.from(encodedCommand, "base64");
+  assert.equal(commandBytes.length % 2, 0, "encoded command must contain complete UTF-16LE code units");
+  const command = commandBytes.toString("utf16le");
+  const commandMatch = command.match(
+    /^\$launcherPath = \[Text\.Encoding\]::UTF8\.GetString\(\[Convert\]::FromBase64String\('([A-Za-z0-9+/]+={0,2})'\)\); & \(\[IO\.Path\]::Combine\(\$env:SystemRoot, 'System32\\wscript\.exe'\)\) \/\/Nologo \$launcherPath; exit \$LASTEXITCODE$/,
+  );
+  assert.ok(commandMatch, "decoded command must match the fixed launcher template");
+  const encodedLauncherPath = commandMatch[1];
+  assert.equal(Buffer.from(encodedLauncherPath, "base64").toString("base64"), encodedLauncherPath);
+  const actualLauncherPath = Buffer.from(encodedLauncherPath, "base64").toString("utf8");
+  await assertSamePath(actualLauncherPath, expectedLauncherPath);
 }
 
 async function assertNoStartMenuTemporaryFiles(programsDirectory) {
@@ -337,12 +364,14 @@ test("an activated Start shortcut does not hold the package directory during a l
   const packageRoot = await makePackage(temporaryRoot, "패키지 %TEMP%, 실행 중");
   const movedRoot = path.join(temporaryRoot, "패키지 교체 완료");
   const markerPath = path.join(temporaryRoot, "shortcut-ready.txt");
+  const exitMarkerPath = path.join(temporaryRoot, "shortcut-finished.txt");
   const shortcutPath = path.join(programsDirectory, shortcutName);
   let child;
   try {
     await writeFile(path.join(packageRoot, "launcher.ps1"), String.raw`param([ValidateSet("Start", "Stop")][string]$Action)
 [IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_MARKER, $PSScriptRoot, [Text.Encoding]::UTF8)
 Start-Sleep -Seconds 5
+[IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_EXIT_MARKER, "finished", [Text.Encoding]::UTF8)
 exit 0
 `, "utf8");
     const registration = runStartMenu("Register", packageRoot, programsDirectory, {
@@ -351,27 +380,24 @@ exit 0
     assert.equal(registration.status, 0, outputOf(registration));
 
     child = spawnShortcut(shortcutPath, {
-      env: { LOCALAPPDATA: localAppData, TARKOV_HELPER_TEST_MARKER: markerPath },
+      env: {
+        LOCALAPPDATA: localAppData,
+        TARKOV_HELPER_TEST_MARKER: markerPath,
+        TARKOV_HELPER_TEST_EXIT_MARKER: exitMarkerPath,
+      },
     });
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      try {
-        await stat(markerPath);
-        break;
-      } catch (error) {
-        if (error?.code !== "ENOENT" || attempt === 99) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
+    await waitForFile(markerPath);
 
     const recordedRoot = (await readFile(markerPath, "utf8")).replace(/^\uFEFF/, "");
-    assert.equal(path.resolve(recordedRoot).toLowerCase(), path.resolve(packageRoot).toLowerCase());
+    await assertSamePath(recordedRoot, packageRoot);
     await rename(packageRoot, movedRoot);
+    await waitForFile(exitMarkerPath, 200, 50);
     assert.equal(await waitForChildExit(child, 10_000), 0);
   } finally {
     if (child?.exitCode === null) {
       spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
     }
-    await rm(temporaryRoot, { recursive: true, force: true });
+    await rm(temporaryRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
