@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { buildWindowsLauncher } from "../../scripts/build-windows-launcher.mjs";
 import { checksumText, collectFiles, createZipFromDirectory, sha256 } from "../../scripts/release-utils.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
@@ -42,6 +43,27 @@ test("CI is read-only and every browser test remains headless", async () => {
   assert.doesNotMatch(workflow, /--headed|headless:\s*false|Start-Process/i);
   assert.match(workflow, /pnpm test:e2e/);
   assert.match(workflow, /pnpm test:release/);
+});
+
+test("every launcher build job installs the exact pinned .NET SDK", async () => {
+  const ci = (await text(".github/workflows/ci.yml")).replace(/\r\n?/g, "\n");
+  const release = (await text(".github/workflows/release.yml")).replace(/\r\n?/g, "\n");
+  const helper = await text("scripts/build-windows-launcher.mjs");
+  const setupDotnet = "actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1";
+  const setupContract = new RegExp(
+    `uses: ${setupDotnet} # v5\\.4\\.0[\\s\\S]*?with:\\s*\\n\\s+dotnet-version: 10\\.0\\.301`,
+  );
+  assert.equal(actionReferences(ci).filter((reference) => reference === setupDotnet).length, 1);
+  assert.match(ci, setupContract);
+
+  const qualityJob = /\n\x20{2}quality:\n([\s\S]*?)\n\x20{2}package:\n/.exec(release)?.[1] ?? "";
+  const packageJob = /\n\x20{2}package:\n([\s\S]*?)\n\x20{2}finalize:\n/.exec(release)?.[1] ?? "";
+  assert.equal(actionReferences(release).filter((reference) => reference === setupDotnet).length, 2);
+  assert.match(qualityJob, setupContract);
+  assert.match(packageJob, setupContract);
+  assert.match(helper, /const PINNED_DOTNET_SDK = "10\.0\.301";/);
+  assert.match(helper, /sdk\.version === PINNED_DOTNET_SDK/);
+  assert.doesNotMatch(helper, /sdks\.at\(-1\)|sort\(compareSdkVersions\)/);
 });
 
 test("the Direct E2E allows a bounded cold Windows launcher startup", async () => {
@@ -102,6 +124,7 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /RSASignaturePadding\]::Pkcs1/);
   assert.match(signJob, /JsonDocument/);
   assert.match(signJob, /IsolatedZipValidator/);
+  assert.match(signJob, /ValidateLauncher\(\$directReport\.Captured\["Tarkov Helper\.exe"\], \$version\)/);
   assert.match(signJob, /Add-Type -TypeDefinition \$zipValidatorSource -Language CSharp\s*$/m);
   assert.doesNotMatch(signJob, /Add-Type -TypeDefinition \$zipValidatorSource[^\r\n]*-ReferencedAssemblies/);
   assert.match(signJob, /ValidateLocalLayout/);
@@ -172,7 +195,7 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     await writeFile(path.join(input, "app-update-worker.ps1"), "fixture\n");
     await writeFile(path.join(input, "app-update-broker.ps1"), "fixture\n");
     await writeFile(path.join(input, "TarkovHelper.ico"), "fixture\n");
-    await writeFile(path.join(input, "Tarkov Helper.exe"), "fixture\n");
+    await buildWindowsLauncher({ output: path.join(input, "Tarkov Helper.exe"), version: "1.2.3" });
     await writeFile(path.join(input, "start-menu.ps1"), "fixture\n");
     await writeFile(path.join(input, "Tarkov Helper 실행.vbs"), "fixture\n");
     await writeFile(path.join(input, "Tarkov Helper 시작 메뉴 등록.vbs"), "fixture\n");
@@ -180,12 +203,16 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     await writeFile(path.join(input, "PACKAGE_INFO.txt"), "fixture\n");
     await writeFile(path.join(input, "UPDATE_CONFIG.json"), "{}\n");
     await writeFile(path.join(input, "app", "version.json"), "{}\n");
-    await writeFile(path.join(input, "SHA256SUMS.txt"), checksumText(await collectFiles(input)));
+    const writeInputArchive = async () => {
+      const files = (await collectFiles(input)).filter((file) => file.path !== "SHA256SUMS.txt");
+      await writeFile(path.join(input, "SHA256SUMS.txt"), checksumText(files));
+      await createZipFromDirectory({ directory: input, filename: archive, rootDirectory });
+    };
+    await writeInputArchive();
     const expectedFiles = await collectFiles(input);
     const expectedAppFiles = expectedFiles
       .filter((file) => file.path.startsWith("app/"))
       .map((file) => ({ ...file, path: file.path.slice("app/".length) }));
-    await createZipFromDirectory({ directory: input, filename: archive, rootDirectory });
     await writeFile(sourceFile, isolatedZipValidatorSource(workflow));
     await writeFile(harness, [
       "param([string]$Source, [string]$Archive, [string]$Root, [string]$Mode = 'direct')",
@@ -195,8 +222,9 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
       "  $references = @([IO.Compression.ZipArchive].Assembly.Location)",
       "  Add-Type -Path $Source -ReferencedAssemblies $references",
       "  $strictDirect = [string]::Equals($Mode, 'direct', [StringComparison]::Ordinal)",
-      "  $captures = if ($strictDirect) { [string[]]@('SHA256SUMS.txt', 'PACKAGE_INFO.txt', 'UPDATE_CONFIG.json', 'app/version.json') } else { [string[]]@() }",
+      "  $captures = if ($strictDirect) { [string[]]@('SHA256SUMS.txt', 'PACKAGE_INFO.txt', 'UPDATE_CONFIG.json', 'app/version.json', 'Tarkov Helper.exe') } else { [string[]]@() }",
       "  $report = [IsolatedZipValidator]::Validate($Archive, $Root, $captures, $strictDirect)",
+      "  if ($strictDirect) { [IsolatedZipValidator]::ValidateLauncher($report.Captured['Tarkov Helper.exe'], '1.2.3') }",
       "  [pscustomobject]@{ fileCount = $report.FileCount; bytes = $report.Bytes; treeSha256 = $report.TreeSha256; appFileCount = $report.AppFileCount; appBytes = $report.AppBytes; appTreeSha256 = $report.AppTreeSha256 } | ConvertTo-Json -Compress",
       "} catch {",
       "  [Console]::Error.WriteLine($_.Exception.Message)",
@@ -219,6 +247,36 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     assert.equal(report.appBytes, expectedAppFiles.reduce((total, file) => total + file.size, 0));
     assert.equal(report.treeSha256, sha256(checksumText(expectedFiles)));
     assert.equal(report.appTreeSha256, sha256(checksumText(expectedAppFiles)));
+
+    const launcherPath = path.join(input, "Tarkov Helper.exe");
+    const validLauncher = await readFile(launcherPath);
+    await writeFile(launcherPath, Buffer.alloc(128, 0x41));
+    await writeInputArchive();
+    const rejectedInvalidLauncher = validate();
+    assert.notEqual(rejectedInvalidLauncher.status, 0);
+    assert.match(rejectedInvalidLauncher.stderr, /launcher.*MZ header/i);
+
+    await writeFile(launcherPath, validLauncher);
+    const wrongVersionLauncher = path.join(parent, "wrong-version-launcher.exe");
+    await buildWindowsLauncher({ output: wrongVersionLauncher, version: "9.8.7" });
+    await copyFile(wrongVersionLauncher, launcherPath);
+    await writeInputArchive();
+    const rejectedWrongVersion = validate();
+    assert.notEqual(rejectedWrongVersion.status, 0);
+    assert.match(rejectedWrongVersion.stderr, /launcher version mismatch/i);
+
+    const invalidManifest = Buffer.from(validLauncher);
+    const asInvoker = invalidManifest.indexOf(Buffer.from("asInvoker", "utf8"));
+    assert.notEqual(asInvoker, -1);
+    Buffer.from("highestAv", "utf8").copy(invalidManifest, asInvoker);
+    await writeFile(launcherPath, invalidManifest);
+    await writeInputArchive();
+    const rejectedManifest = validate();
+    assert.notEqual(rejectedManifest.status, 0);
+    assert.match(rejectedManifest.stderr, /asInvoker.*uiAccess/i);
+
+    await writeFile(launcherPath, validLauncher);
+    await writeInputArchive();
 
     const unsafe = Buffer.from(await readFile(archive));
     const central = unsafe.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));

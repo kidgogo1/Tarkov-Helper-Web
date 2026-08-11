@@ -38,6 +38,11 @@ jobs:
         with:
           node-version: 22.22.2
 
+      - name: Set up exact .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.301
+
       - name: Activate the locked pnpm version
         shell: pwsh
         run: |
@@ -95,6 +100,11 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.22.2
+
+      - name: Set up exact .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.301
 
       - name: Activate the locked pnpm version
         shell: pwsh
@@ -494,6 +504,13 @@ jobs:
               public bool File;
             }
 
+            private sealed class LauncherSection {
+              public uint VirtualAddress;
+              public uint VirtualSize;
+              public uint RawOffset;
+              public uint RawSize;
+            }
+
             public static IsolatedZipReport Validate(string filename, string rootDirectory, string[] capturedNames, bool strictDirect) {
               if (String.IsNullOrEmpty(rootDirectory) || rootDirectory.IndexOf('/') >= 0 || rootDirectory.IndexOf('\\') >= 0) {
                 throw new InvalidDataException("ZIP root directory is invalid");
@@ -603,6 +620,216 @@ jobs:
                   Captured = captured
                 };
               }
+            }
+
+            public static void ValidateLauncher(byte[] contents, string expectedVersion) {
+              if (contents == null) throw new InvalidDataException("Launcher PE contents are missing");
+              if (String.IsNullOrEmpty(expectedVersion) || !Regex.IsMatch(expectedVersion, @"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$", RegexOptions.CultureInvariant)) {
+                throw new InvalidDataException("Launcher expected version is invalid");
+              }
+              RequireLauncherRange(contents, 0, 64, "DOS header");
+              if (contents[0] != (byte)'M' || contents[1] != (byte)'Z') throw new InvalidDataException("Launcher is missing the MZ header");
+
+              int peOffset = LauncherOffset(ReadLauncherUInt32(contents, 0x3c, "PE offset"), "PE offset");
+              RequireLauncherRange(contents, peOffset, 24, "PE header");
+              if (
+                contents[peOffset] != (byte)'P' ||
+                contents[peOffset + 1] != (byte)'E' ||
+                contents[peOffset + 2] != 0 ||
+                contents[peOffset + 3] != 0
+              ) throw new InvalidDataException("Launcher is missing the PE signature");
+
+              int coffOffset = checked(peOffset + 4);
+              int sectionCount = ReadLauncherUInt16(contents, coffOffset + 2, "section count");
+              int optionalHeaderSize = ReadLauncherUInt16(contents, coffOffset + 16, "optional header size");
+              ushort characteristics = ReadLauncherUInt16(contents, coffOffset + 18, "characteristics");
+              if ((characteristics & 0x0002) == 0) throw new InvalidDataException("Launcher PE is not marked executable");
+              if (sectionCount < 1) throw new InvalidDataException("Launcher PE has no sections");
+
+              int optionalOffset = checked(coffOffset + 20);
+              RequireLauncherRange(contents, optionalOffset, optionalHeaderSize, "optional header");
+              if (optionalHeaderSize < 120 || ReadLauncherUInt16(contents, optionalOffset, "optional header magic") != 0x10b) {
+                throw new InvalidDataException("Launcher must be a PE32 image");
+              }
+              if (ReadLauncherUInt16(contents, optionalOffset + 68, "subsystem") != 2) {
+                throw new InvalidDataException("Launcher must use the Windows GUI subsystem");
+              }
+              if (ReadLauncherUInt32(contents, optionalOffset + 92, "data directory count") < 3) {
+                throw new InvalidDataException("Launcher PE has no resource data directory");
+              }
+
+              uint resourceRva = ReadLauncherUInt32(contents, optionalOffset + 112, "resource RVA");
+              uint resourceSize = ReadLauncherUInt32(contents, optionalOffset + 116, "resource size");
+              if (resourceRva == 0 || resourceSize == 0) throw new InvalidDataException("Launcher has no PE resource directory");
+              int sectionTableOffset = checked(optionalOffset + optionalHeaderSize);
+              RequireLauncherRange(contents, sectionTableOffset, checked((long)sectionCount * 40L), "section table");
+              LauncherSection[] sections = new LauncherSection[sectionCount];
+              for (int index = 0; index < sectionCount; index += 1) {
+                int sectionOffset = checked(sectionTableOffset + (index * 40));
+                sections[index] = new LauncherSection {
+                  VirtualSize = ReadLauncherUInt32(contents, sectionOffset + 8, "section virtual size"),
+                  VirtualAddress = ReadLauncherUInt32(contents, sectionOffset + 12, "section virtual address"),
+                  RawSize = ReadLauncherUInt32(contents, sectionOffset + 16, "section raw size"),
+                  RawOffset = ReadLauncherUInt32(contents, sectionOffset + 20, "section raw offset")
+                };
+              }
+
+              int resourceOffset = MapLauncherRva(contents, sections, resourceRva, "resource directory");
+              RequireLauncherRange(contents, resourceOffset, resourceSize, "resource directory");
+              FindLauncherResourceType(contents, resourceOffset, resourceSize, 3, "RT_ICON");
+              FindLauncherResourceType(contents, resourceOffset, resourceSize, 14, "RT_GROUP_ICON");
+              uint versionTarget = FindLauncherResourceType(contents, resourceOffset, resourceSize, 16, "RT_VERSION");
+              uint manifestTarget = FindLauncherResourceType(contents, resourceOffset, resourceSize, 24, "RT_MANIFEST");
+
+              byte[] versionResource = ReadLauncherResource(contents, sections, resourceOffset, resourceSize, versionTarget, "RT_VERSION");
+              string[] versions = LauncherFixedVersions(versionResource);
+              string normalizedVersion = expectedVersion + ".0";
+              if (!String.Equals(versions[0], normalizedVersion, StringComparison.Ordinal) || !String.Equals(versions[1], normalizedVersion, StringComparison.Ordinal)) {
+                throw new InvalidDataException("Launcher version mismatch: expected " + normalizedVersion + ", received " + versions[0] + "/" + versions[1]);
+              }
+
+              byte[] manifestResource = ReadLauncherResource(contents, sections, resourceOffset, resourceSize, manifestTarget, "RT_MANIFEST");
+              string manifest;
+              try {
+                manifest = StrictUtf8.GetString(manifestResource);
+              } catch (DecoderFallbackException) {
+                throw new InvalidDataException("Launcher RT_MANIFEST is not valid UTF-8");
+              }
+              if (manifest.Length > 0 && manifest[0] == '\ufeff') manifest = manifest.Substring(1);
+              MatchCollection requestedLevels = Regex.Matches(manifest, @"<requestedExecutionLevel\b[^>]*>", RegexOptions.CultureInvariant);
+              bool validExecutionLevel = requestedLevels.Count == 1 &&
+                Regex.IsMatch(requestedLevels[0].Value, @"\blevel\s*=\s*[""']asInvoker[""']", RegexOptions.CultureInvariant) &&
+                Regex.IsMatch(requestedLevels[0].Value, @"\buiAccess\s*=\s*[""']false[""']", RegexOptions.CultureInvariant);
+              if (!validExecutionLevel) throw new InvalidDataException("Launcher manifest must request asInvoker with uiAccess=false");
+            }
+
+            private static void RequireLauncherRange(byte[] contents, long offset, long length, string label) {
+              if (offset < 0 || length < 0 || offset > contents.LongLength - length) {
+                throw new InvalidDataException("Launcher PE " + label + " exceeds file bounds");
+              }
+            }
+
+            private static int LauncherOffset(uint value, string label) {
+              if (value > Int32.MaxValue) throw new InvalidDataException("Launcher PE " + label + " exceeds supported bounds");
+              return (int)value;
+            }
+
+            private static ushort ReadLauncherUInt16(byte[] contents, int offset, string label) {
+              RequireLauncherRange(contents, offset, 2, label);
+              return (ushort)((uint)contents[offset] | ((uint)contents[offset + 1] << 8));
+            }
+
+            private static uint ReadLauncherUInt32(byte[] contents, int offset, string label) {
+              RequireLauncherRange(contents, offset, 4, label);
+              return (uint)contents[offset] |
+                ((uint)contents[offset + 1] << 8) |
+                ((uint)contents[offset + 2] << 16) |
+                ((uint)contents[offset + 3] << 24);
+            }
+
+            private static int MapLauncherRva(byte[] contents, LauncherSection[] sections, uint rva, string label) {
+              ulong target = rva;
+              foreach (LauncherSection section in sections) {
+                ulong start = section.VirtualAddress;
+                ulong span = Math.Max((ulong)section.VirtualSize, (ulong)section.RawSize);
+                if (target < start || target >= start + span) continue;
+                ulong mapped = (ulong)section.RawOffset + (target - start);
+                if (mapped > Int32.MaxValue) throw new InvalidDataException("Launcher PE " + label + " exceeds supported bounds");
+                RequireLauncherRange(contents, (long)mapped, 1, label);
+                return (int)mapped;
+              }
+              throw new InvalidDataException("Launcher PE " + label + " RVA is not mapped by a section");
+            }
+
+            private static int LauncherResourceOffset(byte[] contents, int resourceOffset, uint resourceSize, uint relativeOffset, long length, string label) {
+              if ((ulong)relativeOffset + (ulong)length > (ulong)resourceSize) {
+                throw new InvalidDataException("Launcher " + label + " exceeds the resource directory bounds");
+              }
+              long absolute = checked((long)resourceOffset + (long)relativeOffset);
+              RequireLauncherRange(contents, absolute, length, label);
+              if (absolute > Int32.MaxValue) throw new InvalidDataException("Launcher " + label + " exceeds supported bounds");
+              return (int)absolute;
+            }
+
+            private static uint FindLauncherResourceType(byte[] contents, int resourceOffset, uint resourceSize, uint typeId, string label) {
+              int root = LauncherResourceOffset(contents, resourceOffset, resourceSize, 0, 16, "resource root");
+              int count = checked(
+                (int)ReadLauncherUInt16(contents, root + 12, "resource named count") +
+                (int)ReadLauncherUInt16(contents, root + 14, "resource ID count")
+              );
+              int entries = LauncherResourceOffset(contents, resourceOffset, resourceSize, 16, checked((long)count * 8L), "resource root entries");
+              for (int index = 0; index < count; index += 1) {
+                int entry = checked(entries + (index * 8));
+                uint nameOrId = ReadLauncherUInt32(contents, entry, label + " name");
+                if ((nameOrId & 0x80000000U) != 0 || nameOrId != typeId) continue;
+                uint target = ReadLauncherUInt32(contents, entry + 4, label + " target");
+                if ((target & 0x80000000U) == 0) throw new InvalidDataException("Launcher " + label + " is not a resource directory");
+                return target;
+              }
+              throw new InvalidDataException("Launcher is missing " + label);
+            }
+
+            private static byte[] ReadLauncherResource(
+              byte[] contents,
+              LauncherSection[] sections,
+              int resourceOffset,
+              uint resourceSize,
+              uint rootTarget,
+              string label
+            ) {
+              uint target = rootTarget;
+              for (int depth = 0; depth < 2; depth += 1) {
+                if ((target & 0x80000000U) == 0) throw new InvalidDataException("Launcher " + label + " resource level is not a directory");
+                uint relative = target & 0x7fffffffU;
+                int directory = LauncherResourceOffset(contents, resourceOffset, resourceSize, relative, 16, label + " directory");
+                int count = checked(
+                  (int)ReadLauncherUInt16(contents, directory + 12, label + " named count") +
+                  (int)ReadLauncherUInt16(contents, directory + 14, label + " ID count")
+                );
+                if (count < 1) throw new InvalidDataException("Launcher " + label + " resource directory is empty");
+                int firstEntry = LauncherResourceOffset(contents, resourceOffset, resourceSize, checked(relative + 16U), checked((long)count * 8L), label + " entries");
+                target = ReadLauncherUInt32(contents, firstEntry + 4, label + " entry target");
+              }
+              if ((target & 0x80000000U) != 0) throw new InvalidDataException("Launcher " + label + " language entry is not resource data");
+              int dataEntry = LauncherResourceOffset(contents, resourceOffset, resourceSize, target, 16, label + " data entry");
+              uint dataRva = ReadLauncherUInt32(contents, dataEntry, label + " data RVA");
+              uint dataSize = ReadLauncherUInt32(contents, dataEntry + 4, label + " data size");
+              if (dataSize == 0 || dataSize > Int32.MaxValue) throw new InvalidDataException("Launcher " + label + " data size is invalid");
+              int dataOffset = MapLauncherRva(contents, sections, dataRva, label + " data");
+              RequireLauncherRange(contents, dataOffset, dataSize, label + " data");
+              byte[] result = new byte[(int)dataSize];
+              Buffer.BlockCopy(contents, dataOffset, result, 0, result.Length);
+              return result;
+            }
+
+            private static string[] LauncherFixedVersions(byte[] resource) {
+              int offset = -1;
+              for (int index = 0; index <= resource.Length - 24; index += 1) {
+                if (ReadLauncherUInt32(resource, index, "RT_VERSION fixed information") == 0xfeef04bdU) {
+                  offset = index;
+                  break;
+                }
+              }
+              if (offset < 0) throw new InvalidDataException("Launcher RT_VERSION is missing VS_FIXEDFILEINFO");
+              return new string[] {
+                DottedLauncherVersion(
+                  ReadLauncherUInt32(resource, offset + 8, "file version MS"),
+                  ReadLauncherUInt32(resource, offset + 12, "file version LS")
+                ),
+                DottedLauncherVersion(
+                  ReadLauncherUInt32(resource, offset + 16, "product version MS"),
+                  ReadLauncherUInt32(resource, offset + 20, "product version LS")
+                )
+              };
+            }
+
+            private static string DottedLauncherVersion(uint most, uint least) {
+              return String.Join(".", new string[] {
+                (most >> 16).ToString(CultureInfo.InvariantCulture),
+                (most & 0xffffU).ToString(CultureInfo.InvariantCulture),
+                (least >> 16).ToString(CultureInfo.InvariantCulture),
+                (least & 0xffffU).ToString(CultureInfo.InvariantCulture)
+              });
             }
 
             private static void ReadEnd(
@@ -1086,6 +1313,7 @@ jobs:
                 [string[]]@("SHA256SUMS.txt", "PACKAGE_INFO.txt", "app/version.json", "UPDATE_CONFIG.json", "Tarkov Helper.exe"),
                 $true
               )
+              [IsolatedZipValidator]::ValidateLauncher($directReport.Captured["Tarkov Helper.exe"], $version)
               $staticReport = [IsolatedZipValidator]::Validate((Join-Path $assetRoot $staticName), $staticRoot, [string[]]@(), $false)
               $sourceReport = [IsolatedZipValidator]::Validate((Join-Path $assetRoot $sourceName), $sourceRoot, [string[]]@(), $false)
               if (-not [string]::Equals($directReport.Comment, "", [StringComparison]::Ordinal)) { throw "Direct ZIP comment must be empty" }

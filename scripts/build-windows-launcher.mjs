@@ -11,6 +11,7 @@ const projectRoot = path.resolve(path.dirname(scriptPath), "..");
 const defaultSource = path.join(projectRoot, "portable", "windows-launcher", "TarkovHelperLauncher.cs");
 const defaultManifest = path.join(projectRoot, "portable", "windows-launcher", "TarkovHelperLauncher.manifest");
 const defaultIcon = path.join(projectRoot, "portable", "TarkovHelper.ico");
+const PINNED_DOTNET_SDK = "10.0.301";
 
 function requireRange(contents, offset, length, label) {
   if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > contents.length) {
@@ -137,20 +138,6 @@ export function inspectWindowsLauncher(contents, expectedVersion) {
   return { fileVersion: version.file, productVersion: version.product, resourceTypeIds: [...byId.keys()], subsystem };
 }
 
-function parseSdkVersion(value) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(value);
-  return match ? match.slice(1).map(Number) : null;
-}
-
-function compareSdkVersions(left, right) {
-  const leftParts = parseSdkVersion(left.version);
-  const rightParts = parseSdkVersion(right.version);
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index];
-  }
-  return left.version < right.version ? -1 : left.version > right.version ? 1 : 0;
-}
-
 async function regularFile(filename, label) {
   const details = await stat(filename).catch(() => null);
   if (!details?.isFile()) throw new Error(`${label} is missing: ${filename}`);
@@ -164,10 +151,13 @@ function findDotnetCompiler() {
   }
   const sdks = listed.stdout.split(/\r?\n/).flatMap((line) => {
     const match = /^(\S+)\s+\[(.+)]$/.exec(line.trim());
-    return match && parseSdkVersion(match[1]) ? [{ version: match[1], root: match[2] }] : [];
-  }).sort(compareSdkVersions);
-  const sdk = sdks.at(-1);
-  if (!sdk) throw new Error("No supported .NET SDK is installed");
+    return match ? [{ version: match[1], root: match[2] }] : [];
+  });
+  const sdk = sdks.find((sdk) => sdk.version === PINNED_DOTNET_SDK);
+  if (!sdk) {
+    const installed = sdks.length > 0 ? sdks.map((candidate) => candidate.version).join(", ") : "none";
+    throw new Error(`Required .NET SDK ${PINNED_DOTNET_SDK} is not installed (installed: ${installed})`);
+  }
   return { dotnet, compiler: path.join(sdk.root, sdk.version, "Roslyn", "bincore", "csc.dll") };
 }
 

@@ -32,6 +32,11 @@ jobs:
         with:
           node-version: 22.22.2
 
+      - name: Set up exact .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.301
+
       - name: Activate the locked pnpm version
         shell: pwsh
         run: |
