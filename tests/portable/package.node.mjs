@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,6 +8,9 @@ import test from "node:test";
 
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const packagingScript = path.join(projectRoot, "scripts", "create-direct-release.mjs");
+const launcherBuildScript = path.join(projectRoot, "scripts", "build-windows-launcher.mjs");
+const launcherSourceDirectory = path.join(projectRoot, "portable", "windows-launcher");
+const packageVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
 
 async function listFiles(directory, prefix = "") {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -49,6 +52,105 @@ async function readIconSizes(filename) {
   return sizes.sort((left, right) => left - right);
 }
 
+function rvaToFileOffset(contents, sectionTableOffset, sectionCount, rva) {
+  for (let index = 0; index < sectionCount; index += 1) {
+    const offset = sectionTableOffset + (index * 40);
+    const virtualSize = contents.readUInt32LE(offset + 8);
+    const virtualAddress = contents.readUInt32LE(offset + 12);
+    const rawSize = contents.readUInt32LE(offset + 16);
+    const rawOffset = contents.readUInt32LE(offset + 20);
+    if (rva >= virtualAddress && rva < virtualAddress + Math.max(virtualSize, rawSize)) {
+      return rawOffset + (rva - virtualAddress);
+    }
+  }
+  throw new Error(`PE RVA 0x${rva.toString(16)} is not mapped by a section`);
+}
+
+async function readLauncherPeMetadata(filename) {
+  const contents = await readFile(filename);
+  assert.equal(contents.subarray(0, 2).toString("ascii"), "MZ", "launcher must have a DOS PE header");
+  const peOffset = contents.readUInt32LE(0x3c);
+  assert.equal(contents.subarray(peOffset, peOffset + 4).toString("binary"), "PE\0\0", "launcher must be a PE image");
+
+  const coffOffset = peOffset + 4;
+  const sectionCount = contents.readUInt16LE(coffOffset + 2);
+  const optionalHeaderSize = contents.readUInt16LE(coffOffset + 16);
+  const characteristics = contents.readUInt16LE(coffOffset + 18);
+  const optionalOffset = coffOffset + 20;
+  assert.equal(contents.readUInt16LE(optionalOffset), 0x10b, "launcher must use the PE32 optional header");
+  const subsystem = contents.readUInt16LE(optionalOffset + 68);
+  const resourceRva = contents.readUInt32LE(optionalOffset + 96 + (2 * 8));
+  const resourceSize = contents.readUInt32LE(optionalOffset + 96 + (2 * 8) + 4);
+  assert.ok(resourceRva > 0 && resourceSize > 0, "launcher must have a resource directory");
+
+  const sectionTableOffset = optionalOffset + optionalHeaderSize;
+  const resourceOffset = rvaToFileOffset(contents, sectionTableOffset, sectionCount, resourceRva);
+  const namedEntries = contents.readUInt16LE(resourceOffset + 12);
+  const idEntries = contents.readUInt16LE(resourceOffset + 14);
+  const resourceTypeIds = [];
+  const resourceEntries = new Map();
+  for (let index = 0; index < namedEntries + idEntries; index += 1) {
+    const entryOffset = resourceOffset + 16 + (index * 8);
+    const nameOrId = contents.readUInt32LE(entryOffset);
+    if ((nameOrId & 0x80000000) === 0) {
+      resourceTypeIds.push(nameOrId);
+      resourceEntries.set(nameOrId, contents.readUInt32LE(entryOffset + 4));
+    }
+  }
+
+  function firstResourceData(typeId) {
+    let child = resourceEntries.get(typeId);
+    assert.notEqual(child, undefined, `PE resource type ${typeId} must exist`);
+    for (let depth = 0; depth < 2; depth += 1) {
+      assert.notEqual(child & 0x80000000, 0, `PE resource type ${typeId} level ${depth} must be a directory`);
+      const directoryOffset = resourceOffset + (child & 0x7fffffff);
+      const count = contents.readUInt16LE(directoryOffset + 12) + contents.readUInt16LE(directoryOffset + 14);
+      assert.ok(count > 0, `PE resource type ${typeId} level ${depth} must not be empty`);
+      child = contents.readUInt32LE(directoryOffset + 16 + 4);
+    }
+    assert.equal(child & 0x80000000, 0, `PE resource type ${typeId} language must reference data`);
+    const dataEntryOffset = resourceOffset + child;
+    const dataRva = contents.readUInt32LE(dataEntryOffset);
+    const dataSize = contents.readUInt32LE(dataEntryOffset + 4);
+    const dataOffset = rvaToFileOffset(contents, sectionTableOffset, sectionCount, dataRva);
+    return contents.subarray(dataOffset, dataOffset + dataSize);
+  }
+
+  const versionResource = firstResourceData(16);
+  const fixedInfoSignature = Buffer.from([0xbd, 0x04, 0xef, 0xfe]);
+  const fixedInfoOffset = versionResource.indexOf(fixedInfoSignature);
+  assert.ok(fixedInfoOffset >= 0, "RT_VERSION must contain VS_FIXEDFILEINFO");
+  const dottedVersion = (mostSignificant, leastSignificant) => [
+    mostSignificant >>> 16,
+    mostSignificant & 0xffff,
+    leastSignificant >>> 16,
+    leastSignificant & 0xffff,
+  ].join(".");
+  const fileVersion = dottedVersion(
+    versionResource.readUInt32LE(fixedInfoOffset + 8),
+    versionResource.readUInt32LE(fixedInfoOffset + 12),
+  );
+  const productVersion = dottedVersion(
+    versionResource.readUInt32LE(fixedInfoOffset + 16),
+    versionResource.readUInt32LE(fixedInfoOffset + 20),
+  );
+  const manifest = firstResourceData(24).toString("utf8").replace(/^\uFEFF/, "");
+
+  return { characteristics, fileVersion, manifest, productVersion, resourceTypeIds, subsystem };
+}
+
+async function waitForFile(filename, attempts = 200, delayMs = 50) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await stat(filename);
+      return;
+    } catch (error) {
+      if (error?.code !== "ENOENT" || attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 test("direct release contains the built app, launchers, guide, and notices", async () => {
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-package-"));
   const output = path.join(temporaryParent, "Tarkov Helper 바로 실행");
@@ -69,6 +171,18 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.equal((await stat(path.join(output, "app-update-broker.ps1"))).isFile(), true);
     assert.equal((await stat(path.join(output, "TarkovHelper.ico"))).isFile(), true);
     assert.deepEqual(await readIconSizes(path.join(output, "TarkovHelper.ico")), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
+    const launcherExe = path.join(output, "Tarkov Helper.exe");
+    assert.equal((await stat(launcherExe)).isFile(), true);
+    const launcherPe = await readLauncherPeMetadata(launcherExe);
+    assert.notEqual(launcherPe.characteristics & 0x0002, 0, "launcher must be marked executable");
+    assert.equal(launcherPe.subsystem, 2, "launcher must be a windowed app with no console");
+    assert.ok(launcherPe.resourceTypeIds.includes(3), "launcher must embed RT_ICON resources");
+    assert.ok(launcherPe.resourceTypeIds.includes(14), "launcher must embed an RT_GROUP_ICON resource");
+    assert.ok(launcherPe.resourceTypeIds.includes(16), "launcher must embed RT_VERSION");
+    assert.ok(launcherPe.resourceTypeIds.includes(24), "launcher must embed RT_MANIFEST");
+    assert.equal(launcherPe.fileVersion, `${packageVersion}.0`);
+    assert.equal(launcherPe.productVersion, `${packageVersion}.0`);
+    assert.match(launcherPe.manifest, /requestedExecutionLevel\s+level="asInvoker"/);
     assert.equal((await stat(path.join(output, "start-menu.ps1"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 시작 메뉴 등록.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 시작 메뉴 제거.vbs"))).isFile(), true);
@@ -167,5 +281,128 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.match(`${repeated.stdout}\n${repeated.stderr}`, /already exists/i);
   } finally {
     await rm(temporaryParent, { recursive: true, force: true });
+  }
+});
+
+test("launcher source builds byte-for-byte identically from different build roots", {
+  skip: process.platform !== "win32",
+  timeout: 20_000,
+}, async () => {
+  const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-launcher-builds-"));
+  const roots = [
+    path.join(temporaryParent, "빌드 루트 A"),
+    path.join(temporaryParent, "different build root B"),
+  ];
+  try {
+    for (const root of roots) {
+      await mkdir(root, { recursive: true });
+      await copyFile(path.join(launcherSourceDirectory, "TarkovHelperLauncher.cs"), path.join(root, "TarkovHelperLauncher.cs"));
+      await copyFile(path.join(launcherSourceDirectory, "TarkovHelperLauncher.manifest"), path.join(root, "TarkovHelperLauncher.manifest"));
+      await copyFile(path.join(projectRoot, "portable", "TarkovHelper.ico"), path.join(root, "TarkovHelper.ico"));
+      const result = spawnSync(process.execPath, [
+        launcherBuildScript,
+        "--source", path.join(root, "TarkovHelperLauncher.cs"),
+        "--manifest", path.join(root, "TarkovHelperLauncher.manifest"),
+        "--icon", path.join(root, "TarkovHelper.ico"),
+        "--output", path.join(root, "output", "Tarkov Helper.exe"),
+        "--version", packageVersion,
+      ], { cwd: root, encoding: "utf8" });
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    }
+    assert.equal(
+      await sha256(path.join(roots[0], "output", "Tarkov Helper.exe")),
+      await sha256(path.join(roots[1], "output", "Tarkov Helper.exe")),
+      "launcher compilation must not copy a prebuilt binary or depend on its build root",
+    );
+  } finally {
+    await rm(temporaryParent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("launcher source uses an exact parent identity gate and encoded absolute system executables", async () => {
+  const source = await readFile(path.join(launcherSourceDirectory, "TarkovHelperLauncher.cs"), "utf8");
+  assert.match(source, /Process\.GetCurrentProcess\(\)/);
+  assert.match(source, /StartTime\.ToUniversalTime\(\)\.Ticks/);
+  assert.match(source, /GetProcessById/);
+  assert.match(source, /parentStartUtcTicks/);
+  assert.match(source, /WaitForExit\(30000\)/);
+  assert.match(source, /Encoding\.Unicode\.GetBytes/);
+  assert.match(source, /-EncodedCommand/);
+  assert.match(source, /Encoding\.UTF8\.GetBytes/);
+  assert.match(source, /FromBase64String/);
+  assert.match(source, /UseShellExecute\s*=\s*false/);
+  assert.match(source, /SpecialFolder\.LocalApplicationData/);
+  assert.match(source, /WindowsPowerShell/);
+  assert.match(source, /wscript\.exe/);
+  assert.match(source, /launcher-bootstrap\.log/);
+  assert.match(source, /MessageBoxW/);
+  assert.match(source, /CharSet\.Unicode/);
+  assert.doesNotMatch(source, /ExecutionPolicy/);
+  assert.doesNotMatch(source, /cmd\.exe/i);
+  assert.doesNotMatch(source, /TARKOV_HELPER_PACKAGE_ROOT/);
+});
+
+test("the branded launcher starts the existing VBS from a literal Unicode path and releases the package root", {
+  skip: process.platform !== "win32",
+  timeout: 20_000,
+}, async () => {
+  const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-launcher-exe-"));
+  const packageRoot = path.join(temporaryParent, "한글 %TEMP% & (특수), O'Brien 패키지");
+  const movedRoot = path.join(temporaryParent, "실행 중 교체 완료");
+  const marker = path.join(temporaryParent, "launcher-started.marker");
+  const exitMarker = path.join(temporaryParent, "launcher-finished.marker");
+  const actionLog = path.join(temporaryParent, "launcher-actions.log");
+  const firstStartState = path.join(temporaryParent, "first-start.state");
+
+  try {
+    const packaged = spawnSync(process.execPath, [packagingScript, "--output", packageRoot], {
+      cwd: projectRoot,
+      encoding: "utf8",
+    });
+    assert.equal(packaged.status, 0, `${packaged.stdout}\n${packaged.stderr}`);
+
+    await writeFile(path.join(packageRoot, "launcher.ps1"), String.raw`param([ValidateSet("Start", "Stop")][string]$Action)
+[IO.File]::AppendAllText($env:TARKOV_HELPER_TEST_ACTION_LOG, $Action + [Environment]::NewLine, [Text.Encoding]::UTF8)
+if ($Action -eq "Start" -and -not [IO.File]::Exists($env:TARKOV_HELPER_TEST_FIRST_START)) {
+  [IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_FIRST_START, "failed once", [Text.Encoding]::UTF8)
+  exit 23
+}
+if ($Action -eq "Stop") { exit 0 }
+[IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_MARKER, $PSScriptRoot, [Text.Encoding]::UTF8)
+Start-Sleep -Seconds 4
+[IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_EXIT_MARKER, "finished", [Text.Encoding]::UTF8)
+exit 0
+`, "utf8");
+
+    const launched = spawnSync(path.join(packageRoot, "Tarkov Helper.exe"), [], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TARKOV_HELPER_TEST_MARKER: marker,
+        TARKOV_HELPER_TEST_EXIT_MARKER: exitMarker,
+        TARKOV_HELPER_TEST_ACTION_LOG: actionLog,
+        TARKOV_HELPER_TEST_FIRST_START: firstStartState,
+      },
+      timeout: 3_000,
+      windowsHide: true,
+    });
+    assert.equal(launched.status, 0, `${launched.stdout}\n${launched.stderr}\n${launched.error ?? ""}`);
+    await waitForFile(marker);
+    assert.deepEqual((await readFile(actionLog, "utf8")).replace(/^\uFEFF/, "").trim().split(/\r?\n/), [
+      "Start",
+      "Stop",
+      "Start",
+    ]);
+    assert.equal(
+      path.resolve((await readFile(marker, "utf8")).replace(/^\uFEFF/, "")).toLowerCase(),
+      path.resolve(packageRoot).toLowerCase(),
+    );
+
+    await rename(packageRoot, movedRoot);
+    await waitForFile(exitMarker);
+    assert.equal((await readFile(exitMarker, "utf8")).replace(/^\uFEFF/, ""), "finished");
+  } finally {
+    await rm(temporaryParent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

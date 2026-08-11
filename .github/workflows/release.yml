@@ -463,6 +463,7 @@ jobs:
               "app-update-worker.ps1",
               "app-update-broker.ps1",
               "TarkovHelper.ico",
+              "Tarkov Helper.exe",
               "start-menu.ps1",
               "Tarkov Helper 실행.vbs",
               "Tarkov Helper 시작 메뉴 등록.vbs",
@@ -1082,7 +1083,7 @@ jobs:
               $directReport = [IsolatedZipValidator]::Validate(
                 $directPath,
                 $directRoot,
-                [string[]]@("SHA256SUMS.txt", "PACKAGE_INFO.txt", "app/version.json", "UPDATE_CONFIG.json"),
+                [string[]]@("SHA256SUMS.txt", "PACKAGE_INFO.txt", "app/version.json", "UPDATE_CONFIG.json", "Tarkov Helper.exe"),
                 $true
               )
               $staticReport = [IsolatedZipValidator]::Validate((Join-Path $assetRoot $staticName), $staticRoot, [string[]]@(), $false)

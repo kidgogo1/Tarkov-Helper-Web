@@ -19,6 +19,7 @@ import {
   sha256,
   verifyManifestSignature,
 } from "./release-utils.mjs";
+import { inspectWindowsLauncher } from "./build-windows-launcher.mjs";
 
 const MAX_RELEASE_METADATA_BYTES = 16 * 1024 * 1024;
 
@@ -175,6 +176,7 @@ function verifyDirectArchive(archive, rootDirectory, context, config, signing, u
     "app-update-worker.ps1",
     "app-update-broker.ps1",
     "TarkovHelper.ico",
+    "Tarkov Helper.exe",
     "start-menu.ps1",
     "Tarkov Helper 실행.vbs",
     "Tarkov Helper 시작 메뉴 등록.vbs",
@@ -182,6 +184,10 @@ function verifyDirectArchive(archive, rootDirectory, context, config, signing, u
   ]) {
     requireArchiveFile(files, filename, "Direct archive");
   }
+  inspectWindowsLauncher(
+    requireArchiveFile(files, "Tarkov Helper.exe", "Direct archive").contents,
+    context.version,
+  );
   const versionDocument = parseStrictJson(
     requireArchiveFile(files, "app/version.json", "Direct archive").contents.toString("utf8"),
     "app/version.json",
@@ -321,6 +327,7 @@ export async function verifyReleaseBundle(options) {
   const directContents = new Set([
     `${roots.direct}/SHA256SUMS.txt`,
     `${roots.direct}/PACKAGE_INFO.txt`,
+    `${roots.direct}/Tarkov Helper.exe`,
     `${roots.direct}/app/version.json`,
     `${roots.direct}/${config.updater.configFile}`,
   ]);

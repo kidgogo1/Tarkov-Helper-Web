@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, verify as verifySignature } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readZipArchive } from "../../scripts/release-utils.mjs";
+import { buildWindowsLauncher } from "../../scripts/build-windows-launcher.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..", "..");
 const createScript = path.join(repositoryRoot, "scripts", "create-release-bundle.mjs");
@@ -66,7 +67,11 @@ async function createFixture() {
   await writeFile(path.join(direct, "app", "index.html"), "<!doctype html><title>fixture</title>\n");
   await writeFile(path.join(direct, "app", "data", "tarkov-data.json"), "{}\n");
   await writeFile(path.join(direct, "launcher.ps1"), "Write-Output 'fixture'\n");
-  await writeFile(path.join(direct, "TarkovHelper.ico"), "fixture icon\n");
+  await copyFile(path.join(repositoryRoot, "portable", "TarkovHelper.ico"), path.join(direct, "TarkovHelper.ico"));
+  await buildWindowsLauncher({
+    output: path.join(direct, "Tarkov Helper.exe"),
+    version: "1.2.3",
+  });
   await writeFile(path.join(direct, "start-menu.ps1"), "# fixture Start menu tool\n");
   await writeFile(path.join(direct, "Tarkov Helper 실행.vbs"), "' fixture launcher\n");
   await writeFile(path.join(direct, "Tarkov Helper 시작 메뉴 등록.vbs"), "' fixture registration\n");
@@ -474,6 +479,21 @@ test("verification rejects a tampered release asset", async () => {
     ], { UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey });
     assert.notEqual(verification.status, 0);
     assert.match(`${verification.stdout}\n${verification.stderr}`, /SHA-256 mismatch/i);
+  } finally {
+    await rm(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("release creation rejects an invalid branded launcher before publishing", async () => {
+  const fixture = await createFixture();
+  const output = path.join(fixture.parent, "release-invalid-launcher");
+  try {
+    await writeFile(path.join(fixture.direct, "Tarkov Helper.exe"), Buffer.alloc(128, 0x41));
+    const directFiles = (await collect(fixture.direct)).filter((file) => file.path !== "SHA256SUMS.txt");
+    await writeFile(path.join(fixture.direct, "SHA256SUMS.txt"), sums(directFiles), "utf8");
+    const result = run(createScript, createArguments(fixture, output, ["--updater-disabled"]));
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /MZ header/i);
   } finally {
     await rm(fixture.parent, { recursive: true, force: true });
   }

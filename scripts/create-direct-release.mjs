@@ -4,6 +4,7 @@ import { access, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { buildWindowsLauncher } from "./build-windows-launcher.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distDirectory = path.join(projectRoot, "dist");
@@ -96,6 +97,8 @@ await requireFile(path.join(portableDirectory, "launcher.ps1"));
 await requireFile(path.join(portableDirectory, "app-update-worker.ps1"));
 await requireFile(path.join(portableDirectory, "app-update-broker.ps1"));
 await requireFile(path.join(portableDirectory, "TarkovHelper.ico"));
+await requireFile(path.join(portableDirectory, "windows-launcher", "TarkovHelperLauncher.cs"));
+await requireFile(path.join(portableDirectory, "windows-launcher", "TarkovHelperLauncher.manifest"));
 await requireFile(path.join(portableDirectory, "start-menu.ps1"));
 await requireFile(path.join(portableDirectory, "Tarkov Helper 시작 메뉴 등록.vbs"));
 await requireFile(path.join(portableDirectory, "Tarkov Helper 시작 메뉴 제거.vbs"));
@@ -115,6 +118,13 @@ await mkdir(path.dirname(outputDirectory), { recursive: true });
 await mkdir(outputDirectory);
 
 try {
+  await buildWindowsLauncher({
+    source: path.join(portableDirectory, "windows-launcher", "TarkovHelperLauncher.cs"),
+    manifest: path.join(portableDirectory, "windows-launcher", "TarkovHelperLauncher.manifest"),
+    icon: path.join(portableDirectory, "TarkovHelper.ico"),
+    output: path.join(outputDirectory, "Tarkov Helper.exe"),
+    version: packageDocument.version,
+  });
   await cp(distDirectory, path.join(outputDirectory, "app"), {
     recursive: true,
     errorOnExist: true,
