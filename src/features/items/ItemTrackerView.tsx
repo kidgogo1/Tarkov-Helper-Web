@@ -26,10 +26,12 @@ interface ItemTrackerViewProps {
   items: readonly AggregatedItemRequirement[];
   itemData: readonly ItemData[];
   focusItemId?: string;
+  focusRequested?: boolean;
   onItemFocusConsumed?: () => void;
+  onItemSelect?: (itemId: string, preserveFocus?: boolean) => void;
   onInventoryChange: (itemId: string, amount: InventoryAmount) => void;
   onOpenQuest?: (questId: string) => void;
-  onOpenHideout?: (stationId: string) => void;
+  onOpenHideout?: (stationId: string, level?: number) => void;
   listLabel: string;
   showSourceFilter?: boolean;
   showCategoryFilter?: boolean;
@@ -80,7 +82,9 @@ export function ItemTrackerView({
   items,
   itemData,
   focusItemId,
+  focusRequested: requestedFocus,
   onItemFocusConsumed,
+  onItemSelect,
   onInventoryChange,
   onOpenQuest,
   onOpenHideout,
@@ -89,6 +93,7 @@ export function ItemTrackerView({
   showCategoryFilter = true,
   showHideoutSort = true,
 }: ItemTrackerViewProps) {
+  const focusRequested = requestedFocus ?? Boolean(focusItemId);
   const [searchText, setSearchText] = useState("");
   const [source, setSource] = useState<ItemFilterOptions["source"]>("all");
   const [category, setCategory] = useState("All");
@@ -101,7 +106,8 @@ export function ItemTrackerView({
     ? focusItemId
     : items[0]?.itemId ?? "";
   const [selectedItemId, setSelectedItemId] = useState(initialFocusedItemId);
-  const [handledItemFocusId, setHandledItemFocusId] = useState(focusItemId);
+  const routeFocusKey = `${focusItemId ?? ""}:${focusRequested ? "focus" : "selection"}`;
+  const [handledItemFocusKey, setHandledItemFocusKey] = useState(routeFocusKey);
   const consumedItemFocusRef = useRef<string | undefined>(undefined);
   const itemButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
@@ -118,16 +124,18 @@ export function ItemTrackerView({
   );
   const focusedItem = localizedItems.find((item) => item.itemId === focusItemId);
 
-  if (focusItemId !== handledItemFocusId) {
-    setHandledItemFocusId(focusItemId);
-    if (focusedItem) {
-      setSearchText("");
-      setSource("all");
-      setCategory("All");
-      setFulfillment("all");
-      setSortBy("name");
-      setFirOnly(false);
-      setHideFulfilled(false);
+  if (routeFocusKey !== handledItemFocusKey) {
+    setHandledItemFocusKey(routeFocusKey);
+    if (focusedItem && selectedItemId !== focusedItem.itemId) {
+      if (focusRequested) {
+        setSearchText("");
+        setSource("all");
+        setCategory("All");
+        setFulfillment("all");
+        setSortBy("name");
+        setFirOnly(false);
+        setHideFulfilled(false);
+      }
       setSelectedItemId(focusedItem.itemId);
     }
   }
@@ -159,8 +167,21 @@ export function ItemTrackerView({
     filteredItems[0] ??
     null;
 
+  const nextSelectedItemId = selectedItem?.itemId;
+  if (nextSelectedItemId && nextSelectedItemId !== selectedItemId) {
+    setSelectedItemId(nextSelectedItemId);
+  }
+
+  const selectedItemRouteId = selectedItem?.itemId;
   useEffect(() => {
-    if (!focusItemId) {
+    if (selectedItemRouteId && selectedItemRouteId !== focusItemId) {
+      const preserveFocus = focusRequested && focusedItem?.itemId === selectedItemRouteId;
+      onItemSelect?.(selectedItemRouteId, preserveFocus);
+    }
+  }, [focusItemId, focusRequested, focusedItem?.itemId, onItemSelect, selectedItemRouteId]);
+
+  useEffect(() => {
+    if (!focusRequested || !focusItemId) {
       consumedItemFocusRef.current = undefined;
       return;
     }
@@ -170,7 +191,7 @@ export function ItemTrackerView({
     button?.scrollIntoView?.({ block: "nearest" });
     button?.focus();
     onItemFocusConsumed?.();
-  }, [focusItemId, onItemFocusConsumed]);
+  }, [focusItemId, focusRequested, onItemFocusConsumed]);
 
   return (
     <div className="item-tracker">
@@ -290,7 +311,11 @@ export function ItemTrackerView({
                   }}
                   item={item}
                   key={item.itemId}
-                  onSelect={() => setSelectedItemId(item.itemId)}
+                  onSelect={() => {
+                    setHandledItemFocusKey(`${item.itemId}:selection`);
+                    setSelectedItemId(item.itemId);
+                    onItemSelect?.(item.itemId);
+                  }}
                   selected={selectedItem?.itemId === item.itemId}
                 />
               ))}
@@ -379,7 +404,7 @@ function ItemDetail({
   item: AggregatedItemRequirement;
   onInventoryChange: (itemId: string, amount: InventoryAmount) => void;
   onOpenQuest?: (questId: string) => void;
-  onOpenHideout?: (stationId: string) => void;
+  onOpenHideout?: (stationId: string, level?: number) => void;
 }) {
   const inventory = { fir: item.ownedFir, nonFir: item.ownedNonFir };
   const isReferenceOnly = item.allRequiredCount === 0;
@@ -510,7 +535,7 @@ function ItemDetail({
               <ItemSourceRow
                 key={`${source.stationId}-${source.level}-${index}`}
                 label={`${source.stationName} 은신처 열기`}
-                onOpen={onOpenHideout ? () => onOpenHideout(source.stationId) : undefined}
+                onOpen={onOpenHideout ? () => onOpenHideout(source.stationId, source.level) : undefined}
               >
                 <span>
                   <strong>{source.stationName}</strong>
@@ -528,7 +553,7 @@ function ItemDetail({
               <ItemSourceRow
                 key={`${source.stationId}-${source.level}-${index}`}
                 label={`${source.stationName} 은신처 열기`}
-                onOpen={onOpenHideout ? () => onOpenHideout(source.stationId) : undefined}
+                onOpen={onOpenHideout ? () => onOpenHideout(source.stationId, source.level) : undefined}
               >
                 <span>
                   <strong>{source.stationName}</strong>

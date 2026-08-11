@@ -27,9 +27,11 @@ import {
 interface QuestsPageProps {
   data: TarkovData;
   focusQuestId?: string;
+  focusRequested?: boolean;
   onOpenItem?: (itemId: string) => void;
   onOpenMap: (mapKey?: string, questId?: string) => void;
   onOpenQuest?: (questId: string) => void;
+  onQuestSelect?: (questId: string, preserveFocus?: boolean) => void;
   onQuestFocusConsumed?: () => void;
 }
 
@@ -79,11 +81,14 @@ function findQuest(quests: readonly QuestData[], questId: string | undefined) {
 export function QuestsPage({
   data,
   focusQuestId,
+  focusRequested: requestedFocus,
   onOpenItem,
   onOpenMap,
   onOpenQuest,
+  onQuestSelect,
   onQuestFocusConsumed,
 }: QuestsPageProps) {
+  const focusRequested = requestedFocus ?? Boolean(focusQuestId);
   const {
     profile,
     setObjectiveProgress,
@@ -107,33 +112,40 @@ export function QuestsPage({
   const [selectedQuestId, setSelectedQuestId] = useState(
     focusedQuest?.id ?? data.quests[0]?.id ?? "",
   );
-  const [handledQuestFocusId, setHandledQuestFocusId] = useState(focusQuestId);
+  const routeFocusKey = `${focusQuestId ?? ""}:${focusRequested ? "focus" : "selection"}`;
+  const [handledQuestFocusKey, setHandledQuestFocusKey] = useState(routeFocusKey);
   const consumedQuestFocusRef = useRef<string | undefined>(undefined);
+  const questButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
-  if (focusQuestId !== handledQuestFocusId) {
-    setHandledQuestFocusId(focusQuestId);
-    if (focusedQuest) {
-      setQuery("");
-      setRequiredItemQuery("");
-      setRewardQuery("");
-      setKappaOnly(false);
-      setItemOnly(false);
-      setTraderFilter("all");
-      setMapFilter("all");
-      setStatusFilter("all");
+  if (routeFocusKey !== handledQuestFocusKey) {
+    setHandledQuestFocusKey(routeFocusKey);
+    if (focusedQuest && selectedQuestId !== focusedQuest.id) {
+      if (focusRequested) {
+        setQuery("");
+        setRequiredItemQuery("");
+        setRewardQuery("");
+        setKappaOnly(false);
+        setItemOnly(false);
+        setTraderFilter("all");
+        setMapFilter("all");
+        setStatusFilter("all");
+      }
       setSelectedQuestId(focusedQuest.id);
     }
   }
 
   useEffect(() => {
-    if (!focusQuestId) {
+    if (!focusRequested || !focusQuestId) {
       consumedQuestFocusRef.current = undefined;
       return;
     }
     if (consumedQuestFocusRef.current === focusQuestId) return;
     consumedQuestFocusRef.current = focusQuestId;
+    const button = focusedQuest ? questButtonRefs.current.get(focusedQuest.id) : undefined;
+    button?.scrollIntoView?.({ block: "nearest" });
+    button?.focus();
     onQuestFocusConsumed?.();
-  }, [focusQuestId, onQuestFocusConsumed]);
+  }, [focusQuestId, focusRequested, focusedQuest, onQuestFocusConsumed]);
 
   const statusResolver = useMemo(
     () => createQuestStatusResolver(data.quests, profile),
@@ -167,12 +179,22 @@ export function QuestsPage({
     () => new Map(data.items.map((item) => [item.id, item])),
     [data.items],
   );
+  const hasActiveQuestFilters = Boolean(
+    query ||
+    requiredItemQuery ||
+    rewardQuery ||
+    kappaOnly ||
+    itemOnly ||
+    traderFilter !== "all" ||
+    mapFilter !== "all" ||
+    statusFilter !== "all",
+  );
 
   const filteredQuests = useMemo(() => {
     const needle = normalize(query);
     const requiredItemNeedle = normalize(requiredItemQuery);
     const rewardNeedle = normalize(rewardQuery);
-    return data.quests.filter((quest) => {
+    const matches = data.quests.filter((quest) => {
       const searchable = normalize(questSearchText(quest));
       const searchableRequiredItems = normalize(questRequiredItemSearchText(quest, itemsById));
       const searchableRewards = normalize(questRewardSearchText(quest, itemsById));
@@ -189,8 +211,20 @@ export function QuestsPage({
         (statusFilter === "all" || statuses.get(quest.id) === statusFilter)
       );
     });
+    if (
+      focusRequested &&
+      !hasActiveQuestFilters &&
+      focusedQuest &&
+      !matches.some((quest) => quest.id === focusedQuest.id)
+    ) {
+      return [focusedQuest, ...matches];
+    }
+    return matches;
   }, [
     data.quests,
+    focusRequested,
+    focusedQuest,
+    hasActiveQuestFilters,
     itemOnly,
     itemsById,
     kappaOnly,
@@ -209,9 +243,16 @@ export function QuestsPage({
     filteredQuests[0];
 
   const nextSelectedQuestId = selectedQuest?.id ?? "";
-  if (nextSelectedQuestId !== selectedQuestId) {
+  if (nextSelectedQuestId && nextSelectedQuestId !== selectedQuestId) {
     setSelectedQuestId(nextSelectedQuestId);
   }
+
+  useEffect(() => {
+    if (nextSelectedQuestId && nextSelectedQuestId !== focusQuestId) {
+      const preserveFocus = focusRequested && focusedQuest?.id === nextSelectedQuestId;
+      onQuestSelect?.(nextSelectedQuestId, preserveFocus);
+    }
+  }, [focusQuestId, focusRequested, focusedQuest?.id, nextSelectedQuestId, onQuestSelect]);
 
   const applyQuestProgress = (
     nextProgress: Record<string, SavedQuestStatus>,
@@ -450,7 +491,15 @@ export function QuestsPage({
                       <button
                         aria-current={selectedQuest?.id === quest.id ? "true" : undefined}
                         className={selectedQuest?.id === quest.id ? "selected" : ""}
-                        onClick={() => setSelectedQuestId(quest.id)}
+                        onClick={() => {
+                          setHandledQuestFocusKey(`${quest.id}:selection`);
+                          setSelectedQuestId(quest.id);
+                          onQuestSelect?.(quest.id);
+                        }}
+                        ref={(element) => {
+                          if (element) questButtonRefs.current.set(quest.id, element);
+                          else questButtonRefs.current.delete(quest.id);
+                        }}
                         type="button"
                       >
                         <span className="quest-list-main">

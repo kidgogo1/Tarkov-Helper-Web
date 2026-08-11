@@ -183,7 +183,7 @@ describe("ItemsPage", () => {
     expect(onOpenQuest).toHaveBeenCalledWith("quest");
 
     fireEvent.click(within(detail).getByRole("button", { name: "Workbench 은신처 열기" }));
-    expect(onOpenHideout).toHaveBeenCalledWith("workbench");
+    expect(onOpenHideout).toHaveBeenCalledWith("workbench", 1);
   });
 
   it("shows completed quest and hideout item sources separately from remaining needs", () => {
@@ -292,7 +292,7 @@ describe("ItemsPage", () => {
     fireEvent.click(completedQuest.closest("button")!);
     fireEvent.click(completedHideout);
     expect(onOpenQuest).toHaveBeenCalledWith("completed-quest");
-    expect(onOpenHideout).toHaveBeenCalledWith("workbench");
+    expect(onOpenHideout).toHaveBeenCalledWith("workbench", 1);
   });
 
   it("filters by search without losing the full aggregate", () => {

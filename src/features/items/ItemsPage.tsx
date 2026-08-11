@@ -14,15 +14,19 @@ import { ItemTrackerView } from "./ItemTrackerView";
 interface ItemsPageProps {
   data: TarkovData;
   focusItemId?: string;
+  focusRequested?: boolean;
   onItemFocusConsumed?: () => void;
+  onItemSelect?: (itemId: string, preserveFocus?: boolean) => void;
   onOpenQuest?: (questId: string) => void;
-  onOpenHideout?: (stationId: string) => void;
+  onOpenHideout?: (stationId: string, level?: number) => void;
 }
 
 export function ItemsPage({
   data,
   focusItemId,
+  focusRequested,
   onItemFocusConsumed,
+  onItemSelect,
   onOpenQuest,
   onOpenHideout,
 }: ItemsPageProps) {
@@ -70,7 +74,9 @@ export function ItemsPage({
         itemData={data.items}
         items={viewItems}
         listLabel="아이템 목록"
+        focusRequested={focusRequested}
         onItemFocusConsumed={onItemFocusConsumed}
+        onItemSelect={onItemSelect}
         onInventoryChange={setInventory}
         onOpenHideout={onOpenHideout}
         onOpenQuest={onOpenQuest}

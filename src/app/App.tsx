@@ -28,6 +28,15 @@ import type { ProfileType, TarkovData } from "../types/data";
 import type { SavedQuestStatus } from "../types/state";
 import { AppShell, type AppTab } from "./AppShell";
 import { loadTarkovData } from "./data";
+import {
+  appRouteHistoryState,
+  appRouteKey,
+  parseAppRoute,
+  serializeAppRoute,
+  type AppNavigationIntent,
+  type AppRoute,
+  type AppRouteLocation,
+} from "./navigation";
 import { useAppStore } from "./store";
 
 interface LogPreviewRecord {
@@ -46,13 +55,6 @@ interface LogImportPreview {
   alternativeSelections: Record<string, string>;
   detectedMapKey: string | null;
   fileCount: number;
-}
-
-const VALID_TABS: readonly AppTab[] = ["quests", "hideout", "items", "collector", "prices", "map"];
-
-function tabFromHash(): AppTab {
-  const candidate = window.location.hash.replace(/^#\/?/, "") as AppTab;
-  return VALID_TABS.includes(candidate) ? candidate : "quests";
 }
 
 function applyAppearance(fontFamily: string, fontSize: number): void {
@@ -100,15 +102,16 @@ export function App() {
   const publicUpdate = usePublicUpdate(undefined, { persistState: store.persistState });
   const [data, setData] = useState<TarkovData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<AppTab>(tabFromHash);
+  const [route, setRoute] = useState<AppRoute>(() =>
+    parseAppRoute(window.location.hash, window.history.state),
+  );
+  const [historyRestoreRoute, setHistoryRestoreRoute] = useState<string>();
+  const activeTab = route.tab;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [miniMapSettingsOpen, setMiniMapSettingsOpen] = useState(false);
   const [inProgressQuestsOpen, setInProgressQuestsOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [mapFocusQuestId, setMapFocusQuestId] = useState<string>();
-  const [questFocusId, setQuestFocusId] = useState<string>();
-  const [hideoutFocusId, setHideoutFocusId] = useState<string>();
-  const [itemFocusId, setItemFocusId] = useState<string>();
   const [logPreview, setLogPreview] = useState<LogImportPreview | null>(null);
   const [readingLogs, setReadingLogs] = useState(false);
   const [logImportError, setLogImportError] = useState<string | null>(null);
@@ -125,25 +128,70 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const onHashChange = () => setActiveTab(tabFromHash());
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    const syncRouteFromLocation = (event: Event) => {
+      const nextRoute = parseAppRoute(window.location.hash, window.history.state);
+      const nextHash = serializeAppRoute(nextRoute);
+      setHistoryRestoreRoute((current) =>
+        event.type === "popstate"
+          ? nextHash
+          : current === nextHash
+            ? current
+            : undefined,
+      );
+      setRoute((current) =>
+        appRouteKey(current) === appRouteKey(nextRoute) ? current : nextRoute,
+      );
+    };
+    window.addEventListener("hashchange", syncRouteFromLocation);
+    window.addEventListener("popstate", syncRouteFromLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncRouteFromLocation);
+      window.removeEventListener("popstate", syncRouteFromLocation);
+    };
   }, []);
+
+  useEffect(() => {
+    const canonicalHash = serializeAppRoute(route);
+    const currentRoute = parseAppRoute(window.location.hash, window.history.state);
+    if (window.location.hash !== canonicalHash || appRouteKey(currentRoute) !== appRouteKey(route)) {
+      window.history.replaceState(appRouteHistoryState(route), "", canonicalHash);
+    }
+  }, [route]);
 
   useEffect(() => {
     applyAppearance(store.settings.fontFamily, store.settings.fontSize);
   }, [store.settings.fontFamily, store.settings.fontSize]);
 
+  const navigate = (
+    location: AppRouteLocation,
+    replace = false,
+    navigationIntent: AppNavigationIntent = "selection",
+  ) => {
+    const nextRoute = { ...location, navigationIntent } as AppRoute;
+    const nextHash = serializeAppRoute(nextRoute);
+    setHistoryRestoreRoute(undefined);
+    if (window.location.hash === nextHash) {
+      window.history.replaceState(appRouteHistoryState(nextRoute), "", nextHash);
+      setRoute(nextRoute);
+      return;
+    }
+    window.history[replace ? "replaceState" : "pushState"](
+      appRouteHistoryState(nextRoute),
+      "",
+      nextHash,
+    );
+    setRoute(nextRoute);
+  };
+
   const changeTab = (tab: AppTab) => {
-    setActiveTab(tab);
-    const nextHash = `#/${tab}`;
-    if (window.location.hash !== nextHash) window.history.replaceState(null, "", nextHash);
+    if (tab === activeTab) return;
+    navigate({ tab });
   };
 
   const openMap = (mapKey?: string, questId?: string) => {
     if (mapKey) store.updateMapSettings({ lastMapKey: mapKey });
     setMapFocusQuestId(questId);
-    changeTab("map");
+    navigate({ tab: "map" });
   };
 
   const openQuest = (questId: string) => {
@@ -154,19 +202,43 @@ export function App() {
       setMapFocusQuestId(questId);
       return;
     }
-    setQuestFocusId(questId);
-    changeTab("quests");
+    navigate({ tab: "quests", questId }, false, "focus");
   };
 
   const openItem = (itemId: string) => {
-    setItemFocusId(itemId);
-    changeTab("items");
+    navigate({ tab: "items", itemId }, false, "focus");
   };
 
-  const openHideout = (stationId: string) => {
-    setHideoutFocusId(stationId);
-    changeTab("hideout");
+  const openHideout = (stationId: string, stationLevel?: number) => {
+    navigate({ tab: "hideout", stationId, stationLevel }, false, "focus");
   };
+
+  const selectQuestRoute = (questId: string, preserveFocus = false) => {
+    if (parseAppRoute(window.location.hash).tab !== "quests") return;
+    navigate({ tab: "quests", questId }, true, preserveFocus ? "focus" : "selection");
+  };
+
+  const selectItemRoute = (itemId: string, preserveFocus = false) => {
+    if (parseAppRoute(window.location.hash).tab !== "items") return;
+    navigate({ tab: "items", itemId }, true, preserveFocus ? "focus" : "selection");
+  };
+
+  const selectHideoutRoute = (
+    stationId: string,
+    stationLevel?: number,
+    preserveFocus = false,
+  ) => {
+    if (parseAppRoute(window.location.hash).tab !== "hideout") return;
+    navigate(
+      { tab: "hideout", stationId, stationLevel },
+      true,
+      preserveFocus ? "focus" : "selection",
+    );
+  };
+
+  const focusRequested =
+    route.navigationIntent === "focus" ||
+    historyRestoreRoute === serializeAppRoute(route);
 
   const handleLogFiles = async (files: File[]) => {
     if (!data || !files.length) return;
@@ -265,27 +337,31 @@ export function App() {
         return (
           <QuestsPage
             data={data}
-            focusQuestId={questFocusId}
+            focusQuestId={route.tab === "quests" ? route.questId : undefined}
+            focusRequested={focusRequested}
             onOpenItem={openItem}
             onOpenMap={openMap}
             onOpenQuest={openQuest}
-            onQuestFocusConsumed={() => setQuestFocusId(undefined)}
+            onQuestSelect={selectQuestRoute}
           />
         );
       case "hideout":
         return (
           <HideoutPage
             data={data}
-            focusStationId={hideoutFocusId}
-            onStationFocusConsumed={() => setHideoutFocusId(undefined)}
+            focusLevel={route.tab === "hideout" ? route.stationLevel : undefined}
+            focusRequested={focusRequested}
+            focusStationId={route.tab === "hideout" ? route.stationId : undefined}
+            onStationSelect={selectHideoutRoute}
           />
         );
       case "items":
         return (
           <ItemsPage
             data={data}
-            focusItemId={itemFocusId}
-            onItemFocusConsumed={() => setItemFocusId(undefined)}
+            focusItemId={route.tab === "items" ? route.itemId : undefined}
+            focusRequested={focusRequested}
+            onItemSelect={selectItemRoute}
             onOpenHideout={openHideout}
             onOpenQuest={openQuest}
           />

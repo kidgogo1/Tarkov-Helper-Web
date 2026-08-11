@@ -22,7 +22,14 @@ import type {
 
 interface HideoutPageProps {
   data: TarkovData;
+  focusLevel?: number;
+  focusRequested?: boolean;
   focusStationId?: string;
+  onStationSelect?: (
+    stationId: string,
+    level?: number,
+    preserveFocus?: boolean,
+  ) => void;
   onStationFocusConsumed?: () => void;
 }
 
@@ -65,37 +72,57 @@ function aggregateRemainingItems(
 
 export function HideoutPage({
   data,
+  focusLevel,
+  focusRequested: requestedFocus,
   focusStationId,
+  onStationSelect,
   onStationFocusConsumed,
 }: HideoutPageProps) {
+  const focusRequested = requestedFocus ?? Boolean(focusStationId);
   const { profile, setHideoutLevel, setInventory } = useAppStore();
   const [searchText, setSearchText] = useState("");
-  const [selectedId, setSelectedId] = useState(data.hideoutStations[0]?.id ?? "");
-  const [showAllRemaining, setShowAllRemaining] = useState(false);
   const focusedStation = data.hideoutStations.find(
     (station) => station.id === focusStationId || station.normalizedName === focusStationId,
   );
-  const [handledStationFocusId, setHandledStationFocusId] = useState(focusStationId);
+  const [selectedId, setSelectedId] = useState(
+    focusedStation?.id ?? data.hideoutStations[0]?.id ?? "",
+  );
+  const [showAllRemaining, setShowAllRemaining] = useState(false);
+  const focusKey = focusStationId
+    ? `${focusStationId}:${focusLevel ?? ""}:${focusRequested ? "focus" : "selection"}`
+    : undefined;
+  const [handledStationFocusKey, setHandledStationFocusKey] = useState(focusKey);
   const consumedStationFocusRef = useRef<string | undefined>(undefined);
+  const stationButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const focusedLevelRef = useRef<HTMLDivElement | null>(null);
 
-  if (focusStationId !== handledStationFocusId) {
-    setHandledStationFocusId(focusStationId);
-    if (focusedStation) {
-      setSearchText("");
-      setShowAllRemaining(false);
+  if (focusKey !== handledStationFocusKey) {
+    setHandledStationFocusKey(focusKey);
+    if (focusedStation && selectedId !== focusedStation.id) {
+      if (focusRequested) {
+        setSearchText("");
+        setShowAllRemaining(false);
+      }
       setSelectedId(focusedStation.id);
     }
   }
 
   useEffect(() => {
-    if (!focusStationId) {
+    if (!focusRequested || !focusKey) {
       consumedStationFocusRef.current = undefined;
       return;
     }
-    if (consumedStationFocusRef.current === focusStationId) return;
-    consumedStationFocusRef.current = focusStationId;
+    if (consumedStationFocusRef.current === focusKey) return;
+    consumedStationFocusRef.current = focusKey;
+    const stationButton = focusedStation
+      ? stationButtonRefs.current.get(focusedStation.id)
+      : undefined;
+    stationButton?.scrollIntoView?.({ block: "nearest" });
+    const focusTarget = focusedLevelRef.current ?? stationButton;
+    focusTarget?.scrollIntoView?.({ block: "nearest" });
+    focusTarget?.focus();
     onStationFocusConsumed?.();
-  }, [focusStationId, onStationFocusConsumed]);
+  }, [focusKey, focusRequested, focusedStation, onStationFocusConsumed]);
 
   const filteredStations = useMemo(() => {
     const needle = searchText.normalize("NFKC").trim().toLocaleLowerCase("ko-KR");
@@ -110,6 +137,28 @@ export function HideoutPage({
   const selected = data.hideoutStations.find((station) => station.id === selectedId)
     ?? filteredStations[0]
     ?? null;
+  const focusedLevel = selected?.id === focusedStation?.id
+    ? selected.levels.find((level) => level.level === focusLevel)
+    : undefined;
+
+  const selectedStationRouteId = selected?.id;
+  useEffect(() => {
+    const canonicalLevel = focusedLevel?.level;
+    const stationChanged = selectedStationRouteId !== focusStationId;
+    const levelChanged = focusRequested && canonicalLevel !== focusLevel;
+    if (selectedStationRouteId && (stationChanged || levelChanged)) {
+      const preserveFocus = focusRequested && focusedStation?.id === selectedStationRouteId;
+      onStationSelect?.(selectedStationRouteId, canonicalLevel, preserveFocus);
+    }
+  }, [
+    focusLevel,
+    focusRequested,
+    focusStationId,
+    focusedLevel?.level,
+    focusedStation?.id,
+    onStationSelect,
+    selectedStationRouteId,
+  ]);
 
   const statistics = useMemo(() => {
     let completed = 0;
@@ -129,7 +178,11 @@ export function HideoutPage({
   const visibleLevels = selected
     ? selected.levels.filter((level) => level.level > (profile.hideoutLevels[selected.id] ?? 0))
     : [];
-  const displayedLevels = showAllRemaining ? visibleLevels : visibleLevels.slice(0, 1);
+  const displayedLevels = focusRequested && focusedLevel
+    ? [focusedLevel]
+    : showAllRemaining
+      ? visibleLevels
+      : visibleLevels.slice(0, 1);
 
   return (
     <section className="tracker-page hideout-page" aria-labelledby="hideout-title">
@@ -166,7 +219,16 @@ export function HideoutPage({
                 <button
                   aria-pressed={selectedStation}
                   className="station-select ghost"
-                  onClick={() => setSelectedId(station.id)}
+                  onClick={() => {
+                    setHandledStationFocusKey(`${station.id}::selection`);
+                    setSelectedId(station.id);
+                    setShowAllRemaining(false);
+                    onStationSelect?.(station.id);
+                  }}
+                  ref={(element) => {
+                    if (element) stationButtonRefs.current.set(station.id, element);
+                    else stationButtonRefs.current.delete(station.id);
+                  }}
                   type="button"
                 >
                   <span className="station-icon">
@@ -212,28 +274,50 @@ export function HideoutPage({
                 </span>
               </header>
 
-              {visibleLevels.length ? (
+              {displayedLevels.length ? (
                 <>
-                  <div className="detail-mode-switch" role="group" aria-label="요구 사항 범위">
-                    <button
-                      aria-pressed={!showAllRemaining}
-                      className={!showAllRemaining ? "active" : ""}
-                      onClick={() => setShowAllRemaining(false)}
-                      type="button"
-                    >
-                      다음 레벨
-                    </button>
-                    <button
-                      aria-pressed={showAllRemaining}
-                      className={showAllRemaining ? "active" : ""}
-                      onClick={() => setShowAllRemaining(true)}
-                      type="button"
-                    >
-                      남은 전체
-                    </button>
-                  </div>
+                  {focusRequested && focusedLevel ? (
+                    <p className="detail-focus-note" role="status">
+                      아이템 출처에서 선택한 레벨 {focusedLevel.level} 요구 사항
+                    </p>
+                  ) : (
+                    <div className="detail-mode-switch" role="group" aria-label="요구 사항 범위">
+                      <button
+                        aria-pressed={!showAllRemaining}
+                        className={!showAllRemaining ? "active" : ""}
+                        onClick={() => setShowAllRemaining(false)}
+                        type="button"
+                      >
+                        다음 레벨
+                      </button>
+                      <button
+                        aria-pressed={showAllRemaining}
+                        className={showAllRemaining ? "active" : ""}
+                        onClick={() => setShowAllRemaining(true)}
+                        type="button"
+                      >
+                        남은 전체
+                      </button>
+                    </div>
+                  )}
                   <div className="requirements-scroll">
-                    {showAllRemaining ? (
+                    {focusRequested && focusedLevel ? (
+                      <div
+                        aria-labelledby={`hideout-level-${focusedLevel.id}`}
+                        ref={focusedLevelRef}
+                        role="region"
+                        tabIndex={-1}
+                      >
+                        <LevelRequirements
+                          data={data}
+                          headingId={`hideout-level-${focusedLevel.id}`}
+                          key={focusedLevel.id}
+                          level={focusedLevel}
+                          profile={profile}
+                          setInventory={setInventory}
+                        />
+                      </div>
+                    ) : showAllRemaining ? (
                       <>
                         <RemainingItemsSummary
                           data={data}
@@ -282,6 +366,7 @@ export function HideoutPage({
 
 interface LevelRequirementsProps {
   data: TarkovData;
+  headingId?: string;
   level: HideoutLevel;
   profile: ReturnType<typeof useAppStore>["profile"];
   setInventory: ReturnType<typeof useAppStore>["setInventory"];
@@ -290,6 +375,7 @@ interface LevelRequirementsProps {
 
 function LevelRequirements({
   data,
+  headingId,
   level,
   profile,
   setInventory,
@@ -298,7 +384,7 @@ function LevelRequirements({
   return (
     <section className="level-requirements">
       <header>
-        <h3>레벨 {level.level}</h3>
+        <h3 id={headingId}>레벨 {level.level}</h3>
         <span><Clock3 aria-hidden="true" size={14} /> {formatDuration(level.constructionTime)}</span>
       </header>
 
