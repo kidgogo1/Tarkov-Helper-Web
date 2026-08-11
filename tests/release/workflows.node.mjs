@@ -114,6 +114,11 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /externalAttributes != 0x81a40000U/);
   assert.match(signJob, /Explicit directory entries are not allowed/);
   assert.match(signJob, /Required Direct ZIP entry is missing/);
+  assert.match(signJob, /TarkovHelper\.ico/);
+  assert.match(signJob, /start-menu\.ps1/);
+  assert.match(signJob, /Tarkov Helper 실행\.vbs/);
+  assert.match(signJob, /Tarkov Helper 시작 메뉴 등록\.vbs/);
+  assert.match(signJob, /Tarkov Helper 시작 메뉴 제거\.vbs/);
   assert.match(signJob, /ZIP report exceeds client unpacked bounds/);
   assert.match(signJob, /UPDATE_CONFIG\.json/);
   assert.match(publishJob, /releases\/\$releaseId/);
@@ -165,6 +170,11 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     await writeFile(path.join(input, "launcher.ps1"), "fixture\n");
     await writeFile(path.join(input, "app-update-worker.ps1"), "fixture\n");
     await writeFile(path.join(input, "app-update-broker.ps1"), "fixture\n");
+    await writeFile(path.join(input, "TarkovHelper.ico"), "fixture\n");
+    await writeFile(path.join(input, "start-menu.ps1"), "fixture\n");
+    await writeFile(path.join(input, "Tarkov Helper 실행.vbs"), "fixture\n");
+    await writeFile(path.join(input, "Tarkov Helper 시작 메뉴 등록.vbs"), "fixture\n");
+    await writeFile(path.join(input, "Tarkov Helper 시작 메뉴 제거.vbs"), "fixture\n");
     await writeFile(path.join(input, "PACKAGE_INFO.txt"), "fixture\n");
     await writeFile(path.join(input, "UPDATE_CONFIG.json"), "{}\n");
     await writeFile(path.join(input, "app", "version.json"), "{}\n");
@@ -201,7 +211,7 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     const valid = validate();
     assert.equal(valid.status, 0, `${valid.stdout}\n${valid.stderr}`);
     const report = JSON.parse(valid.stdout);
-    assert.equal(report.fileCount, 8);
+    assert.equal(report.fileCount, 13);
     assert.equal(report.appFileCount, 2);
     assert.equal(report.bytes, expectedFiles.reduce((total, file) => total + file.size, 0));
     assert.equal(report.appBytes, expectedAppFiles.reduce((total, file) => total + file.size, 0));

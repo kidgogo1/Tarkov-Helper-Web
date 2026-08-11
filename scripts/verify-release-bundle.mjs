@@ -167,7 +167,19 @@ function verifyDirectArchive(archive, rootDirectory, context, config, signing, u
   if (packageInfo.appFiles !== appFiles.length) throw new Error("Direct PACKAGE_INFO app file count mismatch");
   if (packageInfo.appBytes !== appBytes) throw new Error("Direct PACKAGE_INFO app byte count mismatch");
   if (packageInfo.appTreeSha256 !== appTreeSha256) throw new Error("Direct PACKAGE_INFO app tree SHA-256 mismatch");
-  for (const filename of [config.updater.configFile, "app/version.json", "app-update-worker.ps1", "app-update-broker.ps1"]) {
+  for (const filename of [
+    config.updater.configFile,
+    "app/index.html",
+    "app/version.json",
+    "launcher.ps1",
+    "app-update-worker.ps1",
+    "app-update-broker.ps1",
+    "TarkovHelper.ico",
+    "start-menu.ps1",
+    "Tarkov Helper 실행.vbs",
+    "Tarkov Helper 시작 메뉴 등록.vbs",
+    "Tarkov Helper 시작 메뉴 제거.vbs",
+  ]) {
     requireArchiveFile(files, filename, "Direct archive");
   }
   const versionDocument = parseStrictJson(

@@ -18,6 +18,13 @@ const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const launcherPath = path.join(projectRoot, "portable", "launcher.ps1");
 const workerPath = path.join(projectRoot, "portable", "app-update-worker.ps1");
 const brokerPath = path.join(projectRoot, "portable", "app-update-broker.ps1");
+const requiredPortableFiles = [
+  "TarkovHelper.ico",
+  "start-menu.ps1",
+  "Tarkov Helper 실행.vbs",
+  "Tarkov Helper 시작 메뉴 등록.vbs",
+  "Tarkov Helper 시작 메뉴 제거.vbs",
+];
 const powershell = "powershell.exe";
 const repository = "example-owner/example-repository";
 const oldCommit = "1".repeat(40);
@@ -174,6 +181,7 @@ async function writeDirectPackage(root, { version, commit, updateConfig, extraFi
     copyFile(launcherPath, path.join(root, "launcher.ps1")),
     copyFile(workerPath, path.join(root, "app-update-worker.ps1")),
     copyFile(brokerPath, path.join(root, "app-update-broker.ps1")),
+    ...requiredPortableFiles.map((filename) => copyFile(path.join(projectRoot, "portable", filename), path.join(root, filename))),
   ]);
   await writeFile(path.join(root, "UPDATE_CONFIG.json"), `${JSON.stringify(updateConfig, null, 2)}\n`, "utf8");
   await writeFile(path.join(root, "app", "index.html"), `<!doctype html><title>Updater ${version}</title>`, "utf8");

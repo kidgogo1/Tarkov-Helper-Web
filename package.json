@@ -21,7 +21,7 @@
     "release:verify": "node scripts/verify-release-bundle.mjs",
     "test": "vitest",
     "test:release": "node --test tests/release/assert-release-version.node.mjs tests/release/archive-security.node.mjs tests/release/bundle.node.mjs tests/release/workflows.node.mjs",
-    "test:portable": "pnpm build && node --test tests/portable/launcher.node.mjs tests/portable/lifecycle.node.mjs tests/portable/overlay.node.mjs tests/portable/package.node.mjs tests/portable/prices.node.mjs tests/portable/tracker.node.mjs tests/portable/update.node.mjs",
+    "test:portable": "pnpm build && node --test tests/portable/launcher.node.mjs tests/portable/lifecycle.node.mjs tests/portable/overlay.node.mjs tests/portable/package.node.mjs tests/portable/prices.node.mjs tests/portable/start-menu.node.mjs tests/portable/tracker.node.mjs tests/portable/update.node.mjs",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "preview": "vite preview",

@@ -69,6 +69,9 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.equal((await stat(path.join(output, "app-update-broker.ps1"))).isFile(), true);
     assert.equal((await stat(path.join(output, "TarkovHelper.ico"))).isFile(), true);
     assert.deepEqual(await readIconSizes(path.join(output, "TarkovHelper.ico")), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
+    assert.equal((await stat(path.join(output, "start-menu.ps1"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "Tarkov Helper 시작 메뉴 등록.vbs"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "Tarkov Helper 시작 메뉴 제거.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "UPDATE_CONFIG.json"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 실행.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 종료.vbs"))).isFile(), true);
@@ -98,6 +101,9 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.match(versionDocument.commit, /^[0-9a-f]{40}$/);
     assert.equal(versionDocument.updaterProtocolVersion, 1);
     const guide = await readFile(path.join(output, "사용 안내.txt"), "utf8");
+    assert.match(guide, /시작 메뉴/);
+    assert.match(guide, /등록/);
+    assert.match(guide, /제거/);
     assert.match(guide, /실행\.vbs/);
     assert.match(guide, /종료\.vbs/);
     assert.match(guide, /백그라운드/);

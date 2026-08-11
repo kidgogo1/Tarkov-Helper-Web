@@ -1174,7 +1174,7 @@ function Assert-InternalChecksums {
 
 function Assert-StagedPackage {
     param([string]$StageRoot, [object]$Manifest, [object]$CurrentConfiguration)
-    foreach ($required in @("launcher.ps1", "app-update-worker.ps1", "app-update-broker.ps1", "UPDATE_CONFIG.json", "PACKAGE_INFO.txt", "SHA256SUMS.txt", "app\index.html", "app\version.json")) {
+    foreach ($required in @("launcher.ps1", "app-update-worker.ps1", "app-update-broker.ps1", "TarkovHelper.ico", "start-menu.ps1", "Tarkov Helper 실행.vbs", "Tarkov Helper 시작 메뉴 등록.vbs", "Tarkov Helper 시작 메뉴 제거.vbs", "UPDATE_CONFIG.json", "PACKAGE_INFO.txt", "SHA256SUMS.txt", "app\index.html", "app\version.json")) {
         if (-not [IO.File]::Exists((Join-Path $StageRoot $required))) { throw [IO.InvalidDataException]::new("The staged package is missing a required file.") }
     }
     Assert-InternalChecksums -StageRoot $StageRoot

@@ -66,6 +66,11 @@ async function createFixture() {
   await writeFile(path.join(direct, "app", "index.html"), "<!doctype html><title>fixture</title>\n");
   await writeFile(path.join(direct, "app", "data", "tarkov-data.json"), "{}\n");
   await writeFile(path.join(direct, "launcher.ps1"), "Write-Output 'fixture'\n");
+  await writeFile(path.join(direct, "TarkovHelper.ico"), "fixture icon\n");
+  await writeFile(path.join(direct, "start-menu.ps1"), "# fixture Start menu tool\n");
+  await writeFile(path.join(direct, "Tarkov Helper 실행.vbs"), "' fixture launcher\n");
+  await writeFile(path.join(direct, "Tarkov Helper 시작 메뉴 등록.vbs"), "' fixture registration\n");
+  await writeFile(path.join(direct, "Tarkov Helper 시작 메뉴 제거.vbs"), "' fixture removal\n");
 
   const appFiles = await collect(path.join(direct, "app"));
   const appManifest = sums(appFiles);

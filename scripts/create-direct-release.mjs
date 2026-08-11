@@ -96,6 +96,9 @@ await requireFile(path.join(portableDirectory, "launcher.ps1"));
 await requireFile(path.join(portableDirectory, "app-update-worker.ps1"));
 await requireFile(path.join(portableDirectory, "app-update-broker.ps1"));
 await requireFile(path.join(portableDirectory, "TarkovHelper.ico"));
+await requireFile(path.join(portableDirectory, "start-menu.ps1"));
+await requireFile(path.join(portableDirectory, "Tarkov Helper 시작 메뉴 등록.vbs"));
+await requireFile(path.join(portableDirectory, "Tarkov Helper 시작 메뉴 제거.vbs"));
 await requireFile(path.join(portableDirectory, "Tarkov Helper 실행.vbs"));
 await requireFile(path.join(portableDirectory, "Tarkov Helper 종료.vbs"));
 await requireFile(path.join(portableDirectory, "문제 해결용 실행.cmd"));
@@ -121,6 +124,9 @@ try {
     "app-update-worker.ps1",
     "app-update-broker.ps1",
     "TarkovHelper.ico",
+    "start-menu.ps1",
+    "Tarkov Helper 시작 메뉴 등록.vbs",
+    "Tarkov Helper 시작 메뉴 제거.vbs",
     "Tarkov Helper 실행.vbs",
     "Tarkov Helper 종료.vbs",
     "문제 해결용 실행.cmd",
