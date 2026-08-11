@@ -15,7 +15,10 @@ Set-StrictMode -Version 2.0
 $ownershipMarker = "TarkovHelperWeb.StartMenu.v1"
 $shortcutName = "Tarkov Helper.lnk"
 $launcherName = "Tarkov Helper $([char]0xC2E4)$([char]0xD589).vbs"
+$portableLauncherName = "launcher.ps1"
 $iconName = "TarkovHelper.ico"
+$shortcutWorkingDirectory = "%LOCALAPPDATA%"
+$shortcutIconLocation = "%LOCALAPPDATA%\TarkovHelperWeb\StartMenu\TarkovHelper.ico"
 
 if (-not ("TarkovHelper.StartMenu.ShellLink" -as [type])) {
     $shellLinkSource = @'
@@ -253,6 +256,70 @@ function Test-PathEqual {
     return [string]::Equals($Left, $Right, [StringComparison]::OrdinalIgnoreCase)
 }
 
+function Get-FileSha256 {
+    param([string]$Path)
+    $stream = $null
+    $algorithm = $null
+    try {
+        $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $algorithm = [Security.Cryptography.SHA256]::Create()
+        return [Convert]::ToBase64String($algorithm.ComputeHash($stream))
+    } finally {
+        if ($null -ne $algorithm) { $algorithm.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Assert-FilesEqual {
+    param([string]$ActualPath, [string]$ExpectedPath)
+    $actual = Get-FileSha256 $ActualPath
+    $expected = Get-FileSha256 $ExpectedPath
+    if ($actual -cne $expected) {
+        throw [IO.InvalidDataException]::new("The cached Start menu icon did not pass verification.")
+    }
+}
+
+function Install-CachedIcon {
+    param([string]$SourcePath, [string]$DestinationPath)
+    $destinationDirectory = [IO.Path]::GetDirectoryName($DestinationPath)
+    [IO.Directory]::CreateDirectory($destinationDirectory) | Out-Null
+    $temporaryIconPath = Join-Path $destinationDirectory ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".tmp.ico")
+    $backupIconPath = Join-Path $destinationDirectory ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".bak")
+    $replacementCompleted = $false
+    $installationCompleted = $false
+    try {
+        [IO.File]::Copy($SourcePath, $temporaryIconPath, $false)
+        Assert-FilesEqual $temporaryIconPath $SourcePath
+        if ([IO.File]::Exists($DestinationPath)) {
+            [IO.File]::Replace($temporaryIconPath, $DestinationPath, $backupIconPath, $true)
+            $replacementCompleted = $true
+        } else {
+            [IO.File]::Move($temporaryIconPath, $DestinationPath)
+        }
+        try {
+            Assert-FilesEqual $DestinationPath $SourcePath
+        } catch {
+            if ($replacementCompleted -and [IO.File]::Exists($backupIconPath)) {
+                try {
+                    [IO.File]::Replace($backupIconPath, $DestinationPath, $temporaryIconPath, $true)
+                    $replacementCompleted = $false
+                } catch { }
+            } elseif ([IO.File]::Exists($DestinationPath)) {
+                try { [IO.File]::Delete($DestinationPath) } catch { }
+            }
+            throw
+        }
+        $installationCompleted = $true
+    } finally {
+        if ([IO.File]::Exists($temporaryIconPath)) {
+            try { [IO.File]::Delete($temporaryIconPath) } catch { }
+        }
+        if ($installationCompleted -and [IO.File]::Exists($backupIconPath)) {
+            try { [IO.File]::Delete($backupIconPath) } catch { }
+        }
+    }
+}
+
 function Assert-ShortcutProperties {
     param(
         [string]$Path,
@@ -295,7 +362,9 @@ if ($Action -ceq "Inspect") {
 
 $packageDirectory = Get-FullPath $PackageRoot "PackageRoot"
 $programsDirectoryPath = Get-FullPath $ProgramsDirectory "ProgramsDirectory"
-$shortcutWorkingDirectory = Get-FullPath $env:LOCALAPPDATA "LocalAppData"
+$localAppDataDirectory = Get-FullPath $env:LOCALAPPDATA "LocalAppData"
+$cachedIconDirectory = Join-Path $localAppDataDirectory "TarkovHelperWeb\StartMenu"
+$cachedIconPath = Join-Path $cachedIconDirectory $iconName
 $shortcutPath = Join-Path $programsDirectoryPath $shortcutName
 
 if ($Action -ceq "Unregister") {
@@ -310,9 +379,13 @@ if ($Action -ceq "Unregister") {
 }
 
 $launcherPath = Join-Path $packageDirectory $launcherName
+$portableLauncherPath = Join-Path $packageDirectory $portableLauncherName
 $iconPath = Join-Path $packageDirectory $iconName
 if (-not [IO.File]::Exists($launcherPath)) {
     throw [IO.FileNotFoundException]::new("The Tarkov Helper launcher is missing.", $launcherPath)
+}
+if (-not [IO.File]::Exists($portableLauncherPath)) {
+    throw [IO.FileNotFoundException]::new("The Tarkov Helper portable launcher is missing.", $portableLauncherPath)
 }
 if (-not [IO.File]::Exists($iconPath)) {
     throw [IO.FileNotFoundException]::new("The Tarkov Helper icon is missing.", $iconPath)
@@ -324,12 +397,24 @@ if (-not [IO.File]::Exists($wscriptPath)) {
     throw [IO.FileNotFoundException]::new("Windows Script Host is unavailable.", $wscriptPath)
 }
 
-$arguments = '//Nologo "' + $launcherPath + '"'
+$powerShellPath = Join-Path $windowsDirectory "System32\WindowsPowerShell\v1.0\powershell.exe"
+if (-not [IO.File]::Exists($powerShellPath)) {
+    throw [IO.FileNotFoundException]::new("Windows PowerShell is unavailable.", $powerShellPath)
+}
+
+$encodedLauncherPath = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($launcherPath))
+$launchCommand = '$launcherPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''' + $encodedLauncherPath + ''')); & ([IO.Path]::Combine($env:SystemRoot, ''System32\wscript.exe'')) //Nologo $launcherPath; exit $LASTEXITCODE'
+$encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($launchCommand))
+$arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $encodedCommand"
+if ($arguments.Length -ge 32767 -or $arguments -cnotmatch '^[\x20-\x7E]+$' -or $arguments.Contains($launcherPath)) {
+    throw [IO.InvalidDataException]::new("The encoded Start menu command is invalid or too long.")
+}
 
 if ([IO.File]::Exists($shortcutPath)) {
     [void](Assert-OwnedShortcut $shortcutPath)
 }
 
+[void](Install-CachedIcon $iconPath $cachedIconPath)
 [IO.Directory]::CreateDirectory($programsDirectoryPath) | Out-Null
 $temporaryPath = Join-Path $programsDirectoryPath ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".tmp.lnk")
 $backupPath = Join-Path $programsDirectoryPath ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".bak")
@@ -338,14 +423,14 @@ $registrationCompleted = $false
 try {
     [TarkovHelper.StartMenu.ShellLink]::Create(
         $temporaryPath,
-        $wscriptPath,
+        $powerShellPath,
         $arguments,
         $shortcutWorkingDirectory,
-        $iconPath,
+        $shortcutIconLocation,
         0,
         $ownershipMarker
     )
-    Assert-ShortcutProperties $temporaryPath $wscriptPath $arguments $shortcutWorkingDirectory $iconPath
+    Assert-ShortcutProperties $temporaryPath $powerShellPath $arguments $shortcutWorkingDirectory $shortcutIconLocation
     if ([IO.File]::Exists($shortcutPath)) {
         [void](Assert-OwnedShortcut $shortcutPath)
         [IO.File]::Replace($temporaryPath, $shortcutPath, $backupPath, $true)
@@ -354,7 +439,7 @@ try {
         [IO.File]::Move($temporaryPath, $shortcutPath)
     }
     try {
-        Assert-ShortcutProperties $shortcutPath $wscriptPath $arguments $shortcutWorkingDirectory $iconPath
+        Assert-ShortcutProperties $shortcutPath $powerShellPath $arguments $shortcutWorkingDirectory $shortcutIconLocation
     } catch {
         if ($replacementCompleted -and [IO.File]::Exists($backupPath)) {
             try {

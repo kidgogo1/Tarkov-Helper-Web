@@ -36,6 +36,8 @@ If exitCode <> 0 Then
     MsgBox "Tarkov Helper could not start. Run the diagnostic launcher for details.", 16, "Tarkov Helper"
 End If
 
+WScript.Quit exitCode
+
 Function Quote(value)
     Quote = Chr(34) & value & Chr(34)
 End Function

@@ -31,7 +31,7 @@ function runPowerShell(script, args = [], options = {}) {
   });
 }
 
-function runStartMenu(action, packageRoot, programsDirectory) {
+function runStartMenu(action, packageRoot, programsDirectory, options = {}) {
   return runPowerShell(startMenuScript, [
     "-Action",
     action,
@@ -39,13 +39,61 @@ function runStartMenu(action, packageRoot, programsDirectory) {
     packageRoot,
     "-ProgramsDirectory",
     programsDirectory,
-  ]);
+  ], options);
+}
+
+function runShortcut(shortcutPath, options = {}) {
+  return spawnSync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$process = Start-Process -FilePath $env:TARKOV_HELPER_TEST_SHORTCUT -PassThru -Wait; exit $process.ExitCode",
+  ], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    env: { ...process.env, ...options.env, TARKOV_HELPER_TEST_SHORTCUT: shortcutPath },
+    timeout: 15_000,
+    windowsHide: true,
+  });
+}
+
+function spawnShortcut(shortcutPath, options = {}) {
+  return spawn("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$process = Start-Process -FilePath $env:TARKOV_HELPER_TEST_SHORTCUT -PassThru -Wait; exit $process.ExitCode",
+  ], {
+    cwd: projectRoot,
+    env: { ...process.env, ...options.env, TARKOV_HELPER_TEST_SHORTCUT: shortcutPath },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+}
+
+async function waitForChildExit(child, timeoutMs) {
+  if (child.exitCode !== null) return child.exitCode;
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`Process ${child.pid} did not exit in time`)), timeoutMs);
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
 }
 
 async function makePackage(parent, leaf) {
   const packageRoot = path.join(parent, leaf);
   await mkdir(packageRoot, { recursive: true });
-  await writeFile(path.join(packageRoot, launcherName), "' test launcher\r\n", "utf8");
+  await copyFile(path.join(portableRoot, launcherName), path.join(packageRoot, launcherName));
+  await writeFile(path.join(packageRoot, "launcher.ps1"), String.raw`param([ValidateSet("Start", "Stop")][string]$Action)
+if (-not [string]::IsNullOrWhiteSpace($env:TARKOV_HELPER_TEST_MARKER)) {
+  [IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_MARKER, $PSScriptRoot, [Text.Encoding]::UTF8)
+}
+exit 0
+`, "utf8");
   await copyFile(iconPath, path.join(packageRoot, "TarkovHelper.ico"));
   return packageRoot;
 }
@@ -72,15 +120,13 @@ async function assertSamePath(actual, expected) {
 }
 
 async function assertLauncherArguments(actual, expectedLauncherPath) {
-  const match = /^\/\/Nologo "([^"]+)"$/.exec(actual);
-  assert.ok(match, `Unexpected shortcut arguments: ${actual}`);
-  await assertSamePath(match[1], expectedLauncherPath);
-}
-
-async function assertIconLocation(actual, expectedIconPath) {
-  const match = /^(.*),0$/.exec(actual);
-  assert.ok(match, `Unexpected shortcut icon location: ${actual}`);
-  await assertSamePath(match[1], expectedIconPath);
+  const encodedLauncherPath = Buffer.from(expectedLauncherPath, "utf8").toString("base64");
+  const command = `$launcherPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedLauncherPath}')); & ([IO.Path]::Combine($env:SystemRoot, 'System32\\wscript.exe')) //Nologo $launcherPath; exit $LASTEXITCODE`;
+  const encodedCommand = Buffer.from(command, "utf16le").toString("base64");
+  const expected = `-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${encodedCommand}`;
+  assert.equal(actual, expected);
+  assert.match(actual, /^[\x20-\x7e]+$/);
+  assert.equal(actual.includes(expectedLauncherPath), false);
 }
 
 async function assertNoStartMenuTemporaryFiles(programsDirectory) {
@@ -106,43 +152,62 @@ async function shortcutProperties(shortcutPath) {
 test("registers, verifies, retargets, and removes an owned per-user Start shortcut", async () => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-start-menu-"));
   const programsDirectory = path.join(temporaryRoot, "Programs 임시 % 폴더");
+  const localAppData = path.join(temporaryRoot, "Local App Data %TEMP%, 한글");
+  const processOptions = { env: { LOCALAPPDATA: localAppData } };
   const packageA = await makePackage(temporaryRoot, "패키지 A %TEMP%, 테스트");
   const packageB = await makePackage(temporaryRoot, "패키지 B (새 위치)");
   const shortcutPath = path.join(programsDirectory, shortcutName);
 
   try {
-    const first = runStartMenu("Register", packageA, programsDirectory);
+    const first = runStartMenu("Register", packageA, programsDirectory, processOptions);
     assert.equal(first.status, 0, outputOf(first));
     await assertNoStartMenuTemporaryFiles(programsDirectory);
     await assertUnicodeShellLink(shortcutPath);
     assert.equal((await stat(shortcutPath)).isFile(), true);
 
-    const expectedTarget = path.join(process.env.SystemRoot, "System32", "wscript.exe");
+    const expectedTarget = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
     const firstProperties = await shortcutProperties(shortcutPath);
     await assertSamePath(firstProperties.TargetPath, expectedTarget);
     await assertLauncherArguments(firstProperties.Arguments, path.join(packageA, launcherName));
-    await assertSamePath(firstProperties.WorkingDirectory, process.env.LOCALAPPDATA);
-    await assertIconLocation(firstProperties.IconLocation, path.join(packageA, "TarkovHelper.ico"));
+    assert.equal(firstProperties.WorkingDirectory.toUpperCase(), "%LOCALAPPDATA%");
+    assert.equal(
+      firstProperties.IconLocation.toUpperCase(),
+      "%LOCALAPPDATA%\\TARKOVHELPERWEB\\STARTMENU\\TARKOVHELPER.ICO,0",
+    );
     assert.equal(firstProperties.Description, ownershipMarker);
+    assert.deepEqual(
+      await readFile(path.join(localAppData, "TarkovHelperWeb", "StartMenu", "TarkovHelper.ico")),
+      await readFile(iconPath),
+    );
 
-    const repeated = runStartMenu("Register", packageA, programsDirectory);
+    const firstMarker = path.join(temporaryRoot, "first-shortcut.marker");
+    const activated = runShortcut(shortcutPath, {
+      env: { ...processOptions.env, TARKOV_HELPER_TEST_MARKER: firstMarker },
+    });
+    assert.equal(activated.status, 0, outputOf(activated));
+    await assertSamePath((await readFile(firstMarker, "utf8")).replace(/^\uFEFF/, ""), packageA);
+
+    const repeated = runStartMenu("Register", packageA, programsDirectory, processOptions);
     assert.equal(repeated.status, 0, outputOf(repeated));
     await assertNoStartMenuTemporaryFiles(programsDirectory);
     await assertSamePath((await shortcutProperties(shortcutPath)).TargetPath, expectedTarget);
 
-    const retargeted = runStartMenu("Register", packageB, programsDirectory);
+    const retargeted = runStartMenu("Register", packageB, programsDirectory, processOptions);
     assert.equal(retargeted.status, 0, outputOf(retargeted));
     await assertNoStartMenuTemporaryFiles(programsDirectory);
     const movedProperties = await shortcutProperties(shortcutPath);
     await assertLauncherArguments(movedProperties.Arguments, path.join(packageB, launcherName));
-    await assertSamePath(movedProperties.WorkingDirectory, process.env.LOCALAPPDATA);
-    await assertIconLocation(movedProperties.IconLocation, path.join(packageB, "TarkovHelper.ico"));
+    assert.equal(movedProperties.WorkingDirectory.toUpperCase(), "%LOCALAPPDATA%");
+    assert.equal(
+      movedProperties.IconLocation.toUpperCase(),
+      "%LOCALAPPDATA%\\TARKOVHELPERWEB\\STARTMENU\\TARKOVHELPER.ICO,0",
+    );
 
-    const removed = runStartMenu("Unregister", packageB, programsDirectory);
+    const removed = runStartMenu("Unregister", packageB, programsDirectory, processOptions);
     assert.equal(removed.status, 0, outputOf(removed));
     await assert.rejects(stat(shortcutPath), { code: "ENOENT" });
 
-    const repeatedRemoval = runStartMenu("Unregister", packageB, programsDirectory);
+    const repeatedRemoval = runStartMenu("Unregister", packageB, programsDirectory, processOptions);
     assert.equal(repeatedRemoval.status, 0, outputOf(repeatedRemoval));
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
@@ -195,6 +260,7 @@ test("fails before mutation when launcher or icon is missing", async () => {
     await assert.rejects(stat(shortcutPath), { code: "ENOENT" });
 
     await writeFile(path.join(packageRoot, launcherName), "' test launcher\r\n", "utf8");
+    await writeFile(path.join(packageRoot, "launcher.ps1"), "param([string]$Action)\r\nexit 0\r\n", "utf8");
     const withoutIcon = runStartMenu("Register", packageRoot, programsDirectory);
     assert.notEqual(withoutIcon.status, 0);
     await assert.rejects(stat(shortcutPath), { code: "ENOENT" });
@@ -257,6 +323,54 @@ exit 0
       await assertSamePath(recordedRoot, packageRoot);
     }
   } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("an activated Start shortcut does not hold the package directory during a live swap", {
+  skip: process.platform !== "win32",
+  timeout: 20_000,
+}, async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-shortcut-swap-"));
+  const programsDirectory = path.join(temporaryRoot, "Programs 한글 % 폴더");
+  const localAppData = path.join(temporaryRoot, "Local App Data %TEMP%, 한글");
+  const packageRoot = await makePackage(temporaryRoot, "패키지 %TEMP%, 실행 중");
+  const movedRoot = path.join(temporaryRoot, "패키지 교체 완료");
+  const markerPath = path.join(temporaryRoot, "shortcut-ready.txt");
+  const shortcutPath = path.join(programsDirectory, shortcutName);
+  let child;
+  try {
+    await writeFile(path.join(packageRoot, "launcher.ps1"), String.raw`param([ValidateSet("Start", "Stop")][string]$Action)
+[IO.File]::WriteAllText($env:TARKOV_HELPER_TEST_MARKER, $PSScriptRoot, [Text.Encoding]::UTF8)
+Start-Sleep -Seconds 5
+exit 0
+`, "utf8");
+    const registration = runStartMenu("Register", packageRoot, programsDirectory, {
+      env: { LOCALAPPDATA: localAppData },
+    });
+    assert.equal(registration.status, 0, outputOf(registration));
+
+    child = spawnShortcut(shortcutPath, {
+      env: { LOCALAPPDATA: localAppData, TARKOV_HELPER_TEST_MARKER: markerPath },
+    });
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await stat(markerPath);
+        break;
+      } catch (error) {
+        if (error?.code !== "ENOENT" || attempt === 99) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
+    const recordedRoot = (await readFile(markerPath, "utf8")).replace(/^\uFEFF/, "");
+    assert.equal(path.resolve(recordedRoot).toLowerCase(), path.resolve(packageRoot).toLowerCase());
+    await rename(packageRoot, movedRoot);
+    assert.equal(await waitForChildExit(child, 10_000), 0);
+  } finally {
+    if (child?.exitCode === null) {
+      spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
+    }
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
