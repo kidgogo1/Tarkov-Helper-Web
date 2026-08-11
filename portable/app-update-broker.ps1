@@ -26,6 +26,18 @@ $script:testMoveFailuresRemaining = 0
 if ([int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_MOVE_FAILURES, [ref]$script:testMoveFailuresRemaining) -and $script:testMoveFailuresRemaining -lt 0) {
     $script:testMoveFailuresRemaining = 0
 }
+$script:testBackupDeleteFailuresRemaining = 0
+if ([int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_BACKUP_DELETE_FAILURES, [ref]$script:testBackupDeleteFailuresRemaining) -and $script:testBackupDeleteFailuresRemaining -lt 0) {
+    $script:testBackupDeleteFailuresRemaining = 0
+}
+$script:backupDeleteRetryDelayMilliseconds = 125
+$parsedBackupDeleteRetryDelayMilliseconds = 0
+if (
+    [int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_BACKUP_DELETE_RETRY_DELAY_MS, [ref]$parsedBackupDeleteRetryDelayMilliseconds) -and
+    $parsedBackupDeleteRetryDelayMilliseconds -ge 0 -and $parsedBackupDeleteRetryDelayMilliseconds -le 5000
+) {
+    $script:backupDeleteRetryDelayMilliseconds = $parsedBackupDeleteRetryDelayMilliseconds
+}
 
 $treeVerifierSource = @'
 using System;
@@ -247,6 +259,24 @@ function Write-Status {
     Write-AtomicJson -Path (Get-StatusPath) -Value $Value
 }
 
+function Test-CommittedUpdateStatus {
+    param([object]$Plan)
+    $path = Get-StatusPath
+    if (-not [IO.File]::Exists($path)) { return $false }
+    try {
+        $status = Read-BoundedJson -Path $path -MaximumBytes 65536
+        Assert-ExactObject -Value $status -Properties @("state", "currentVersion", "previousVersion", "updatedAt") -Label "committed update status"
+        return (
+            $status.state -ceq "UPDATED" -and
+            $status.currentVersion -ceq [string]$Plan.latestVersion -and
+            $status.previousVersion -ceq [string]$Plan.currentVersion -and
+            $status.updatedAt -is [string] -and $status.updatedAt -match '^\d{4}-\d{2}-\d{2}T'
+        )
+    } catch {
+        return $false
+    }
+}
+
 function Write-BrokerLog {
     param([string]$Message)
     try {
@@ -289,6 +319,126 @@ function Remove-SafeTree {
     if (-not [IO.Directory]::Exists($Path)) { return }
     if (-not (Test-SafeSibling -Candidate $Path -Parent $Parent -Pattern $Pattern) -or ([IO.File]::GetAttributes($Path) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("Refusing to remove an unowned update directory.") }
     [IO.Directory]::Delete([IO.Path]::GetFullPath($Path), $true)
+}
+
+function Get-CommittedCleanupContext {
+    param([object]$Plan, [string]$BackupRoot)
+    $package = [IO.Path]::GetFullPath([string]$Plan.packageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $parent = Split-Path -Parent $package
+    $leaf = [IO.Path]::GetFileName($package)
+    $escapedLeaf = [Regex]::Escape($leaf)
+    $expectedBackup = Join-Path $parent ("." + $leaf + ".update-backup")
+    if (-not ([IO.Path]::GetFullPath($BackupRoot)).Equals([IO.Path]::GetFullPath($expectedBackup), [StringComparison]::OrdinalIgnoreCase)) {
+        throw [Security.SecurityException]::new("The committed rollback path is not the exact package sibling.")
+    }
+    if (([IO.File]::GetAttributes($parent) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw [IO.IOException]::new("The committed rollback parent is unsafe.")
+    }
+    return [pscustomobject]@{
+        Parent = $parent
+        EscapedLeaf = $escapedLeaf
+        BackupRoot = [IO.Path]::GetFullPath($expectedBackup)
+        CleanupRoot = Join-Path $parent ("." + $leaf + ".update-cleanup-" + [string]$Plan.candidateId)
+        BackupPattern = "^\." + $escapedLeaf + "\.update-backup$"
+        CleanupPattern = "^\." + $escapedLeaf + "\.update-cleanup-[A-Za-z0-9_-]{40,64}$"
+    }
+}
+
+function Assert-OwnedRollbackBackup {
+    param([object]$Plan, [object]$Context)
+    if (-not [IO.Directory]::Exists([string]$Context.BackupRoot)) { return $false }
+    if (
+        -not (Test-SafeSibling -Candidate ([string]$Context.BackupRoot) -Parent ([string]$Context.Parent) -Pattern ([string]$Context.BackupPattern)) -or
+        ([IO.File]::GetAttributes([string]$Context.BackupRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    ) {
+        throw [IO.IOException]::new("Refusing to clean an unsafe rollback package.")
+    }
+    $identity = Get-VersionDocument ([string]$Context.BackupRoot)
+    if ($identity.version -cne [string]$Plan.currentVersion -or $identity.commit -cne [string]$Plan.currentCommit) {
+        throw [IO.InvalidDataException]::new("The committed rollback package identity is invalid.")
+    }
+    return $true
+}
+
+function Set-SafeTreeHidden {
+    param([string]$Path, [string]$Parent, [string]$Pattern)
+    if (-not [IO.Directory]::Exists($Path)) { return }
+    if (
+        -not (Test-SafeSibling -Candidate $Path -Parent $Parent -Pattern $Pattern) -or
+        ([IO.File]::GetAttributes($Path) -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    ) {
+        throw [IO.IOException]::new("Refusing to hide an unsafe update directory.")
+    }
+    $attributes = [IO.File]::GetAttributes($Path)
+    [IO.File]::SetAttributes($Path, ($attributes -bor [IO.FileAttributes]::Hidden))
+}
+
+function Remove-CommittedRollbackTree {
+    param([object]$Plan, [string]$BackupRoot)
+    $context = Get-CommittedCleanupContext -Plan $Plan -BackupRoot $BackupRoot
+    if ([IO.File]::Exists([string]$context.BackupRoot) -or [IO.File]::Exists([string]$context.CleanupRoot)) {
+        throw [IO.IOException]::new("A committed cleanup path is occupied by a file.")
+    }
+
+    if ([IO.Directory]::Exists([string]$context.BackupRoot)) {
+        if ([IO.Directory]::Exists([string]$context.CleanupRoot)) {
+            throw [IO.IOException]::new("Both committed cleanup directories exist.")
+        }
+        [void](Assert-OwnedRollbackBackup -Plan $Plan -Context $context)
+        try {
+            Set-SafeTreeHidden -Path ([string]$context.BackupRoot) -Parent ([string]$context.Parent) -Pattern ([string]$context.BackupPattern)
+        } catch {
+            Write-BrokerLog "Could not hide the committed rollback tree before cleanup: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        }
+        try {
+            # The identity is authenticated immediately before this same-volume
+            # rename. The candidate-bound cleanup name preserves ownership even
+            # if a later recursive delete is only partially completed by AV or a
+            # transient file lock.
+            Move-UpdateDirectory -Source ([string]$context.BackupRoot) -Destination ([string]$context.CleanupRoot)
+        } catch {
+            Write-BrokerLog "Committed rollback cleanup was deferred before rename: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+            return $false
+        }
+    }
+
+    if (-not [IO.Directory]::Exists([string]$context.CleanupRoot)) { return $true }
+    if (
+        -not (Test-SafeSibling -Candidate ([string]$context.CleanupRoot) -Parent ([string]$context.Parent) -Pattern ([string]$context.CleanupPattern)) -or
+        ([IO.File]::GetAttributes([string]$context.CleanupRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    ) {
+        throw [IO.IOException]::new("Refusing to remove an unsafe committed cleanup directory.")
+    }
+    try {
+        Set-SafeTreeHidden -Path ([string]$context.CleanupRoot) -Parent ([string]$context.Parent) -Pattern ([string]$context.CleanupPattern)
+    } catch {
+        Write-BrokerLog "Could not hide the deferred committed cleanup tree: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    }
+
+    $lastError = $null
+    for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
+        try {
+            if ($script:testBackupDeleteFailuresRemaining -gt 0) {
+                $script:testBackupDeleteFailuresRemaining -= 1
+                throw [IO.IOException]::new("Injected transient rollback cleanup failure.")
+            }
+            Remove-SafeTree -Path ([string]$context.CleanupRoot) -Parent ([string]$context.Parent) -Pattern ([string]$context.CleanupPattern)
+            return $true
+        } catch [IO.IOException] {
+            $lastError = $_.Exception
+        } catch [UnauthorizedAccessException] {
+            $lastError = $_.Exception
+        }
+        if ($attempt -lt 7) {
+            $delay = [Math]::Min(2000, [int]($script:backupDeleteRetryDelayMilliseconds * [Math]::Pow(2, $attempt)))
+            if ($delay -gt 0) { Start-Sleep -Milliseconds $delay }
+        }
+    }
+    try {
+        Set-SafeTreeHidden -Path ([string]$context.CleanupRoot) -Parent ([string]$context.Parent) -Pattern ([string]$context.CleanupPattern)
+    } catch { }
+    Write-BrokerLog "Committed rollback cleanup remains deferred after bounded retries: $($lastError.GetType().Name): $($lastError.Message)"
+    return $false
 }
 
 function Set-RecoveryRunOnce {
@@ -626,6 +776,18 @@ function Complete-Commit {
     if ($ExistingPhase -cne "COMMITTED") {
         Write-Journal -Plan $Plan -Phase "COMMITTED" -BackupRoot $BackupRoot -FailedRoot $FailedRoot -ServerPid $ServerPid -ServerProcessStartTimeUtc $ServerProcessStartTimeUtc
     }
+    $cleanupCompleted = $false
+    try {
+        $cleanupCompleted = Remove-CommittedRollbackTree -Plan $Plan -BackupRoot $BackupRoot
+    } catch {
+        # A cleanup-only failure must not roll back a package whose new server
+        # has already passed authenticated health and reached durable COMMITTED.
+        # Keep the terminal journal, pending trigger, and RunOnce entry so the
+        # next launch can retry the exact candidate-bound hidden cleanup tree.
+        Write-BrokerLog "Committed rollback cleanup was deferred: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        return
+    }
+    if (-not $cleanupCompleted) { return }
     $candidatePath = Join-Path (Get-UpdateDirectory) "candidate.json"
     if ([IO.File]::Exists($candidatePath)) { [IO.File]::Delete($candidatePath) }
     $journalPath = Get-JournalPath
@@ -726,6 +888,8 @@ try {
     $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
     $failedRoot = Join-Path $parent ("." + $leaf + ".update-failed-" + [string]$plan.candidateId)
     $journal = Read-ApplyJournal -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot
+    $journalWasMissing = $null -eq $journal
+    $committedStatusWasDurable = Test-CommittedUpdateStatus -Plan $plan
     Invoke-LiveHandoff -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -Journal $journal
     $canReconcile = $true
     Set-RecoveryRunOnce -Plan $plan
@@ -763,6 +927,18 @@ try {
         $backupIsOld = $false
     }
 
+    # Complete-Commit removes the authenticated old tree before it deletes the
+    # transaction trigger. A hard power loss in that narrow cleanup window can
+    # therefore leave a verified new root with no backup. Accept only a durable
+    # COMMITTED journal, or the exact UPDATED status left when the journal was
+    # already removed, and still require the new tree and server health below.
+    $commitCleanupRecovery = (
+        $rootIsNew -and
+        -not [IO.Directory]::Exists($backupRoot) -and
+        -not [IO.Directory]::Exists($stageRoot) -and
+        (([string]$journal.phase -ceq "COMMITTED") -or ($journalWasMissing -and $committedStatusWasDurable))
+    )
+
     $instance = Read-Instance
     if ($null -eq $instance -and $journal.serverPid -gt 0 -and $journal.phase -in @("NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK")) {
         $recorded = Get-RecordedProcess -ProcessId ([int]$journal.serverPid) -ProcessStartTimeUtc ([string]$journal.serverProcessStartTimeUtc)
@@ -793,7 +969,7 @@ try {
                 throw [InvalidOperationException]::new("Continuing the interrupted update rollback.")
             }
             throw [IO.InvalidDataException]::new("The interrupted rollback trees are not recoverable.")
-        } elseif ($rootIsNew -and $backupIsOld) {
+        } elseif ($rootIsNew -and ($backupIsOld -or $commitCleanupRecovery)) {
             $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
             Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase ([string]$journal.phase) -ServerPid ([int]$instance.pid) -ServerProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
             exit 0
@@ -822,9 +998,15 @@ try {
         $rootIsNew = Test-Identity -Identity $rootIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)
     }
     $newIdentity = Get-VersionDocument $packageRoot
-    if ($newIdentity.version -cne $plan.latestVersion -or $newIdentity.commit -cne $plan.latestCommit -or -not [IO.Directory]::Exists($backupRoot)) { throw [IO.InvalidDataException]::new("The package swap did not produce the expected version pair.") }
-    $oldIdentity = Get-VersionDocument $backupRoot
-    if ($oldIdentity.version -cne $plan.currentVersion -or $oldIdentity.commit -cne $plan.currentCommit) { throw [IO.InvalidDataException]::new("The retained rollback package does not match the previous version.") }
+    if (
+        $newIdentity.version -cne $plan.latestVersion -or
+        $newIdentity.commit -cne $plan.latestCommit -or
+        (-not [IO.Directory]::Exists($backupRoot) -and -not $commitCleanupRecovery)
+    ) { throw [IO.InvalidDataException]::new("The package swap did not produce the expected version pair.") }
+    if ([IO.Directory]::Exists($backupRoot)) {
+        $oldIdentity = Get-VersionDocument $backupRoot
+        if ($oldIdentity.version -cne $plan.currentVersion -or $oldIdentity.commit -cne $plan.currentCommit) { throw [IO.InvalidDataException]::new("The retained rollback package does not match the previous version.") }
+    }
     $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
 
     $newServer = Start-Server -Root $packageRoot -Nonce ([string]$plan.healthNonce) -Label "update-new"

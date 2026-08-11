@@ -83,6 +83,19 @@ function runPowerShellAsync(script, arguments_, options = {}) {
   });
 }
 
+function readWindowsFileAttributes(filename) {
+  const result = spawnSync(powershell, [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+    "[int][IO.File]::GetAttributes($env:TARKOV_HELPER_UPDATE_TEST_ATTRIBUTE_PATH)",
+  ], {
+    encoding: "utf8",
+    env: { ...process.env, TARKOV_HELPER_UPDATE_TEST_ATTRIBUTE_PATH: filename },
+    windowsHide: true,
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  return Number.parseInt(result.stdout.trim(), 10);
+}
+
 async function waitFor(read, accept, timeout = 30_000) {
   const deadline = Date.now() + timeout;
   let latest;
@@ -92,6 +105,16 @@ async function waitFor(read, accept, timeout = 30_000) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Timed out waiting for updater state. Latest: ${JSON.stringify(latest)}`);
+}
+
+async function pathExists(filename) {
+  try {
+    await stat(filename);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 async function getFreePort() {
@@ -649,7 +672,11 @@ test("authenticated API verifies, stages, and applies an immutable signed public
   const version = JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8"));
   assert.equal(version.version, "1.1.0");
   const backupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-backup`);
-  assert.equal(JSON.parse(await readFile(path.join(backupRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  const cleanupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-cleanup-${available.candidateId}`);
+  await waitFor(async () => ({
+    backup: await pathExists(backupRoot),
+    cleanup: await pathExists(cleanupRoot),
+  }), (value) => !value.backup && !value.cleanup, 10_000);
   const finalStatus = await waitFor(
     async () => JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8")),
     (value) => value?.state === "UPDATED" || value?.state === "ERROR",
@@ -1368,7 +1395,7 @@ test("a stale rollback backup from an older transaction is replaced before a fre
   ], { env, timeout: 40_000 });
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
   assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.1.0");
-  assert.equal(JSON.parse(await readFile(path.join(backupRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  await assert.rejects(stat(backupRoot), { code: "ENOENT" });
 });
 
 test("pending update is bound to the staged browser-origin port", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
@@ -1500,6 +1527,52 @@ test("retries a transient GitHub release response before reporting an update fai
   }
 });
 
+test("a committed update defers a locked backup cleanup without rolling back and removes it on replay", { skip: process.platform !== "win32", timeout: 90_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = { TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1", TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1" };
+  const backupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-backup`);
+  const updateDirectory = path.join(fixture.stateDirectory, "app-update");
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  await prepareStagedFixture(fixture, port);
+  const deferred = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], {
+    env: {
+      ...env,
+      TARKOV_HELPER_UPDATE_TEST_BACKUP_DELETE_FAILURES: "100",
+      TARKOV_HELPER_UPDATE_TEST_BACKUP_DELETE_RETRY_DELAY_MS: "1",
+    },
+    timeout: 40_000,
+  });
+  assert.equal(deferred.status, 0, `${deferred.stdout}\n${deferred.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const pending = JSON.parse(await readFile(path.join(updateDirectory, "pending.json"), "utf8"));
+  const candidateCleanupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-cleanup-${pending.candidateId}`);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.1.0");
+  await assert.rejects(stat(backupRoot), { code: "ENOENT" });
+  assert.equal(JSON.parse(await readFile(path.join(candidateCleanupRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  assert.notEqual(readWindowsFileAttributes(candidateCleanupRoot) & 0x2, 0, "a deferred cleanup tree must be hidden from normal Explorer views");
+  assert.equal(JSON.parse(await readFile(path.join(updateDirectory, "status.json"), "utf8")).state, "UPDATED");
+  assert.equal(JSON.parse(await readFile(path.join(updateDirectory, "apply-journal.json"), "utf8")).phase, "COMMITTED");
+  assert.equal((await stat(path.join(updateDirectory, "pending.json"))).isFile(), true);
+
+  const stopped = runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Stop", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 10_000 });
+  assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+  const replayed = await runExternalBroker(fixture, port, { env, timeout: 40_000 });
+  assert.equal(replayed.status, 0, `${replayed.stdout}\n${replayed.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  await assert.rejects(stat(backupRoot), { code: "ENOENT" });
+  await assert.rejects(stat(candidateCleanupRoot), { code: "ENOENT" });
+  await assert.rejects(stat(path.join(updateDirectory, "pending.json")), { code: "ENOENT" });
+  await assert.rejects(stat(path.join(updateDirectory, "apply-journal.json")), { code: "ENOENT" });
+});
+
 test("external broker recovers every durable apply phase idempotently", { skip: process.platform !== "win32", timeout: 180_000 }, async (t) => {
   const phases = ["PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED"];
   for (const phase of phases) {
@@ -1507,6 +1580,7 @@ test("external broker recovers every durable apply phase idempotently", { skip: 
       const fixture = await createUpdateFixture();
       const port = await getFreePort();
       const env = { TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1", TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1" };
+      const backupRoot = path.join(path.dirname(fixture.packageRoot), `.${path.basename(fixture.packageRoot)}.update-backup`);
       try {
         await prepareStagedFixture(fixture, port);
         const interrupted = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
@@ -1516,8 +1590,15 @@ test("external broker recovers every durable apply phase idempotently", { skip: 
         const journal = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "apply-journal.json"), "utf8"));
         assert.equal(journal.phase, phase);
         if (phase === "COMMITTED") {
-          // Model a power loss after terminal journal cleanup but before the
-          // last transaction trigger (pending.json) is removed.
+          // Model a full power loss after the committed rollback tree and
+          // terminal journal were removed, but before pending.json was deleted
+          // last. Recovery must re-authenticate a newly started server rather
+          // than relying on the process that originally passed health.
+          const stopped = runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), [
+            "-Action", "Stop", "-StateDirectory", fixture.stateDirectory,
+          ], { env, timeout: 10_000 });
+          assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+          await rm(backupRoot, { recursive: true });
           await rm(path.join(fixture.stateDirectory, "app-update", "apply-journal.json"));
         }
 
@@ -1526,6 +1607,7 @@ test("external broker recovers every durable apply phase idempotently", { skip: 
         assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.1.0");
         const status = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
         assert.equal(status.state, "UPDATED");
+        await assert.rejects(stat(backupRoot), { code: "ENOENT" });
         await assert.rejects(readFile(path.join(fixture.stateDirectory, "app-update", "pending.json")), { code: "ENOENT" });
         await assert.rejects(readFile(path.join(fixture.stateDirectory, "app-update", "apply-journal.json")), { code: "ENOENT" });
       } finally {
