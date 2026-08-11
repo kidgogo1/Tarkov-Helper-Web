@@ -25,6 +25,30 @@ async function sha256(filename) {
   return createHash("sha256").update(await readFile(filename)).digest("hex");
 }
 
+async function readIconSizes(filename) {
+  const contents = await readFile(filename);
+  assert.equal(contents.readUInt16LE(0), 0, "ICO reserved field");
+  assert.equal(contents.readUInt16LE(2), 1, "ICO image type");
+  const count = contents.readUInt16LE(4);
+  assert.ok(count > 0, "ICO must contain at least one image");
+  assert.ok(contents.length >= 6 + (count * 16), "ICO directory must be complete");
+
+  const sizes = [];
+  for (let index = 0; index < count; index += 1) {
+    const offset = 6 + (index * 16);
+    const width = contents[offset] || 256;
+    const height = contents[offset + 1] || 256;
+    const imageBytes = contents.readUInt32LE(offset + 8);
+    const imageOffset = contents.readUInt32LE(offset + 12);
+    assert.equal(width, height, "ICO entries must be square");
+    assert.ok(imageBytes > 0, "ICO entry must contain image data");
+    assert.ok(imageOffset >= 6 + (count * 16), "ICO image offset must follow its directory");
+    assert.ok(imageOffset + imageBytes <= contents.length, "ICO image data must stay inside the file");
+    sizes.push(width);
+  }
+  return sizes.sort((left, right) => left - right);
+}
+
 test("direct release contains the built app, launchers, guide, and notices", async () => {
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-package-"));
   const output = path.join(temporaryParent, "Tarkov Helper 바로 실행");
@@ -43,6 +67,8 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.equal((await stat(path.join(output, "launcher.ps1"))).isFile(), true);
     assert.equal((await stat(path.join(output, "app-update-worker.ps1"))).isFile(), true);
     assert.equal((await stat(path.join(output, "app-update-broker.ps1"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "TarkovHelper.ico"))).isFile(), true);
+    assert.deepEqual(await readIconSizes(path.join(output, "TarkovHelper.ico")), [16, 20, 24, 32, 40, 48, 64, 128, 256]);
     assert.equal((await stat(path.join(output, "UPDATE_CONFIG.json"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 실행.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 종료.vbs"))).isFile(), true);
