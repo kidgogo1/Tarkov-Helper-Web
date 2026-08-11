@@ -56,6 +56,9 @@ $nativeOverlayRecord = $null
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
 $appUpdateProtocolVersion = 1
 $appUpdateToken = $null
+$legacyAppUpdateCleanupFinished = $false
+$legacyAppUpdateCleanupNextAttemptUtc = [DateTime]::MinValue
+$legacyAppUpdateCleanupDeadlineUtc = [DateTime]::UtcNow.AddMinutes(5)
 $itemPriceProtocolVersion = 1
 $itemPriceFreshSeconds = 600
 $itemPriceStaleSeconds = 604800
@@ -2770,6 +2773,15 @@ function Get-AppUpdateStatus {
 
 function Start-AppUpdateWorker {
     param([ValidateSet("Check", "Stage")][string]$WorkerAction, [object]$Context, [string]$ReviewedCandidate, [ValidateRange(1, 65535)][int]$BoundPort)
+    $updateDirectory = Get-AppUpdateDirectory
+    foreach ($transactionName in @("pending.json", "apply-journal.json")) {
+        $transactionPath = Join-Path $updateDirectory $transactionName
+        try { $transactionExists = Test-Path -LiteralPath $transactionPath -ErrorAction Stop }
+        catch { throw [InvalidOperationException]::new("The prior app update transaction state could not be inspected.") }
+        if ($transactionExists) {
+            throw [InvalidOperationException]::new("A prior app update transaction still requires cleanup.")
+        }
+    }
     $current = Get-AppUpdateStatus -Context $Context
     if ($current.state -in @("CHECKING", "DOWNLOADING", "VERIFYING", "APPLYING", "ROLLING_BACK")) { throw [InvalidOperationException]::new("An update operation is already in progress.") }
     if ($WorkerAction -eq "Stage" -and ($current.state -ne "AVAILABLE" -or $current.candidateId -cne $ReviewedCandidate)) { throw [ArgumentException]::new("The reviewed update candidate is no longer available.") }
@@ -2834,6 +2846,432 @@ function Get-FileSha256Hex {
         }
     } finally {
         $stream.Dispose()
+    }
+}
+
+function Test-LegacyAppUpdatePathOccupied {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $fullPath
+    if (-not [IO.Directory]::Exists($parent)) { return $false }
+    $leaf = [IO.Path]::GetFileName($fullPath)
+    foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($parent)) {
+        if ([IO.Path]::GetFileName($entry).Equals($leaf, [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-LegacyAppUpdateRegularFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not [IO.File]::Exists($Path)) { return $false }
+    try {
+        $attributes = [IO.File]::GetAttributes([IO.Path]::GetFullPath($Path))
+        return ($attributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -eq 0
+    } catch {
+        return $false
+    }
+}
+
+function Test-LegacyAppUpdateTopDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not [IO.Directory]::Exists($Path)) { return $false }
+    try {
+        return (([IO.File]::GetAttributes([IO.Path]::GetFullPath($Path)) -band [IO.FileAttributes]::ReparsePoint) -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+function Read-LegacyAppUpdateText {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 1048576)][int]$MaximumBytes = 65536
+    )
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    if (-not (Test-LegacyAppUpdateRegularFile -Path $fullPath)) {
+        throw [IO.InvalidDataException]::new("A legacy package metadata file is missing or unsafe.")
+    }
+    $file = [IO.FileInfo]::new($fullPath)
+    if ($file.Length -le 0 -or $file.Length -gt $MaximumBytes) {
+        throw [IO.InvalidDataException]::new("A legacy package metadata file is outside its size limit.")
+    }
+    $bytes = [IO.File]::ReadAllBytes($fullPath)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xef -and $bytes[1] -eq 0xbb -and $bytes[2] -eq 0xbf) {
+        throw [IO.InvalidDataException]::new("A legacy package metadata file has an unexpected byte-order mark.")
+    }
+    return (New-Object Text.UTF8Encoding($false, $true)).GetString($bytes)
+}
+
+function Test-LegacyAppUpdateCriticalChecksums {
+    param([Parameter(Mandatory = $true)][string]$PackageRoot)
+
+    try {
+        $manifestPath = Join-Path $PackageRoot "SHA256SUMS.txt"
+        $manifest = Read-LegacyAppUpdateText -Path $manifestPath -MaximumBytes 1048576
+        if (-not $manifest.EndsWith("`n", [StringComparison]::Ordinal) -or $manifest.Contains("`r")) { return $false }
+        $records = New-Object 'Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+        $previousPath = $null
+        foreach ($line in $manifest.Substring(0, $manifest.Length - 1).Split("`n")) {
+            $match = [Text.RegularExpressions.Regex]::Match($line, '^([0-9a-f]{64})  (0|[1-9]\d*)  (.+)$')
+            if (-not $match.Success) { return $false }
+            $relative = $match.Groups[3].Value
+            if (
+                [string]::IsNullOrWhiteSpace($relative) -or
+                $relative.Contains("\") -or $relative.Contains([char]0) -or
+                $relative.StartsWith("/", [StringComparison]::Ordinal) -or
+                $relative -match '^[A-Za-z]:'
+            ) { return $false }
+            foreach ($segment in $relative.Split('/')) {
+                if ([string]::IsNullOrEmpty($segment) -or $segment -in @(".", "..")) { return $false }
+            }
+            if ($null -ne $previousPath -and [string]::CompareOrdinal([string]$previousPath, $relative) -ge 0) { return $false }
+            if ($records.ContainsKey($relative)) { return $false }
+            [long]$size = 0
+            if (-not [long]::TryParse($match.Groups[2].Value, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$size) -or $size -lt 0) { return $false }
+            $records.Add($relative, [pscustomobject]@{ Sha256 = $match.Groups[1].Value; Size = $size })
+            $previousPath = $relative
+        }
+
+        foreach ($relative in @("PACKAGE_INFO.txt", "app/version.json")) {
+            if (-not $records.ContainsKey($relative)) { return $false }
+            $filePath = Join-Path $PackageRoot ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+            if (-not (Test-LegacyAppUpdateRegularFile -Path $filePath)) { return $false }
+            $record = $records[$relative]
+            if ([IO.FileInfo]::new($filePath).Length -ne [long]$record.Size) { return $false }
+            if ((Get-FileSha256Hex -Path $filePath) -cne [string]$record.Sha256) { return $false }
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-LegacyAppUpdatePackageIdentity {
+    param([Parameter(Mandatory = $true)][string]$PackageRoot)
+
+    try {
+        $root = [IO.Path]::GetFullPath($PackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        $appRoot = Join-Path $root "app"
+        $versionPath = Join-Path $appRoot "version.json"
+        if (
+            -not (Test-LegacyAppUpdateTopDirectory -Path $root) -or
+            -not (Test-LegacyAppUpdateTopDirectory -Path $appRoot) -or
+            -not (Test-LegacyAppUpdateRegularFile -Path $versionPath)
+        ) { return $null }
+        $version = Read-AppUpdateJson -Path $versionPath -MaximumBytes 8192
+        if (
+            -not (Test-AppUpdateObjectShape $version @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -or
+            $version.schemaVersion -ne 1 -or $version.product -cne "tarkov-helper-web" -or
+            -not (Test-AppUpdateVersion $version.version) -or
+            $version.commit -isnot [string] -or $version.commit -notmatch '^[0-9a-f]{40}$' -or
+            $version.updaterProtocolVersion -ne 1
+        ) { return $null }
+
+        $packageInfo = Read-LegacyAppUpdateText -Path (Join-Path $root "PACKAGE_INFO.txt") -MaximumBytes 65536
+        $versionMatches = [Text.RegularExpressions.Regex]::Matches($packageInfo, '(?m)^Version: ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\r?$')
+        $commitMatches = [Text.RegularExpressions.Regex]::Matches($packageInfo, '(?m)^Source commit: ([0-9a-f]{40})\r?$')
+        $protocolMatches = [Text.RegularExpressions.Regex]::Matches($packageInfo, '(?m)^Updater protocol: (1)\r?$')
+        if (
+            $versionMatches.Count -ne 1 -or $commitMatches.Count -ne 1 -or $protocolMatches.Count -ne 1 -or
+            $versionMatches[0].Groups[1].Value -cne [string]$version.version -or
+            $commitMatches[0].Groups[1].Value -cne [string]$version.commit -or
+            -not (Test-LegacyAppUpdateCriticalChecksums -PackageRoot $root)
+        ) { return $null }
+        return [pscustomobject]@{ Version = [string]$version.version; Commit = [string]$version.commit }
+    } catch {
+        return $null
+    }
+}
+
+function Test-LegacyAppUpdateTreeNoReparse {
+    param([Parameter(Mandatory = $true)][string]$RootPath)
+
+    try {
+        $root = [IO.Path]::GetFullPath($RootPath)
+        if (-not (Test-LegacyAppUpdateTopDirectory -Path $root)) { return $false }
+        $pending = New-Object 'Collections.Generic.Stack[string]'
+        $pending.Push($root)
+        while ($pending.Count -gt 0) {
+            $directory = $pending.Pop()
+            if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+                $attributes = [IO.File]::GetAttributes($entry)
+                if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+                if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) { $pending.Push($entry) }
+            }
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Remove-LegacyAppUpdateTreeNoReparse {
+    param([Parameter(Mandatory = $true)][string]$RootPath)
+
+    $root = [IO.Path]::GetFullPath($RootPath)
+    if (-not (Test-LegacyAppUpdateTreeNoReparse -RootPath $root)) {
+        throw [IO.IOException]::new("Refusing to remove a legacy cleanup tree containing an unsafe path.")
+    }
+    $pending = New-Object 'Collections.Generic.Stack[string]'
+    $directories = New-Object 'Collections.Generic.List[string]'
+    $pending.Push($root)
+    while ($pending.Count -gt 0) {
+        $directory = $pending.Pop()
+        $attributes = [IO.File]::GetAttributes($directory)
+        if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw [IO.IOException]::new("A legacy cleanup directory changed during removal.")
+        }
+        $directories.Add($directory)
+        foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+            $entryAttributes = [IO.File]::GetAttributes($entry)
+            if (($entryAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw [IO.IOException]::new("A legacy cleanup entry changed during removal.")
+            }
+            if (($entryAttributes -band [IO.FileAttributes]::Directory) -ne 0) {
+                $pending.Push($entry)
+            } else {
+                if (($entryAttributes -band [IO.FileAttributes]::ReadOnly) -ne 0) {
+                    [IO.File]::SetAttributes($entry, ($entryAttributes -band (-bnot [IO.FileAttributes]::ReadOnly)))
+                }
+                [IO.File]::Delete($entry)
+            }
+        }
+    }
+    for ($index = $directories.Count - 1; $index -ge 0; $index -= 1) {
+        $directory = $directories[$index]
+        $attributes = [IO.File]::GetAttributes($directory)
+        if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw [IO.IOException]::new("A legacy cleanup directory changed before removal.")
+        }
+        if (($attributes -band [IO.FileAttributes]::ReadOnly) -ne 0) {
+            [IO.File]::SetAttributes($directory, ($attributes -band (-bnot [IO.FileAttributes]::ReadOnly)))
+        }
+        [IO.Directory]::Delete($directory, $false)
+    }
+}
+
+function Get-LegacyAppUpdateCleanupRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$CurrentVersion,
+        [Parameter(Mandatory = $true)][string]$CurrentCommit,
+        [Parameter(Mandatory = $true)][string]$PreviousVersion,
+        [Parameter(Mandatory = $true)][string]$PreviousCommit
+    )
+
+    $root = [IO.Path]::GetFullPath($PackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $canonicalRoot = $root.ToUpperInvariant()
+    $seed = "$canonicalRoot`n$CurrentVersion`n$CurrentCommit`n$PreviousVersion`n$PreviousCommit"
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $hasher.ComputeHash((New-Object Text.UTF8Encoding($false, $true)).GetBytes($seed))
+    } finally {
+        $hasher.Dispose()
+    }
+    $identifier = ([BitConverter]::ToString($digest)).Replace("-", "").ToLowerInvariant()
+    $parent = Split-Path -Parent $root
+    $leaf = [IO.Path]::GetFileName($root)
+    return Join-Path $parent ("." + $leaf + ".update-cleanup-legacy-" + $identifier)
+}
+
+function Test-LegacyAppUpdateReceipt {
+    param(
+        [object]$Receipt,
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$BackupRoot,
+        [object]$CurrentIdentity
+    )
+
+    if (
+        -not (Test-AppUpdateObjectShape $Receipt @("schemaVersion", "state", "packageRoot", "backupRoot", "cleanupRoot", "currentVersion", "currentCommit", "previousVersion", "previousCommit", "updatedAt", "createdAt")) -or
+        $Receipt.schemaVersion -ne 1 -or $Receipt.state -cne "READY_TO_DELETE" -or
+        $Receipt.packageRoot -isnot [string] -or $Receipt.backupRoot -isnot [string] -or $Receipt.cleanupRoot -isnot [string] -or
+        $Receipt.currentVersion -cne [string]$CurrentIdentity.Version -or $Receipt.currentCommit -cne [string]$CurrentIdentity.Commit -or
+        -not (Test-AppUpdateVersion $Receipt.previousVersion) -or
+        (Compare-AppUpdateVersion -Left ([string]$Receipt.previousVersion) -Right ([string]$Receipt.currentVersion)) -ge 0 -or
+        $Receipt.previousCommit -isnot [string] -or $Receipt.previousCommit -notmatch '^[0-9a-f]{40}$' -or
+        $Receipt.updatedAt -isnot [string] -or $Receipt.updatedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$' -or
+        $Receipt.createdAt -isnot [string] -or
+        $Receipt.createdAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$'
+    ) { return $false }
+    $expectedCleanupRoot = Get-LegacyAppUpdateCleanupRoot -PackageRoot $PackageRoot -CurrentVersion ([string]$Receipt.currentVersion) -CurrentCommit ([string]$Receipt.currentCommit) -PreviousVersion ([string]$Receipt.previousVersion) -PreviousCommit ([string]$Receipt.previousCommit)
+    return (
+        ([string]$Receipt.packageRoot).Equals([IO.Path]::GetFullPath($PackageRoot), [StringComparison]::OrdinalIgnoreCase) -and
+        ([string]$Receipt.backupRoot).Equals([IO.Path]::GetFullPath($BackupRoot), [StringComparison]::OrdinalIgnoreCase) -and
+        ([string]$Receipt.cleanupRoot).Equals([IO.Path]::GetFullPath($expectedCleanupRoot), [StringComparison]::OrdinalIgnoreCase)
+    )
+}
+
+function Invoke-LegacyAppUpdateBackupCleanup {
+    param([Parameter(Mandatory = $true)][string]$AppRoot)
+
+    try {
+        $updateDirectory = Get-AppUpdateDirectory
+        $pendingPath = Join-Path $updateDirectory "pending.json"
+        $journalPath = Join-Path $updateDirectory "apply-journal.json"
+        if (
+            (Test-LegacyAppUpdatePathOccupied -Path $pendingPath) -or
+            (Test-LegacyAppUpdatePathOccupied -Path $journalPath) -or
+            (Test-AppUpdateWorkerAlive)
+        ) { return "RETRY" }
+
+        $context = Get-AppUpdateContext -AppRoot $AppRoot
+        if (-not $context.Enabled) { return "DONE" }
+        $packageRoot = [IO.Path]::GetFullPath([string]$context.PackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        $parent = Split-Path -Parent $packageRoot
+        $leaf = [IO.Path]::GetFileName($packageRoot)
+        $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
+        $receiptPath = Join-Path $updateDirectory "legacy-cleanup.json"
+        if (
+            -not (Test-LegacyAppUpdateTopDirectory -Path $parent) -or
+            -not (Test-LegacyAppUpdateTopDirectory -Path $packageRoot)
+        ) { return "DONE" }
+        $currentIdentity = Get-LegacyAppUpdatePackageIdentity -PackageRoot $packageRoot
+        if (
+            $null -eq $currentIdentity -or
+            $currentIdentity.Version -cne [string]$context.CurrentVersion -or
+            $currentIdentity.Commit -cne [string]$context.CurrentCommit
+        ) { return "DONE" }
+
+        $receipt = $null
+        if (Test-LegacyAppUpdatePathOccupied -Path $receiptPath) {
+            if (-not (Test-LegacyAppUpdateRegularFile -Path $receiptPath)) { return "DONE" }
+            $receipt = Read-AppUpdateJson -Path $receiptPath -MaximumBytes 65536
+            if (-not (Test-LegacyAppUpdateReceipt -Receipt $receipt -PackageRoot $packageRoot -BackupRoot $backupRoot -CurrentIdentity $currentIdentity)) { return "DONE" }
+        } else {
+            if (-not (Test-LegacyAppUpdatePathOccupied -Path $backupRoot)) { return "DONE" }
+            if (-not (Test-LegacyAppUpdateTopDirectory -Path $backupRoot)) { return "DONE" }
+            $previousIdentity = Get-LegacyAppUpdatePackageIdentity -PackageRoot $backupRoot
+            if (
+                $null -eq $previousIdentity -or
+                (Compare-AppUpdateVersion -Left ([string]$previousIdentity.Version) -Right ([string]$currentIdentity.Version)) -ge 0 -or
+                -not (Test-LegacyAppUpdateTreeNoReparse -RootPath $backupRoot)
+            ) { return "DONE" }
+            $cleanupRoot = Get-LegacyAppUpdateCleanupRoot -PackageRoot $packageRoot -CurrentVersion ([string]$currentIdentity.Version) -CurrentCommit ([string]$currentIdentity.Commit) -PreviousVersion ([string]$previousIdentity.Version) -PreviousCommit ([string]$previousIdentity.Commit)
+            if (Test-LegacyAppUpdatePathOccupied -Path $cleanupRoot) { return "DONE" }
+            $receipt = [pscustomobject][ordered]@{
+                schemaVersion = 1
+                state = "READY_TO_DELETE"
+                packageRoot = $packageRoot
+                backupRoot = [IO.Path]::GetFullPath($backupRoot)
+                cleanupRoot = [IO.Path]::GetFullPath($cleanupRoot)
+                currentVersion = [string]$currentIdentity.Version
+                currentCommit = [string]$currentIdentity.Commit
+                previousVersion = [string]$previousIdentity.Version
+                previousCommit = [string]$previousIdentity.Commit
+                updatedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+                createdAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+            }
+            Write-AppUpdateJson -Path $receiptPath -Value $receipt
+            $durableReceipt = Read-AppUpdateJson -Path $receiptPath -MaximumBytes 65536
+            if (-not (Test-LegacyAppUpdateReceipt -Receipt $durableReceipt -PackageRoot $packageRoot -BackupRoot $backupRoot -CurrentIdentity $currentIdentity)) { return "RETRY" }
+            $receipt = $durableReceipt
+            if ($env:TARKOV_HELPER_UPDATE_TEST_LEGACY_CLEANUP_CRASH_AFTER_RECEIPT -ceq "1") {
+                [Environment]::Exit(85)
+            }
+        }
+
+        $cleanupRoot = [IO.Path]::GetFullPath([string]$receipt.cleanupRoot)
+        $backupOccupied = Test-LegacyAppUpdatePathOccupied -Path $backupRoot
+        $cleanupOccupied = Test-LegacyAppUpdatePathOccupied -Path $cleanupRoot
+        if ($backupOccupied) {
+            if ($cleanupOccupied -or -not (Test-LegacyAppUpdateTopDirectory -Path $backupRoot)) { return "DONE" }
+            $previousIdentity = Get-LegacyAppUpdatePackageIdentity -PackageRoot $backupRoot
+            if (
+                $null -eq $previousIdentity -or
+                $previousIdentity.Version -cne [string]$receipt.previousVersion -or
+                $previousIdentity.Commit -cne [string]$receipt.previousCommit -or
+                -not (Test-LegacyAppUpdateTreeNoReparse -RootPath $backupRoot)
+            ) { return "DONE" }
+            try {
+                $backupAttributes = [IO.File]::GetAttributes($backupRoot)
+                [IO.File]::SetAttributes($backupRoot, ($backupAttributes -bor [IO.FileAttributes]::Hidden))
+            } catch {
+                Write-PortableLog "The authenticated legacy backup could not be hidden before rename."
+            }
+            [IO.Directory]::Move($backupRoot, $cleanupRoot)
+            try {
+                $cleanupAttributes = [IO.File]::GetAttributes($cleanupRoot)
+                [IO.File]::SetAttributes($cleanupRoot, ($cleanupAttributes -bor [IO.FileAttributes]::Hidden))
+            } catch {
+                Write-PortableLog "The renamed legacy cleanup tree could not be hidden."
+            }
+            if ($env:TARKOV_HELPER_UPDATE_TEST_LEGACY_CLEANUP_CRASH_AFTER_RENAME -ceq "1") {
+                [Environment]::Exit(86)
+            }
+            $cleanupOccupied = $true
+        }
+
+        if (-not $cleanupOccupied) {
+            try { [IO.File]::Delete($receiptPath) } catch { return "RETRY" }
+            return "DONE"
+        }
+        if (-not (Test-LegacyAppUpdateTopDirectory -Path $cleanupRoot)) { return "DONE" }
+        try {
+            $cleanupAttributes = [IO.File]::GetAttributes($cleanupRoot)
+            [IO.File]::SetAttributes($cleanupRoot, ($cleanupAttributes -bor [IO.FileAttributes]::Hidden))
+        } catch {
+            Write-PortableLog "The deferred legacy cleanup tree could not be hidden."
+        }
+        if (-not (Test-LegacyAppUpdateTreeNoReparse -RootPath $cleanupRoot)) { return "DONE" }
+
+        $deleteFailuresRemaining = 0
+        if (-not [int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_LEGACY_CLEANUP_DELETE_FAILURES, [ref]$deleteFailuresRemaining) -or $deleteFailuresRemaining -lt 0) {
+            $deleteFailuresRemaining = 0
+        }
+        for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
+            try {
+                if ($deleteFailuresRemaining -gt 0) {
+                    $deleteFailuresRemaining -= 1
+                    throw [IO.IOException]::new("Injected transient legacy cleanup failure.")
+                }
+                Remove-LegacyAppUpdateTreeNoReparse -RootPath $cleanupRoot
+                try { [IO.File]::Delete($receiptPath) } catch { return "RETRY" }
+                return "DONE"
+            } catch [IO.IOException] {
+                if ($attempt -lt 7) { Start-Sleep -Milliseconds ([Math]::Min(250, [int](25 * [Math]::Pow(2, $attempt)))) }
+            } catch [UnauthorizedAccessException] {
+                if ($attempt -lt 7) { Start-Sleep -Milliseconds ([Math]::Min(250, [int](25 * [Math]::Pow(2, $attempt)))) }
+            }
+        }
+        try {
+            $cleanupAttributes = [IO.File]::GetAttributes($cleanupRoot)
+            [IO.File]::SetAttributes($cleanupRoot, ($cleanupAttributes -bor [IO.FileAttributes]::Hidden))
+        } catch { }
+        return "RETRY"
+    } catch {
+        Write-PortableLog "Legacy committed backup cleanup was deferred: $($_.Exception.GetType().Name)"
+        return "RETRY"
+    }
+}
+
+function Invoke-LegacyAppUpdateBackupCleanupFromServe {
+    param([Parameter(Mandatory = $true)][string]$AppRoot)
+
+    $controlPurpose = "Control"
+    $mutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose $controlPurpose))
+    $hasMutex = $false
+    try {
+        try {
+            $hasMutex = $mutex.WaitOne(0)
+        } catch [Threading.AbandonedMutexException] {
+            $hasMutex = $true
+        }
+        if (-not $hasMutex) { return "RETRY" }
+        return Invoke-LegacyAppUpdateBackupCleanup -AppRoot $AppRoot
+    } catch {
+        Write-PortableLog "The replacement server deferred legacy backup cleanup."
+        return "RETRY"
+    } finally {
+        if ($hasMutex) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
     }
 }
 
@@ -3193,6 +3631,57 @@ function Invoke-PendingAppUpdate {
     return 2
 }
 
+function Test-PendingAppUpdateCommittedCleanupRecovery {
+    param([Parameter(Mandatory = $true)][string]$AppRoot)
+
+    try {
+        $pendingPath = Get-AppUpdatePendingPath
+        if (-not [IO.File]::Exists($pendingPath)) { return $false }
+        $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
+        if (
+            -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
+            $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
+            $pending.latestCommit -isnot [string] -or $pending.latestCommit -notmatch '^[0-9a-f]{40}$' -or
+            -not (Test-AppUpdateVersion $pending.currentVersion) -or -not (Test-AppUpdateVersion $pending.latestVersion) -or
+            (Compare-AppUpdateVersion -Left ([string]$pending.currentVersion) -Right ([string]$pending.latestVersion)) -ge 0 -or
+            $pending.stageRoot -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$pending.stageRoot)
+        ) { return $false }
+
+        $context = Get-AppUpdateContext -AppRoot $AppRoot
+        $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        if (
+            -not $context.Enabled -or
+            -not ([string]$pending.packageRoot).Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            -not ([string]$pending.stateDirectory).Equals([IO.Path]::GetFullPath($StateDirectory), [StringComparison]::OrdinalIgnoreCase) -or
+            $pending.port -ne $Port -or
+            $context.CurrentVersion -cne [string]$pending.latestVersion -or
+            $context.CurrentCommit -cne [string]$pending.latestCommit
+        ) { return $false }
+
+        $status = Get-AppUpdateStatus -Context $context
+        if (
+            $status.state -cne "UPDATED" -or
+            $status.currentVersion -cne [string]$pending.latestVersion -or
+            $status.previousVersion -cne [string]$pending.currentVersion
+        ) { return $false }
+
+        $parent = Split-Path -Parent $expectedPackageRoot
+        $leaf = [IO.Path]::GetFileName($expectedPackageRoot)
+        $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
+        foreach ($path in @(
+            [string]$pending.stageRoot,
+            $backupRoot,
+            (Get-AppUpdateCandidatePath),
+            (Join-Path (Get-AppUpdateDirectory) "apply-journal.json")
+        )) {
+            if (Test-LegacyAppUpdatePathOccupied -Path $path) { return $false }
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Stop-AppUpdateHandoffProcess {
     param([object]$Handoff)
 
@@ -3481,7 +3970,10 @@ function Start-PortableBroker {
 
             $pendingRecoveryPath = Get-AppUpdatePendingPath
             $journalRecoveryPath = Join-Path (Get-AppUpdateDirectory) "apply-journal.json"
-            if ([IO.File]::Exists($pendingRecoveryPath) -and [IO.File]::Exists($journalRecoveryPath)) {
+            if (
+                [IO.File]::Exists($pendingRecoveryPath) -and
+                ([IO.File]::Exists($journalRecoveryPath) -or (Test-PendingAppUpdateCommittedCleanupRecovery -AppRoot $expectedRootPath))
+            ) {
                 $recoveryResult = Invoke-PendingAppUpdate
                 if ($null -ne $recoveryResult) { return [int]$recoveryResult }
             }
@@ -3507,6 +3999,7 @@ function Start-PortableBroker {
 
         $updateResult = Invoke-PendingAppUpdate
         if ($null -ne $updateResult) { return [int]$updateResult }
+        $null = Invoke-LegacyAppUpdateBackupCleanup -AppRoot $expectedRootPath
 
         $powershellPath = Join-Path $PSHOME "powershell.exe"
         if (-not [IO.File]::Exists($powershellPath)) { $powershellPath = "powershell.exe" }
@@ -3784,6 +4277,22 @@ try {
             Update-ClientLeases
             Update-ScreenshotWatcher
             Update-NativeOverlayBridge
+            if (
+                -not $script:legacyAppUpdateCleanupFinished -and
+                -not [string]::IsNullOrWhiteSpace($UpdateNonce) -and
+                [DateTime]::UtcNow -ge $script:legacyAppUpdateCleanupDeadlineUtc
+            ) {
+                $script:legacyAppUpdateCleanupFinished = $true
+            } elseif (
+                -not $script:legacyAppUpdateCleanupFinished -and
+                -not [string]::IsNullOrWhiteSpace($UpdateNonce) -and
+                [DateTime]::UtcNow -ge $script:legacyAppUpdateCleanupNextAttemptUtc
+            ) {
+                $script:legacyAppUpdateCleanupNextAttemptUtc = [DateTime]::UtcNow.AddSeconds(2)
+                if ((Invoke-LegacyAppUpdateBackupCleanupFromServe -AppRoot $rootPath) -ceq "DONE") {
+                    $script:legacyAppUpdateCleanupFinished = $true
+                }
+            }
             Start-Sleep -Milliseconds 100
         }
         if ($script:shutdownRequested) { break }

@@ -813,6 +813,41 @@ test("live apply rejects a changed trusted broker without stopping the running s
   assert.equal((await fetch(base)).status, 200);
 });
 
+test("relaunching an old running server preserves a staged update that has not been applied", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
+  const fixture = await createUpdateFixture();
+  const port = await getFreePort();
+  const env = {
+    TARKOV_HELPER_UPDATE_TEST_ALLOW_HTTP: "1",
+    TARKOV_HELPER_UPDATE_TEST_SKIP_RUNONCE: "1",
+  };
+  t.after(async () => {
+    runPowerShell(path.join(fixture.packageRoot, "launcher.ps1"), ["-Action", "Stop", "-StateDirectory", fixture.stateDirectory], { env, timeout: 10_000 });
+    await closeServer(fixture.releaseServer);
+    await rm(fixture.temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const { ready } = await prepareStagedFixture(fixture, port);
+  const updateDirectory = path.join(fixture.stateDirectory, "app-update");
+  const originalInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  await assert.rejects(stat(path.join(updateDirectory, "apply-journal.json")), { code: "ENOENT" });
+
+  const relaunched = await runPowerShellAsync(path.join(fixture.packageRoot, "launcher.ps1"), [
+    "-Action", "Start", "-Root", path.join(fixture.packageRoot, "app"), "-Port", String(port), "-NoBrowser", "-StateDirectory", fixture.stateDirectory,
+  ], { env, timeout: 15_000 });
+  assert.equal(relaunched.status, 0, `${relaunched.stdout}\n${relaunched.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
+  const currentInstance = JSON.parse(await readFile(path.join(fixture.stateDirectory, "instance.json"), "utf8"));
+  assert.equal(currentInstance.pid, originalInstance.pid);
+  assert.equal(currentInstance.processStartTimeUtc, originalInstance.processStartTimeUtc);
+  assert.equal(JSON.parse(await readFile(path.join(fixture.packageRoot, "app", "version.json"), "utf8")).version, "1.0.0");
+  assert.equal(JSON.parse(await readFile(path.join(updateDirectory, "status.json"), "utf8")).state, "READY_TO_RESTART");
+  assert.equal(JSON.parse(await readFile(path.join(updateDirectory, "pending.json"), "utf8")).candidateId, ready.candidateId);
+  await assert.rejects(stat(path.join(updateDirectory, "apply-journal.json")), { code: "ENOENT" });
+});
+
 test("live apply keeps the old server running when the durable handoff cannot start", { skip: process.platform !== "win32", timeout: 60_000 }, async (t) => {
   const fixture = await createUpdateFixture();
   const port = await getFreePort();
