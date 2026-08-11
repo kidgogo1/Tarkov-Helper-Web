@@ -31,7 +31,7 @@ function runPowerShell(script, args = [], options = {}) {
   });
 }
 
-function runStartMenu(action, packageRoot, programsDirectory, shellStagingRoot) {
+function runStartMenu(action, packageRoot, programsDirectory) {
   return runPowerShell(startMenuScript, [
     "-Action",
     action,
@@ -39,7 +39,7 @@ function runStartMenu(action, packageRoot, programsDirectory, shellStagingRoot) 
     packageRoot,
     "-ProgramsDirectory",
     programsDirectory,
-  ], shellStagingRoot ? { env: { TEMP: shellStagingRoot, TMP: shellStagingRoot } } : undefined);
+  ]);
 }
 
 async function makePackage(parent, leaf) {
@@ -51,22 +51,7 @@ async function makePackage(parent, leaf) {
 }
 
 async function makeShortcutTools(parent) {
-  const inspector = path.join(parent, "inspect-shortcut.ps1");
   const foreignWriter = path.join(parent, "write-foreign-shortcut.ps1");
-  await writeFile(inspector, String.raw`param([Parameter(Mandatory=$true)][string]$Path)
-$utf8 = New-Object System.Text.UTF8Encoding($false)
-[Console]::OutputEncoding = $utf8
-$OutputEncoding = $utf8
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($Path)
-[ordered]@{
-  TargetPath = [string]$shortcut.TargetPath
-  Arguments = [string]$shortcut.Arguments
-  WorkingDirectory = [string]$shortcut.WorkingDirectory
-  IconLocation = [string]$shortcut.IconLocation
-  Description = [string]$shortcut.Description
-} | ConvertTo-Json -Compress
-`, "utf8");
   await writeFile(foreignWriter, String.raw`param([Parameter(Mandatory=$true)][string]$Path)
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($Path)
@@ -75,7 +60,7 @@ $shortcut.WorkingDirectory = $env:SystemRoot
 $shortcut.Description = "Foreign.Application"
 $shortcut.Save()
 `, "utf8");
-  return { inspector, foreignWriter };
+  return { foreignWriter };
 }
 
 function outputOf(result) {
@@ -98,12 +83,22 @@ async function assertIconLocation(actual, expectedIconPath) {
   await assertSamePath(match[1], expectedIconPath);
 }
 
-async function assertNoShellStagingDirectories(root) {
-  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith("TarkovHelperWeb.StartMenu.")), []);
+async function assertNoStartMenuTemporaryFiles(programsDirectory) {
+  assert.deepEqual(
+    (await readdir(programsDirectory)).filter((name) => name.startsWith("TarkovHelperWeb.StartMenu.")),
+    [],
+  );
 }
 
-async function shortcutProperties(inspector, shortcutPath) {
-  const result = runPowerShell(inspector, ["-Path", shortcutPath]);
+async function assertUnicodeShellLink(shortcutPath) {
+  const contents = await readFile(shortcutPath);
+  assert.ok(contents.length >= 0x4c, "Shell Link header is truncated");
+  assert.equal(contents.readUInt32LE(0), 0x4c, "Shell Link header size must be 0x4c");
+  assert.notEqual(contents.readUInt32LE(0x14) & 0x80, 0, "Shell Link must set the IsUnicode flag");
+}
+
+async function shortcutProperties(shortcutPath) {
+  const result = runPowerShell(startMenuScript, ["-Action", "Inspect", "-ShortcutPath", shortcutPath]);
   assert.equal(result.status, 0, outputOf(result));
   return JSON.parse(result.stdout.trim());
 }
@@ -114,31 +109,31 @@ test("registers, verifies, retargets, and removes an owned per-user Start shortc
   const packageA = await makePackage(temporaryRoot, "패키지 A %TEMP%, 테스트");
   const packageB = await makePackage(temporaryRoot, "패키지 B (새 위치)");
   const shortcutPath = path.join(programsDirectory, shortcutName);
-  const { inspector } = await makeShortcutTools(temporaryRoot);
 
   try {
-    const first = runStartMenu("Register", packageA, programsDirectory, temporaryRoot);
+    const first = runStartMenu("Register", packageA, programsDirectory);
     assert.equal(first.status, 0, outputOf(first));
-    await assertNoShellStagingDirectories(temporaryRoot);
+    await assertNoStartMenuTemporaryFiles(programsDirectory);
+    await assertUnicodeShellLink(shortcutPath);
     assert.equal((await stat(shortcutPath)).isFile(), true);
 
     const expectedTarget = path.join(process.env.SystemRoot, "System32", "wscript.exe");
-    const firstProperties = await shortcutProperties(inspector, shortcutPath);
+    const firstProperties = await shortcutProperties(shortcutPath);
     await assertSamePath(firstProperties.TargetPath, expectedTarget);
     await assertLauncherArguments(firstProperties.Arguments, path.join(packageA, launcherName));
     await assertSamePath(firstProperties.WorkingDirectory, process.env.LOCALAPPDATA);
     await assertIconLocation(firstProperties.IconLocation, path.join(packageA, "TarkovHelper.ico"));
     assert.equal(firstProperties.Description, ownershipMarker);
 
-    const repeated = runStartMenu("Register", packageA, programsDirectory, temporaryRoot);
+    const repeated = runStartMenu("Register", packageA, programsDirectory);
     assert.equal(repeated.status, 0, outputOf(repeated));
-    await assertNoShellStagingDirectories(temporaryRoot);
-    await assertSamePath((await shortcutProperties(inspector, shortcutPath)).TargetPath, expectedTarget);
+    await assertNoStartMenuTemporaryFiles(programsDirectory);
+    await assertSamePath((await shortcutProperties(shortcutPath)).TargetPath, expectedTarget);
 
-    const retargeted = runStartMenu("Register", packageB, programsDirectory, temporaryRoot);
+    const retargeted = runStartMenu("Register", packageB, programsDirectory);
     assert.equal(retargeted.status, 0, outputOf(retargeted));
-    await assertNoShellStagingDirectories(temporaryRoot);
-    const movedProperties = await shortcutProperties(inspector, shortcutPath);
+    await assertNoStartMenuTemporaryFiles(programsDirectory);
+    const movedProperties = await shortcutProperties(shortcutPath);
     await assertLauncherArguments(movedProperties.Arguments, path.join(packageB, launcherName));
     await assertSamePath(movedProperties.WorkingDirectory, process.env.LOCALAPPDATA);
     await assertIconLocation(movedProperties.IconLocation, path.join(packageB, "TarkovHelper.ico"));
@@ -160,24 +155,27 @@ test("refuses to overwrite or remove a foreign shortcut with the same name", asy
   const packageRoot = await makePackage(temporaryRoot, "Package");
   const shortcutPath = path.join(programsDirectory, shortcutName);
   const unrelatedPath = path.join(programsDirectory, "Keep me.txt");
-  const { inspector, foreignWriter } = await makeShortcutTools(temporaryRoot);
+  const { foreignWriter } = await makeShortcutTools(temporaryRoot);
 
   try {
     await mkdir(programsDirectory, { recursive: true });
     await writeFile(unrelatedPath, "keep", "utf8");
     const foreign = runPowerShell(foreignWriter, ["-Path", shortcutPath]);
     assert.equal(foreign.status, 0, outputOf(foreign));
-    const before = await shortcutProperties(inspector, shortcutPath);
+    const before = await shortcutProperties(shortcutPath);
+    const beforeBytes = await readFile(shortcutPath);
 
     const registration = runStartMenu("Register", packageRoot, programsDirectory);
     assert.notEqual(registration.status, 0);
     assert.match(outputOf(registration), /belongs to another application/i);
-    assert.deepEqual(await shortcutProperties(inspector, shortcutPath), before);
+    assert.deepEqual(await shortcutProperties(shortcutPath), before);
+    assert.deepEqual(await readFile(shortcutPath), beforeBytes);
 
     const removal = runStartMenu("Unregister", packageRoot, programsDirectory);
     assert.notEqual(removal.status, 0);
     assert.match(outputOf(removal), /belongs to another application/i);
-    assert.deepEqual(await shortcutProperties(inspector, shortcutPath), before);
+    assert.deepEqual(await shortcutProperties(shortcutPath), before);
+    assert.deepEqual(await readFile(shortcutPath), beforeBytes);
     assert.equal(await readFile(unrelatedPath, "utf8"), "keep");
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
@@ -222,6 +220,14 @@ test("all VBS entry points use system PowerShell without expanding package paths
     assert.match(contents, /shell\.Run\(command(?:Line)?, 0, True\)/i);
     assert.doesNotMatch(contents, /cmd\.exe/i);
   }
+});
+
+test("creates and inspects shortcuts through the native Unicode Shell Link interfaces", async () => {
+  const contents = await readFile(startMenuScript, "utf8");
+  assert.match(contents, /IShellLinkW/);
+  assert.match(contents, /IPersistFile/);
+  assert.match(contents, /UnmanagedType\.LPWStr/);
+  assert.doesNotMatch(contents, /New-Object\s+-ComObject\s+WScript\.Shell/i);
 });
 
 test("launch and stop wrappers preserve a literal environment-variable folder name", {
