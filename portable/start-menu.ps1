@@ -122,16 +122,20 @@ if ([IO.File]::Exists($shortcutPath)) {
 }
 
 [IO.Directory]::CreateDirectory($programsDirectoryPath) | Out-Null
+$shellStagingRoot = Get-FullPath ([IO.Path]::GetTempPath()) "TempPath"
 $temporaryPath = Join-Path $programsDirectoryPath ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".tmp.lnk")
 $backupPath = Join-Path $programsDirectoryPath ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".bak")
+$shellStagingDirectory = Join-Path $shellStagingRoot ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N"))
+$shellStagingPath = Join-Path $shellStagingDirectory "shortcut.lnk"
 $shell = $null
 $shortcut = $null
 $replacementCompleted = $false
 $registrationCompleted = $false
 try {
+    [IO.Directory]::CreateDirectory($shellStagingDirectory) | Out-Null
     try {
         $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut($temporaryPath)
+        $shortcut = $shell.CreateShortcut($shellStagingPath)
         $shortcut.TargetPath = $wscriptPath
         $shortcut.Arguments = $arguments
         $shortcut.WorkingDirectory = $shortcutWorkingDirectory
@@ -143,6 +147,8 @@ try {
         Release-ComObject $shortcut
         Release-ComObject $shell
     }
+    Assert-ShortcutProperties $shellStagingPath $wscriptPath $arguments $shortcutWorkingDirectory $iconLocation
+    [IO.File]::Copy($shellStagingPath, $temporaryPath, $false)
     Assert-ShortcutProperties $temporaryPath $wscriptPath $arguments $shortcutWorkingDirectory $iconLocation
     if ([IO.File]::Exists($shortcutPath)) {
         [void](Assert-OwnedShortcut $shortcutPath)
@@ -171,6 +177,12 @@ try {
     }
     if ($registrationCompleted -and [IO.File]::Exists($backupPath)) {
         try { [IO.File]::Delete($backupPath) } catch { }
+    }
+    if ([IO.File]::Exists($shellStagingPath)) {
+        try { [IO.File]::Delete($shellStagingPath) } catch { }
+    }
+    if ([IO.Directory]::Exists($shellStagingDirectory)) {
+        try { [IO.Directory]::Delete($shellStagingDirectory, $false) } catch { }
     }
 }
 

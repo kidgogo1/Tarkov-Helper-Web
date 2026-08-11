@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -13,7 +13,7 @@ const launcherName = "Tarkov Helper 실행.vbs";
 const shortcutName = "Tarkov Helper.lnk";
 const ownershipMarker = "TarkovHelperWeb.StartMenu.v1";
 
-function runPowerShell(script, args = []) {
+function runPowerShell(script, args = [], options = {}) {
   return spawnSync("powershell.exe", [
     "-NoLogo",
     "-NoProfile",
@@ -26,11 +26,12 @@ function runPowerShell(script, args = []) {
   ], {
     cwd: projectRoot,
     encoding: "utf8",
+    env: { ...process.env, ...options.env },
     windowsHide: true,
   });
 }
 
-function runStartMenu(action, packageRoot, programsDirectory) {
+function runStartMenu(action, packageRoot, programsDirectory, shellStagingRoot) {
   return runPowerShell(startMenuScript, [
     "-Action",
     action,
@@ -38,7 +39,7 @@ function runStartMenu(action, packageRoot, programsDirectory) {
     packageRoot,
     "-ProgramsDirectory",
     programsDirectory,
-  ]);
+  ], shellStagingRoot ? { env: { TEMP: shellStagingRoot, TMP: shellStagingRoot } } : undefined);
 }
 
 async function makePackage(parent, leaf) {
@@ -97,6 +98,10 @@ async function assertIconLocation(actual, expectedIconPath) {
   await assertSamePath(match[1], expectedIconPath);
 }
 
+async function assertNoShellStagingDirectories(root) {
+  assert.deepEqual((await readdir(root)).filter((name) => name.startsWith("TarkovHelperWeb.StartMenu.")), []);
+}
+
 async function shortcutProperties(inspector, shortcutPath) {
   const result = runPowerShell(inspector, ["-Path", shortcutPath]);
   assert.equal(result.status, 0, outputOf(result));
@@ -112,8 +117,9 @@ test("registers, verifies, retargets, and removes an owned per-user Start shortc
   const { inspector } = await makeShortcutTools(temporaryRoot);
 
   try {
-    const first = runStartMenu("Register", packageA, programsDirectory);
+    const first = runStartMenu("Register", packageA, programsDirectory, temporaryRoot);
     assert.equal(first.status, 0, outputOf(first));
+    await assertNoShellStagingDirectories(temporaryRoot);
     assert.equal((await stat(shortcutPath)).isFile(), true);
 
     const expectedTarget = path.join(process.env.SystemRoot, "System32", "wscript.exe");
@@ -124,12 +130,14 @@ test("registers, verifies, retargets, and removes an owned per-user Start shortc
     await assertIconLocation(firstProperties.IconLocation, path.join(packageA, "TarkovHelper.ico"));
     assert.equal(firstProperties.Description, ownershipMarker);
 
-    const repeated = runStartMenu("Register", packageA, programsDirectory);
+    const repeated = runStartMenu("Register", packageA, programsDirectory, temporaryRoot);
     assert.equal(repeated.status, 0, outputOf(repeated));
+    await assertNoShellStagingDirectories(temporaryRoot);
     await assertSamePath((await shortcutProperties(inspector, shortcutPath)).TargetPath, expectedTarget);
 
-    const retargeted = runStartMenu("Register", packageB, programsDirectory);
+    const retargeted = runStartMenu("Register", packageB, programsDirectory, temporaryRoot);
     assert.equal(retargeted.status, 0, outputOf(retargeted));
+    await assertNoShellStagingDirectories(temporaryRoot);
     const movedProperties = await shortcutProperties(inspector, shortcutPath);
     await assertLauncherArguments(movedProperties.Arguments, path.join(packageB, launcherName));
     await assertSamePath(movedProperties.WorkingDirectory, process.env.LOCALAPPDATA);
