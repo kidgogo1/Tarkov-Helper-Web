@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -395,8 +395,8 @@ exit 0
       "Start",
     ]);
     assert.equal(
-      path.resolve((await readFile(marker, "utf8")).replace(/^\uFEFF/, "")).toLowerCase(),
-      path.resolve(packageRoot).toLowerCase(),
+      (await realpath((await readFile(marker, "utf8")).replace(/^\uFEFF/, ""))).toLowerCase(),
+      (await realpath(packageRoot)).toLowerCase(),
     );
 
     await rename(packageRoot, movedRoot);
