@@ -38,6 +38,13 @@ if (
 ) {
     $script:backupDeleteRetryDelayMilliseconds = $parsedBackupDeleteRetryDelayMilliseconds
 }
+$script:testCommitCleanupError = [string]$env:TARKOV_HELPER_UPDATE_TEST_COMMIT_CLEANUP_ERROR
+if ($script:testCommitCleanupError -notin @("CANDIDATE", "JOURNAL", "RUNONCE", "PENDING")) { $script:testCommitCleanupError = "" }
+$script:testCommitCleanupCrash = [string]$env:TARKOV_HELPER_UPDATE_TEST_COMMIT_CLEANUP_CRASH
+if ($script:testCommitCleanupCrash -notin @("BACKUP", "CANDIDATE", "JOURNAL", "RUNONCE", "PENDING")) { $script:testCommitCleanupCrash = "" }
+$script:testCommittedRecoveryCrashAfterStart = $env:TARKOV_HELPER_UPDATE_TEST_COMMITTED_RECOVERY_CRASH_AFTER_START -ceq "1"
+$script:testServerNeverPublishesInstance = $env:TARKOV_HELPER_UPDATE_TEST_SERVER_NEVER_PUBLISHES_INSTANCE -ceq "1"
+$script:commitWriteAttemptedAfterHealth = $false
 
 $treeVerifierSource = @'
 using System;
@@ -259,24 +266,6 @@ function Write-Status {
     Write-AtomicJson -Path (Get-StatusPath) -Value $Value
 }
 
-function Test-CommittedUpdateStatus {
-    param([object]$Plan)
-    $path = Get-StatusPath
-    if (-not [IO.File]::Exists($path)) { return $false }
-    try {
-        $status = Read-BoundedJson -Path $path -MaximumBytes 65536
-        Assert-ExactObject -Value $status -Properties @("state", "currentVersion", "previousVersion", "updatedAt") -Label "committed update status"
-        return (
-            $status.state -ceq "UPDATED" -and
-            $status.currentVersion -ceq [string]$Plan.latestVersion -and
-            $status.previousVersion -ceq [string]$Plan.currentVersion -and
-            $status.updatedAt -is [string] -and $status.updatedAt -match '^\d{4}-\d{2}-\d{2}T'
-        )
-    } catch {
-        return $false
-    }
-}
-
 function Write-BrokerLog {
     param([string]$Message)
     try {
@@ -290,6 +279,22 @@ function Test-SafeSibling {
     $full = [IO.Path]::GetFullPath($Candidate)
     $prefix = [IO.Path]::GetFullPath($Parent).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
     return $full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($full) -match $Pattern
+}
+
+function Invoke-TestCommitCleanupError {
+    param([ValidateSet("CANDIDATE", "JOURNAL", "RUNONCE", "PENDING")][string]$Boundary)
+    if ($script:testCommitCleanupError -ceq $Boundary) {
+        throw [IO.IOException]::new("Injected post-commit metadata cleanup failure at $Boundary.")
+    }
+}
+
+function Invoke-TestCommitCleanupCrash {
+    param([ValidateSet("BACKUP", "CANDIDATE", "JOURNAL", "RUNONCE", "PENDING")][string]$Boundary)
+    if ($script:testCommitCleanupCrash -ceq $Boundary) {
+        # Test-only hard stop after a completed mutation. Environment.Exit
+        # bypasses every catch/finally and models power loss at this boundary.
+        [Environment]::Exit(96)
+    }
 }
 
 function Move-UpdateDirectory {
@@ -526,10 +531,16 @@ function Start-Server {
     $launcher = Join-Path $Root "launcher.ps1"
     if (-not [IO.File]::Exists($launcher)) { throw [IO.FileNotFoundException]::new("The staged launcher is missing.", $launcher) }
     $powershell = Join-Path $PSHOME "powershell.exe"; if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
-    $arguments = @(
-        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $launcher,
-        "-Action", "Serve", "-Root", (Join-Path $Root "app"), "-Port", [string]$Port, "-NoBrowser", "-StateDirectory", $StateDirectory, "-UpdateNonce", $Nonce
-    )
+    if ($script:testServerNeverPublishesInstance) {
+        # Test-only child that stays alive without claiming the instance file.
+        # It exercises recovery of the exact PID/start pair journaled below.
+        $arguments = @("-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 300")
+    } else {
+        $arguments = @(
+            "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $launcher,
+            "-Action", "Serve", "-Root", (Join-Path $Root "app"), "-Port", [string]$Port, "-NoBrowser", "-StateDirectory", $StateDirectory, "-UpdateNonce", $Nonce
+        )
+    }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
     $directory = Get-UpdateDirectory
     $out = Join-Path $directory ("$Label.stdout.log"); $error = Join-Path $directory ("$Label.stderr.log")
@@ -580,6 +591,17 @@ function Stop-RecordedServer {
         throw [InvalidOperationException]::new("The authenticated update server did not stop.")
     }
     Remove-StaleInstance -Expected $Instance
+}
+
+function Stop-ExactRecordedProcess {
+    param([int]$ProcessId, [string]$ProcessStartTimeUtc)
+    $process = Get-RecordedProcess -ProcessId $ProcessId -ProcessStartTimeUtc $ProcessStartTimeUtc
+    if ($null -eq $process) { return }
+    $process.Kill()
+    $null = $process.WaitForExit(5000)
+    if ($null -ne (Get-RecordedProcess -ProcessId $ProcessId -ProcessStartTimeUtc $ProcessStartTimeUtc)) {
+        throw [InvalidOperationException]::new("The exact journaled update child did not stop.")
+    }
 }
 
 function Get-IdentityIfPresent {
@@ -774,7 +796,23 @@ function Complete-Commit {
         updatedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
     })
     if ($ExistingPhase -cne "COMMITTED") {
-        Write-Journal -Plan $Plan -Phase "COMMITTED" -BackupRoot $BackupRoot -FailedRoot $FailedRoot -ServerPid $ServerPid -ServerProcessStartTimeUtc $ServerProcessStartTimeUtc
+        # Authenticated health has passed before this boundary. Once an atomic
+        # COMMITTED replacement is attempted, a post-write/read-sharing error is
+        # ambiguous and must fail forward. Keeping the old backup and pending
+        # trigger lets a later broker prove and finish either durable outcome.
+        $script:commitWriteAttemptedAfterHealth = $true
+        try {
+            Write-Journal -Plan $Plan -Phase "COMMITTED" -BackupRoot $BackupRoot -FailedRoot $FailedRoot -ServerPid $ServerPid -ServerProcessStartTimeUtc $ServerProcessStartTimeUtc
+        } catch {
+            $commitWriteError = $_.Exception
+            $durableCommit = $null
+            try { $durableCommit = Read-ApplyJournal -Plan $Plan -BackupRoot $BackupRoot -FailedRoot $FailedRoot } catch { }
+            if ($null -eq $durableCommit -or [string]$durableCommit.phase -cne "COMMITTED") { throw $commitWriteError }
+            # Atomic replacement already made COMMITTED durable; an ancillary
+            # temp/backup cleanup exception cannot make the transaction
+            # rollbackable again.
+            Write-BrokerLog "The COMMITTED journal was durable despite a post-write error: $($commitWriteError.GetType().Name): $($commitWriteError.Message)"
+        }
     }
     $cleanupCompleted = $false
     try {
@@ -788,15 +826,39 @@ function Complete-Commit {
         return
     }
     if (-not $cleanupCompleted) { return }
-    $candidatePath = Join-Path (Get-UpdateDirectory) "candidate.json"
-    if ([IO.File]::Exists($candidatePath)) { [IO.File]::Delete($candidatePath) }
-    $journalPath = Get-JournalPath
-    if ([IO.File]::Exists($journalPath)) { [IO.File]::Delete($journalPath) }
-    # pending.json is the launcher's transaction trigger. Delete it last so a
-    # crash during cleanup always leaves a replayable transaction, never a stale
-    # journal that can poison the next candidate.
-    if ([IO.File]::Exists([IO.Path]::GetFullPath($PlanPath))) { [IO.File]::Delete([IO.Path]::GetFullPath($PlanPath)) }
-    Remove-RecoveryRunOnce -Plan $Plan
+    Invoke-TestCommitCleanupCrash -Boundary "BACKUP"
+    try {
+        $candidatePath = Join-Path (Get-UpdateDirectory) "candidate.json"
+        Invoke-TestCommitCleanupError -Boundary "CANDIDATE"
+        if ([IO.File]::Exists($candidatePath)) { [IO.File]::Delete($candidatePath) }
+        Invoke-TestCommitCleanupCrash -Boundary "CANDIDATE"
+
+        # Delete the terminal journal before the trigger so a completed update
+        # can never poison a later candidate. If pending deletion then fails or
+        # power is lost, the bound pending plan plus verified installed topology
+        # can recreate COMMITTED independently of mutable UI status.
+        $journalPath = Get-JournalPath
+        Invoke-TestCommitCleanupError -Boundary "JOURNAL"
+        if ([IO.File]::Exists($journalPath)) { [IO.File]::Delete($journalPath) }
+        Invoke-TestCommitCleanupCrash -Boundary "JOURNAL"
+
+        Invoke-TestCommitCleanupError -Boundary "RUNONCE"
+        Remove-RecoveryRunOnce -Plan $Plan
+        Invoke-TestCommitCleanupCrash -Boundary "RUNONCE"
+
+        # pending.json is the final transaction trigger. Nothing that can fail
+        # remains after it is removed.
+        $pendingPath = [IO.Path]::GetFullPath($PlanPath)
+        Invoke-TestCommitCleanupError -Boundary "PENDING"
+        if ([IO.File]::Exists($pendingPath)) { [IO.File]::Delete($pendingPath) }
+        Invoke-TestCommitCleanupCrash -Boundary "PENDING"
+    } catch {
+        # COMMITTED is an irreversible success boundary. Metadata cleanup may
+        # be retried, but must never enter the outer rollback path after the old
+        # tree has been authenticated and removed.
+        Write-BrokerLog "Post-commit metadata cleanup was deferred: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        return
+    }
 }
 
 function Complete-Rollback {
@@ -852,6 +914,7 @@ $stageRoot = $null
 $parent = $null
 $escapedLeaf = $null
 $canReconcile = $false
+$commitIsIrreversible = $false
 try {
     try { $hasMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
     if (-not $hasMutex) { exit 12 }
@@ -888,15 +951,35 @@ try {
     $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
     $failedRoot = Join-Path $parent ("." + $leaf + ".update-failed-" + [string]$plan.candidateId)
     $journal = Read-ApplyJournal -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot
-    $journalWasMissing = $null -eq $journal
-    $committedStatusWasDurable = Test-CommittedUpdateStatus -Plan $plan
+    if ($null -eq $journal) {
+        # The prior process may have removed the terminal journal and then lost
+        # power or hit a lock before deleting pending.json. status.json is UI
+        # state and may already have been overwritten by Check, so never use it
+        # as transaction evidence. The bound pending plan, exact new identity,
+        # signed tree digest, and absence of both rollback and stage trees prove
+        # that backup cleanup crossed the irreversible COMMITTED boundary.
+        $recoveryIdentity = Get-IdentityIfPresent $packageRoot
+        $recoveryRootIsNew = Test-Identity -Identity $recoveryIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)
+        if (
+            $recoveryRootIsNew -and
+            -not [IO.Directory]::Exists($backupRoot) -and
+            -not [IO.Directory]::Exists($stageRoot)
+        ) {
+            $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
+            Write-Journal -Plan $plan -Phase "COMMITTED" -BackupRoot $backupRoot -FailedRoot $failedRoot
+            $journal = Read-ApplyJournal -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot
+        }
+    }
+    $commitIsIrreversible = $null -ne $journal -and [string]$journal.phase -ceq "COMMITTED"
     Invoke-LiveHandoff -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -Journal $journal
     $canReconcile = $true
     Set-RecoveryRunOnce -Plan $plan
-    Write-Status ([ordered]@{ state = "APPLYING"; currentVersion = [string]$plan.currentVersion; latestVersion = [string]$plan.latestVersion; startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) })
-    if ($null -eq $journal) {
-        Write-Journal -Plan $plan -Phase "PREPARED" -BackupRoot $backupRoot -FailedRoot $failedRoot
-        $journal = Read-ApplyJournal -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot
+    if (-not $commitIsIrreversible) {
+        Write-Status ([ordered]@{ state = "APPLYING"; currentVersion = [string]$plan.currentVersion; latestVersion = [string]$plan.latestVersion; startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) })
+        if ($null -eq $journal) {
+            Write-Journal -Plan $plan -Phase "PREPARED" -BackupRoot $backupRoot -FailedRoot $failedRoot
+            $journal = Read-ApplyJournal -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot
+        }
     }
 
     $rootIdentity = Get-IdentityIfPresent $packageRoot
@@ -929,14 +1012,14 @@ try {
 
     # Complete-Commit removes the authenticated old tree before it deletes the
     # transaction trigger. A hard power loss in that narrow cleanup window can
-    # therefore leave a verified new root with no backup. Accept only a durable
-    # COMMITTED journal, or the exact UPDATED status left when the journal was
-    # already removed, and still require the new tree and server health below.
-    $commitCleanupRecovery = (
+    # therefore leave a verified new root with no backup. Only a durable
+    # COMMITTED journal (including the topology-derived tombstone above) can
+    # enter the terminal server/bootstrap path.
+    $terminalCommitRecovery = (
         $rootIsNew -and
-        -not [IO.Directory]::Exists($backupRoot) -and
         -not [IO.Directory]::Exists($stageRoot) -and
-        (([string]$journal.phase -ceq "COMMITTED") -or ($journalWasMissing -and $committedStatusWasDurable))
+        ([string]$journal.phase -ceq "COMMITTED") -and
+        ($backupIsOld -or -not [IO.Directory]::Exists($backupRoot))
     )
 
     $instance = Read-Instance
@@ -948,7 +1031,56 @@ try {
                 Start-Sleep -Milliseconds 100
                 $instance = Read-Instance
             }
-            if ($null -eq $instance) { throw [Security.SecurityException]::new("The interrupted server did not publish authenticated instance state.") }
+            if ($null -eq $instance) {
+                if ($terminalCommitRecovery) {
+                    # COMMITTED is terminal, but its exact journaled child never
+                    # became manageable through instance.json. Stop only that
+                    # PID/start identity before trying a clean bootstrap below.
+                    Stop-ExactRecordedProcess -ProcessId ([int]$journal.serverPid) -ProcessStartTimeUtc ([string]$journal.serverProcessStartTimeUtc)
+                } else {
+                    throw [Security.SecurityException]::new("The interrupted server did not publish authenticated instance state.")
+                }
+            }
+        }
+    }
+    if ($terminalCommitRecovery) {
+        try {
+            if ($null -ne $instance) {
+                $terminalProcess = Get-RecordedProcess -ProcessId ([int]$instance.pid) -ProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
+                if ($null -eq $terminalProcess) {
+                    Remove-StaleInstance -Expected $instance
+                    $instance = $null
+                } elseif (-not (Invoke-Health -Instance $instance -ExpectedRoot $packageRoot -ExpectedNonce ([string]$plan.healthNonce))) {
+                    throw [Security.SecurityException]::new("The committed update server could not be authenticated.")
+                }
+            }
+            if ($null -eq $instance) {
+                $newServer = Start-Server -Root $packageRoot -Nonce ([string]$plan.healthNonce) -Label "update-new"
+                $newServerStart = Get-ProcessStartTimeText $newServer
+                # Retain the irreversible terminal phase while recording enough
+                # process identity to recover a crash before instance.json is
+                # published. COMMITTED must never be downgraded to NEW_STARTED.
+                Write-Journal -Plan $plan -Phase "COMMITTED" -BackupRoot $backupRoot -FailedRoot $failedRoot -ServerPid $newServer.Id -ServerProcessStartTimeUtc $newServerStart
+                if ($script:testCommittedRecoveryCrashAfterStart) { [Environment]::Exit(95) }
+                if (-not (Wait-Healthy -Process $newServer -Root $packageRoot -Nonce ([string]$plan.healthNonce))) {
+                    Stop-ExactRecordedProcess -ProcessId $newServer.Id -ProcessStartTimeUtc $newServerStart
+                    throw [InvalidOperationException]::new("The committed update server did not pass authenticated health.")
+                }
+                $instance = Read-Instance
+                if (
+                    $null -eq $instance -or
+                    $instance.pid -ne $newServer.Id -or
+                    -not (Invoke-Health -Instance $instance -ExpectedRoot $packageRoot -ExpectedNonce ([string]$plan.healthNonce))
+                ) { throw [Security.SecurityException]::new("The committed update server identity is invalid.") }
+            }
+            $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
+            Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase "COMMITTED" -ServerPid ([int]$instance.pid) -ServerProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
+            exit 0
+        } catch {
+            # COMMITTED is terminal. Server bootstrap or metadata cleanup can be
+            # retried, but the installed tree must never re-enter rollback.
+            Write-BrokerLog "Committed update recovery was deferred: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+            exit 20
         }
     }
     if ($null -ne $instance) {
@@ -969,7 +1101,7 @@ try {
                 throw [InvalidOperationException]::new("Continuing the interrupted update rollback.")
             }
             throw [IO.InvalidDataException]::new("The interrupted rollback trees are not recoverable.")
-        } elseif ($rootIsNew -and ($backupIsOld -or $commitCleanupRecovery)) {
+        } elseif ($rootIsNew -and $backupIsOld) {
             $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
             Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase ([string]$journal.phase) -ServerPid ([int]$instance.pid) -ServerProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
             exit 0
@@ -1001,7 +1133,7 @@ try {
     if (
         $newIdentity.version -cne $plan.latestVersion -or
         $newIdentity.commit -cne $plan.latestCommit -or
-        (-not [IO.Directory]::Exists($backupRoot) -and -not $commitCleanupRecovery)
+        -not [IO.Directory]::Exists($backupRoot)
     ) { throw [IO.InvalidDataException]::new("The package swap did not produce the expected version pair.") }
     if ([IO.Directory]::Exists($backupRoot)) {
         $oldIdentity = Get-VersionDocument $backupRoot
@@ -1017,7 +1149,24 @@ try {
     exit 0
 } catch {
     Write-BrokerLog "Apply failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    if ($commitIsIrreversible -or $script:commitWriteAttemptedAfterHealth) {
+        Write-BrokerLog "The authenticated commit boundary was reached; rollback is permanently disabled for this transaction."
+        exit 20
+    }
     if ($null -eq $plan -or -not $canReconcile) { exit 20 }
+    try {
+        $rollbackRootIdentity = Get-IdentityIfPresent $packageRoot
+        if (Test-Identity -Identity $rollbackRootIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)) {
+            $rollbackBackupIdentity = Get-IdentityIfPresent $backupRoot
+            if (-not (Test-Identity -Identity $rollbackBackupIdentity -Version ([string]$plan.currentVersion) -Commit ([string]$plan.currentCommit))) {
+                Write-BrokerLog "Rollback was refused because the installed new tree has no authenticated old backup."
+                exit 20
+            }
+        }
+    } catch {
+        Write-BrokerLog "Rollback pair validation failed closed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        exit 20
+    }
     try {
         Write-Status ([ordered]@{ state = "ROLLING_BACK"; currentVersion = [string]$plan.currentVersion; latestVersion = [string]$plan.latestVersion; startedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) })
         $serverPid = 0; $serverStart = ""
