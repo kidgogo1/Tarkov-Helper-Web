@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -81,6 +81,22 @@ function outputOf(result) {
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 }
 
+async function assertSamePath(actual, expected) {
+  assert.equal((await realpath(actual)).toLowerCase(), (await realpath(expected)).toLowerCase());
+}
+
+async function assertLauncherArguments(actual, expectedLauncherPath) {
+  const match = /^\/\/Nologo "([^"]+)"$/.exec(actual);
+  assert.ok(match, `Unexpected shortcut arguments: ${actual}`);
+  await assertSamePath(match[1], expectedLauncherPath);
+}
+
+async function assertIconLocation(actual, expectedIconPath) {
+  const match = /^(.*),0$/.exec(actual);
+  assert.ok(match, `Unexpected shortcut icon location: ${actual}`);
+  await assertSamePath(match[1], expectedIconPath);
+}
+
 async function shortcutProperties(inspector, shortcutPath) {
   const result = runPowerShell(inspector, ["-Path", shortcutPath]);
   assert.equal(result.status, 0, outputOf(result));
@@ -102,22 +118,22 @@ test("registers, verifies, retargets, and removes an owned per-user Start shortc
 
     const expectedTarget = path.join(process.env.SystemRoot, "System32", "wscript.exe");
     const firstProperties = await shortcutProperties(inspector, shortcutPath);
-    assert.equal(firstProperties.TargetPath.toLowerCase(), expectedTarget.toLowerCase());
-    assert.equal(firstProperties.Arguments, `//Nologo "${path.join(packageA, launcherName)}"`);
-    assert.equal(firstProperties.WorkingDirectory.toLowerCase(), process.env.LOCALAPPDATA.toLowerCase());
-    assert.equal(firstProperties.IconLocation, `${path.join(packageA, "TarkovHelper.ico")},0`);
+    await assertSamePath(firstProperties.TargetPath, expectedTarget);
+    await assertLauncherArguments(firstProperties.Arguments, path.join(packageA, launcherName));
+    await assertSamePath(firstProperties.WorkingDirectory, process.env.LOCALAPPDATA);
+    await assertIconLocation(firstProperties.IconLocation, path.join(packageA, "TarkovHelper.ico"));
     assert.equal(firstProperties.Description, ownershipMarker);
 
     const repeated = runStartMenu("Register", packageA, programsDirectory);
     assert.equal(repeated.status, 0, outputOf(repeated));
-    assert.equal((await shortcutProperties(inspector, shortcutPath)).TargetPath.toLowerCase(), expectedTarget.toLowerCase());
+    await assertSamePath((await shortcutProperties(inspector, shortcutPath)).TargetPath, expectedTarget);
 
     const retargeted = runStartMenu("Register", packageB, programsDirectory);
     assert.equal(retargeted.status, 0, outputOf(retargeted));
     const movedProperties = await shortcutProperties(inspector, shortcutPath);
-    assert.equal(movedProperties.Arguments, `//Nologo "${path.join(packageB, launcherName)}"`);
-    assert.equal(movedProperties.WorkingDirectory.toLowerCase(), process.env.LOCALAPPDATA.toLowerCase());
-    assert.equal(movedProperties.IconLocation, `${path.join(packageB, "TarkovHelper.ico")},0`);
+    await assertLauncherArguments(movedProperties.Arguments, path.join(packageB, launcherName));
+    await assertSamePath(movedProperties.WorkingDirectory, process.env.LOCALAPPDATA);
+    await assertIconLocation(movedProperties.IconLocation, path.join(packageB, "TarkovHelper.ico"));
 
     const removed = runStartMenu("Unregister", packageB, programsDirectory);
     assert.equal(removed.status, 0, outputOf(removed));
@@ -223,7 +239,8 @@ exit 0
         timeout: 10_000,
       });
       assert.equal(result.status, 0, outputOf(result));
-      assert.equal((await readFile(path.join(packageRoot, `${action}.marker`), "utf8")).replace(/^\uFEFF/, ""), packageRoot);
+      const recordedRoot = (await readFile(path.join(packageRoot, `${action}.marker`), "utf8")).replace(/^\uFEFF/, "");
+      await assertSamePath(recordedRoot, packageRoot);
     }
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });

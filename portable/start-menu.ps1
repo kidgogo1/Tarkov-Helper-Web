@@ -122,8 +122,8 @@ if ([IO.File]::Exists($shortcutPath)) {
 }
 
 [IO.Directory]::CreateDirectory($programsDirectoryPath) | Out-Null
-$temporaryPath = Join-Path $programsDirectoryPath (".TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".lnk")
-$backupPath = Join-Path $programsDirectoryPath (".TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".bak")
+$temporaryPath = Join-Path $programsDirectoryPath ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".tmp.lnk")
+$backupPath = Join-Path $programsDirectoryPath ("TarkovHelperWeb.StartMenu." + [Guid]::NewGuid().ToString("N") + ".bak")
 $shell = $null
 $shortcut = $null
 $replacementCompleted = $false
