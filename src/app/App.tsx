@@ -433,8 +433,11 @@ export function App() {
         activeProfile={store.activeProfile}
         onObjectiveChange={store.setObjectiveProgress}
         onOpenChange={setQuestOverlayOpen}
+        onQuestMapRouteChange={store.setQuestMapRoute}
         onQuestTrackedChange={store.setQuestTracked}
         profile={store.profile}
+        mapConfigs={data.mapConfigs}
+        mapFloorLocations={data.mapFloorLocations}
         quests={data.quests}
         ref={questOverlayRef}
       />

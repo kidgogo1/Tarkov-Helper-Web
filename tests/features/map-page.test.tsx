@@ -380,6 +380,423 @@ describe("MapPage", () => {
     );
   });
 
+  it("selects a region quest route and connects its visible objectives to the current position", async () => {
+    renderPage({ focusQuestId: "quest-customs" }, true);
+
+    const routeToggle = screen.getByRole("checkbox", {
+      name: "물방 찾기 지도 경로 표시",
+    });
+    expect(routeToggle).not.toBeChecked();
+    expect(screen.queryByTestId("map-quest-route-line")).not.toBeInTheDocument();
+
+    fireEvent.click(routeToggle);
+    expect(profileState().mapRouteQuestIds).toEqual(["quest-customs"]);
+    expect(screen.queryByTestId("map-quest-route-line")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("스크린샷 파일 선택"), {
+      target: {
+        files: [new File([], "2026-08-07[10-20]_100, 1, 200_0, 0, 0, 1_16.74.png")],
+      },
+    });
+
+    const fullMapLines = screen.getAllByTestId("map-quest-route-line");
+    expect(fullMapLines).toHaveLength(3);
+    expect(fullMapLines[0]).toHaveAttribute("x1", "100");
+    expect(fullMapLines[0]).toHaveAttribute("y1", "200");
+    expect(fullMapLines[0]).toHaveAttribute("x2", "200");
+    expect(fullMapLines[0]).toHaveAttribute("y2", "240");
+
+    const screenshotInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(screenshotInput).not.toBeNull();
+    fireEvent.change(screenshotInput!, {
+      target: {
+        files: [new File([], "2026-08-07[10-21]_140, 1, 220_0, 0, 0, 1_16.74.png")],
+      },
+    });
+    const updatedFullMapLines = screen.getAllByTestId("map-quest-route-line");
+    expect(updatedFullMapLines[0]).toHaveAttribute("x1", "140");
+    expect(updatedFullMapLines[0]).toHaveAttribute("y1", "220");
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const miniMapLines = await screen.findAllByTestId("map-minimap-quest-route-line");
+    expect(miniMapLines).toHaveLength(3);
+    expect(miniMapLines[0]).toHaveAttribute("x1", "140");
+    expect(miniMapLines[0]).toHaveAttribute("y1", "220");
+
+    const mapPicker = document.querySelector<HTMLSelectElement>("#map-picker");
+    expect(mapPicker).not.toBeNull();
+    fireEvent.change(mapPicker!, { target: { value: "Woods" } });
+    expect(screen.queryByTestId("map-quest-route-line")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("map-minimap-quest-route-line")).not.toBeInTheDocument();
+    fireEvent.change(mapPicker!, { target: { value: "Customs" } });
+    expect(profileState().mapRouteQuestIds).toEqual(["quest-customs"]);
+    expect(screen.queryByTestId("map-quest-route-line")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "PVE 테스트 프로필" }));
+    expect(screen.getByRole("checkbox", { name: "물방 찾기 지도 경로 표시" }))
+      .not.toBeChecked();
+    expect(screen.queryByTestId("map-quest-route-line")).not.toBeInTheDocument();
+  });
+
+  it("does not connect a player to selected quest objectives on another floor", () => {
+    const state = createDefaultState();
+    state.profiles.pvp.mapRouteQuestIds = [quest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    renderPage({ focusQuestId: "quest-customs" });
+
+    fireEvent.change(screen.getByLabelText("스크린샷 파일 선택"), {
+      target: {
+        files: [new File([], "2026-08-07[10-20]_100, 7, 200_0, 0, 0, 1_16.74.png")],
+      },
+    });
+
+    const lines = screen.getAllByTestId("map-quest-route-line");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toHaveAttribute("x2", "250");
+    expect(lines[0]).toHaveAttribute("y2", "280");
+  });
+
+  it("lets the user explicitly assign an unknown player floor before drawing a route", async () => {
+    const factoryQuest: QuestData = {
+      ...quest,
+      id: "quest-factory-upper",
+      normalizedName: "factory-upper",
+      name: "Factory upper route",
+      nameEn: "Factory upper route",
+      nameKo: "팩토리 2층 경로",
+      locations: ["Factory"],
+      objectives: [{
+        ...quest.objectives[1],
+        id: "objective-factory-upper",
+        mapName: "Factory",
+        locationPoints: [{ x: 250, y: 7, z: 280, floorId: "level2" }],
+      }],
+    };
+    const pageData: TarkovData = {
+      ...data,
+      quests: [factoryQuest, woodsQuest],
+      mapConfigs: data.mapConfigs.map((map) => map.key === "Factory"
+        ? {
+            ...map,
+            floors: [
+              { layerId: "main", displayName: "Ground Floor", order: 0, isDefault: true },
+              { layerId: "level2", displayName: "Level 2", order: 1, isDefault: false },
+            ],
+          }
+        : map),
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Factory";
+    state.profiles.pvp.mapRouteQuestIds = [factoryQuest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    renderPage({}, false, pageData);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Level 2" }))
+      .toHaveAttribute("aria-pressed", "true"));
+    fireEvent.change(screen.getByLabelText("스크린샷 파일 선택"), {
+      target: {
+        files: [new File([], "2026-08-07[10-20]_100, 7, 200_0, 0, 0, 1_16.74.png")],
+      },
+    });
+
+    expect(screen.getByText(/층 미확인 \(연결선 숨김\)/)).toBeInTheDocument();
+    expect(screen.queryByTestId("map-quest-route-line")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {
+      name: "현재 위치를 Level 2 층으로 지정",
+    }));
+    expect(screen.getByTestId("map-quest-route-line")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("스크린샷 파일 선택"), {
+      target: {
+        files: [new File([], "2026-08-07[10-21]_120, 7, 220_0, 0, 0, 1_16.74.png")],
+      },
+    });
+    expect(screen.getByTestId("map-quest-route-line")).toBeInTheDocument();
+    expect(screen.queryByText(/층 미확인 \(연결선 숨김\)/)).not.toBeInTheDocument();
+  });
+
+  it("shows selected route markers even when a completed quest and both generic marker layers are hidden", async () => {
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    state.settings.map.showQuestMarkers = false;
+    state.settings.map.miniMapShowQuestMarkers = false;
+    state.profiles.pvp.questProgress[quest.id] = "done";
+    state.profiles.pvp.mapRouteQuestIds = [quest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage();
+
+    expect(screen.getAllByRole("button", { name: /퀘스트 마커 기숙사 물방 방문/ }))
+      .toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const miniMap = await screen.findByRole("dialog", { name: "Customs 미니맵" });
+    expect(within(miniMap).getAllByRole("img", {
+      name: /퀘스트 목표 · 물방 찾기 · 기숙사 물방 방문 · Visit/,
+    }))
+      .toHaveLength(3);
+  });
+
+  it("does not switch floors for a completed route hidden by marker settings", () => {
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    state.settings.map.showCompletedObjectives = false;
+    state.profiles.pvp.questProgress[quest.id] = "done";
+    state.profiles.pvp.mapRouteQuestIds = [quest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "Ground Floor" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/층으로 전환했습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /퀘스트 마커/ })).not.toBeInTheDocument();
+  });
+
+  it("clears completed-route markers and floor guidance when completed objectives are hidden", async () => {
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    state.settings.map.showCompletedObjectives = true;
+    state.profiles.pvp.questProgress[quest.id] = "done";
+    state.profiles.pvp.mapRouteQuestIds = [quest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(/목표 일부는 Level 2 층에 있습니다/))
+      .toBeInTheDocument());
+    expect(screen.getAllByRole("button", { name: /퀘스트 마커/ }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "완료한 목표 포함" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: /퀘스트 마커/ }))
+      .not.toBeInTheDocument());
+    expect(screen.queryByText(/목표 일부는 Level 2 층에 있습니다/))
+      .not.toBeInTheDocument();
+  });
+
+  it("recomputes a selected-route notice when a later screenshot changes the player floor", async () => {
+    const upperQuest: QuestData = {
+      ...quest,
+      id: "quest-upper-later-player",
+      normalizedName: "upper-later-player",
+      name: "Upper later player",
+      nameEn: "Upper later player",
+      nameKo: "나중 위치 2층 퀘스트",
+      objectives: [{ ...quest.objectives[1], id: "objective-upper-later-player" }],
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    state.profiles.pvp.mapRouteQuestIds = [upperQuest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    renderPage({}, false, { ...data, quests: [upperQuest, woodsQuest] });
+
+    await waitFor(() => expect(screen.getByText(
+      "나중 위치 2층 퀘스트 목표가 있는 Level 2 층으로 전환했습니다.",
+    )).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("스크린샷 파일 선택"), {
+      target: {
+        files: [new File([], "2026-08-07[10-20]_100, 1, 200_0, 0, 0, 1_16.74.png")],
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Ground Floor" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(screen.getByText(
+      /나중 위치 2층 퀘스트 목표 일부는 Level 2 층에 있습니다.*현재 위치는 Ground Floor 층입니다/,
+    )).toHaveAttribute("role", "status"));
+    expect(screen.queryByText(/목표가 있는 Level 2 층으로 전환했습니다/))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "플레이어 경로 지우기" }));
+    expect(screen.queryByText(/현재 위치는 Ground Floor 층입니다/))
+      .not.toBeInTheDocument();
+  });
+
+  it("handles a selected multi-map quest separately when each map is visited", async () => {
+    const multiMapQuest: QuestData = {
+      ...quest,
+      id: "quest-multi-map",
+      normalizedName: "multi-map-route",
+      name: "Multi-map route",
+      nameEn: "Multi-map route",
+      nameKo: "여러 지도 경로",
+      locations: ["Customs", "Reserve"],
+      objectives: [
+        {
+          ...quest.objectives[0],
+          id: "objective-multi-customs",
+          mapName: "Customs",
+          locationPoints: [{ x: 120, y: 1, z: 140, floorId: "main" }],
+          optionalPoints: [],
+        },
+        {
+          ...quest.objectives[1],
+          id: "objective-multi-reserve",
+          mapName: "Reserve",
+          locationPoints: [{ x: 410, y: 7, z: 420, floorId: "level2" }],
+          optionalPoints: [],
+        },
+      ],
+    };
+    const reserve = mapConfigs.find((map) => map.key === "Reserve")!;
+    const pageData: TarkovData = {
+      ...data,
+      quests: [...data.quests, multiMapQuest],
+      mapConfigs: data.mapConfigs.map((map) => map.key === "Reserve"
+        ? {
+            ...reserve,
+            floors: [
+              { layerId: "main", displayName: "Ground Floor", order: 0, isDefault: true },
+              { layerId: "level2", displayName: "Level 2", order: 1, isDefault: false },
+            ],
+          }
+        : map),
+      mapFloorLocations: [
+        ...data.mapFloorLocations,
+        {
+          id: "reserve-level2",
+          mapKey: "Reserve",
+          floorId: "level2",
+          minY: 5,
+          maxY: 10,
+          priority: 1,
+        },
+      ],
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    state.profiles.pvp.mapRouteQuestIds = [multiMapQuest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage({}, false, pageData);
+    expect(screen.getByRole("button", { name: "Ground Floor" }))
+      .toHaveAttribute("aria-pressed", "true");
+    // Leave the previous map on the same layer id as the target objective. The
+    // next map must reset its own floor before evaluating selected routes.
+    fireEvent.click(screen.getByRole("button", { name: "Level 2" }));
+    expect(screen.getByRole("button", { name: "Level 2" }))
+      .toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Reserve" },
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Level 2" }))
+      .toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByText("여러 지도 경로 목표가 있는 Level 2 층으로 전환했습니다."))
+      .toHaveAttribute("role", "status");
+    expect(screen.getByRole("button", { name: "퀘스트 마커 2층 문서 획득" }))
+      .toBeInTheDocument();
+  });
+
+  it("keeps an explanation for selected quest routes hidden on another floor", async () => {
+    const mainQuest: QuestData = {
+      ...quest,
+      id: "quest-main-only",
+      normalizedName: "main-only",
+      name: "Ground route",
+      nameEn: "Ground route",
+      nameKo: "1층 퀘스트",
+      objectives: [{ ...quest.objectives[0], id: "objective-main-only" }],
+    };
+    const upperQuest: QuestData = {
+      ...quest,
+      id: "quest-upper-only",
+      normalizedName: "upper-only",
+      name: "Upper route",
+      nameEn: "Upper route",
+      nameKo: "2층 퀘스트",
+      objectives: [{ ...quest.objectives[1], id: "objective-upper-only" }],
+    };
+    const pageData: TarkovData = {
+      ...data,
+      quests: [mainQuest, upperQuest, woodsQuest],
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    // Keep the visible-floor quest last to catch accidental "last selection wins" handling.
+    state.profiles.pvp.mapRouteQuestIds = [upperQuest.id, mainQuest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage({}, false, pageData);
+
+    await waitFor(() => expect(screen.getByText(
+      /2층 퀘스트 목표 일부는 Level 2 층에 있습니다/,
+    )).toHaveAttribute("role", "status"));
+    expect(screen.getByRole("button", { name: "Ground Floor" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("disables route selection when a region quest has no safe map coordinates", () => {
+    const noCoordinatesQuest: QuestData = {
+      ...quest,
+      id: "quest-no-coordinates",
+      normalizedName: "quest-no-coordinates",
+      name: "No Coordinates",
+      nameEn: "No Coordinates",
+      nameKo: "좌표 없는 퀘스트",
+      objectives: [{
+        ...quest.objectives[0],
+        id: "objective-no-coordinates",
+        locationPoints: [],
+        optionalPoints: [],
+      }],
+    };
+    const pageData: TarkovData = {
+      ...data,
+      quests: [...data.quests, noCoordinatesQuest],
+    };
+    renderPage({}, true, pageData);
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+
+    const toggle = screen.getByRole("checkbox", {
+      name: /^좌표 없는 퀘스트 지도 경로 표시/,
+    });
+    expect(toggle).toBeDisabled();
+    expect(toggle.closest("li")).toHaveTextContent("지도 좌표 없음");
+    fireEvent.click(toggle);
+    expect(profileState().mapRouteQuestIds).toEqual([]);
+  });
+
+  it("never projects a mapless multi-region objective onto an arbitrary map", () => {
+    const ambiguousQuest: QuestData = {
+      ...quest,
+      id: "quest-ambiguous-map",
+      normalizedName: "ambiguous-map",
+      name: "Ambiguous Map Quest",
+      nameEn: "Ambiguous Map Quest",
+      nameKo: "여러 지역 좌표 미확정 퀘스트",
+      locations: ["Shoreline", "Interchange"],
+      objectives: [{
+        ...quest.objectives[0],
+        id: "objective-ambiguous-map",
+        mapName: undefined,
+        locationPoints: [{ x: 200, y: 1, z: 240 }],
+        optionalPoints: [],
+      }],
+    };
+    const pageData: TarkovData = {
+      ...data,
+      quests: [...data.quests, ambiguousQuest],
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Shoreline";
+    state.profiles.pvp.mapRouteQuestIds = [ambiguousQuest.id];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage({ focusQuestId: ambiguousQuest.id }, false, pageData);
+
+    const routeToggle = screen.getByRole("checkbox", {
+      name: /^여러 지역 좌표 미확정 퀘스트 지도 경로 표시/,
+    });
+    expect(routeToggle).toBeChecked();
+    expect(routeToggle.closest("li")).toHaveTextContent("지도 좌표 없음");
+    expect(screen.queryByRole("button", {
+      name: /퀘스트 마커 여러 지역 좌표 미확정 퀘스트/,
+    })).not.toBeInTheDocument();
+  });
+
   it("toggles a region marker off and exposes wiki and cross-map actions with tooltips", () => {
     const onOpenQuest = vi.fn();
     renderPage({ onOpenQuest });
@@ -463,7 +880,9 @@ describe("MapPage", () => {
     expect(screen.queryByRole("button", { name: "보스 마커 Reshala" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "퀘스트 마커 2층 문서 획득" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "퀘스트 마커 표시" }));
+    fireEvent.click(screen.getByRole("checkbox", {
+      name: "일반 퀘스트 마커 (선택 경로 제외)",
+    }));
     expect(screen.queryByRole("button", { name: /퀘스트 마커/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "탈출구 표시" }));
     expect(screen.queryByRole("button", { name: "탈출구 마커 Upper exit" })).not.toBeInTheDocument();
@@ -700,6 +1119,7 @@ describe("MapPage", () => {
         const event = {
           type: "SCREENSHOT_CREATED",
           sequence: 4,
+          mapKey: "Customs",
           fileName: "2026-08-07[10-20]_100, 7, 200_0, 0.7071068, 0, 0.7071068_16.74.png",
           detectedAt: "2026-08-07T01:20:00.000Z",
         };
@@ -752,6 +1172,7 @@ describe("MapPage", () => {
           data: [{
             type: "SCREENSHOT_CREATED",
             sequence: 9,
+            mapKey: "Customs",
             fileName: "2026-08-07[10-20]_88, 7, 144_0, 0, 0, 1_0.png",
             detectedAt: "2026-08-07T01:20:00.000Z",
           }],
@@ -771,6 +1192,262 @@ describe("MapPage", () => {
     expect(
       await screen.findByRole("button", { name: /플레이어 위치 X 88.*Z 144/ }),
     ).toBeInTheDocument();
+  });
+
+  it("does not project a mapless automatic screenshot until the current raid map is confirmed", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 9,
+        });
+      }
+      if (url.includes("afterCursor=8")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 9,
+            fileName: "2026-08-07[10-20]_88, 7, 144_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 8, nextCursor: 9, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 9, nextCursor: 9, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 88/ }))
+      .not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
+    expect(await screen.findByRole("button", { name: /플레이어 위치 X 88.*Z 144/ }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Customs 자동 위치 연결됨" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("does not reuse a confirmed mapless screenshot after changing maps", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 1,
+        });
+      }
+      if (url.includes("afterCursor=0")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 1,
+            fileName: "2026-08-07[10-20]_88, 7, 144_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 1, nextCursor: 1, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    await screen.findByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/);
+    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
+    await screen.findByRole("button", { name: /플레이어 위치 X 88/ });
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "현재 지도로 자동 위치 연결",
+    })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 88/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("caches a map-identified screenshot and restores it after switching to the matching map", async () => {
+    const requestedUrls: string[] = [];
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 9,
+        });
+      }
+      if (url.includes("afterCursor=8")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 9,
+            mapKey: "Woods",
+            fileName: "2026-08-07[10-20]_66, 2, 122_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 8, nextCursor: 9, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 9, nextCursor: 9, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+
+    renderPage({ focusQuestId: "quest-customs" });
+    await waitFor(() => expect(requestedUrls.some((url) => url.includes("afterCursor=8")))
+      .toBe(true));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
+      .not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    expect(await screen.findByRole("button", { name: /플레이어 위치 X 66.*Z 122/ }))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "플레이어 경로 지우기" }));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
+      .not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+    await screen.findByRole("button", { name: "Ground Floor" });
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Ground Floor" })).not.toBeInTheDocument();
+    });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 50)));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not cache or restore a malformed map-identified screenshot", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 1,
+        });
+      }
+      if (url.includes("afterCursor=0")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 1,
+            mapKey: "Woods",
+            fileName: "ordinary-screenshot.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 1, nextCursor: 1, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/v1/local-tracker/events?afterCursor=0&pageSize=100",
+      expect.anything(),
+    ));
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 50)));
+
+    expect(screen.queryByRole("button", { name: /플레이어 위치/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps only the latest map-identified screenshot across aliases", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 2,
+        });
+      }
+      if (url.includes("afterCursor=1")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 1,
+              mapKey: "Woods",
+              fileName: "2026-08-07[10-20]_10, 2, 20_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:20:00.000Z",
+            },
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 2,
+              mapKey: "woods_preset",
+              fileName: "2026-08-07[10-21]_66, 2, 122_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:21:00.000Z",
+            },
+          ],
+          pagination: { afterCursor: 1, nextCursor: 2, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 2, nextCursor: 2, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    const pageData: TarkovData = {
+      ...data,
+      mapConfigs: data.mapConfigs.map((map) => map.key === "Woods"
+        ? { ...map, aliases: ["woods_preset"] }
+        : map),
+    };
+    renderPage({ focusQuestId: "quest-customs" }, false, pageData);
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      "/api/v1/local-tracker/events?afterCursor=1&pageSize=100",
+      expect.anything(),
+    ));
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    expect(await screen.findByRole("button", { name: /플레이어 위치 X 66.*Z 122/ }))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 10.*Z 20/ }))
+      .not.toBeInTheDocument();
   });
 
   it("shows folder-not-found and watcher-error states while keeping manual selection", async () => {
@@ -836,12 +1513,26 @@ describe("MapPage", () => {
           protocolVersion: 1,
           data: [{
             type: "SCREENSHOT_CREATED",
+            sequence: 1,
+            mapKey: "Woods",
+            fileName: "2026-08-07[10-19]_55, 2, 66_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:19:00.000Z",
+          }],
+          pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+        });
+      }
+      if (url.includes("afterCursor=1")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
             sequence: 2,
+            mapKey: "Customs",
             fileName: "2026-08-07[10-20]_99, 7, 99_0, 0, 0, 1_0.png",
             detectedAt: "2026-08-07T01:20:00.000Z",
           }],
           pagination: {
-            afterCursor: 0,
+            afterCursor: 1,
             nextCursor: 8,
             hasMore: false,
             isResetRequired: true,
@@ -860,10 +1551,17 @@ describe("MapPage", () => {
     expect(await screen.findByText("자동 위치 추적 중")).toBeInTheDocument();
     await waitFor(
       () => expect(requestedUrls.some((url) => url.includes("afterCursor=8"))).toBe(true),
-      { timeout: 2_500 },
+      { timeout: 4_000 },
     );
     expect(screen.getByRole("button", { name: /플레이어 위치 X 99/ })).toBeInTheDocument();
     expect(screen.queryByTestId("player-trail")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 50)));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 55/ }))
+      .not.toBeInTheDocument();
 
     rendered.unmount();
     expect(capturedSignal?.aborted).toBe(true);
@@ -890,6 +1588,7 @@ describe("MapPage", () => {
           data: [{
             type: "SCREENSHOT_CREATED",
             sequence: 5,
+            mapKey: "Customs",
             fileName: "2026-08-07[10-20]_77, 7, 133_0, 0, 0, 1_0.png",
             detectedAt: "2026-08-07T01:20:00.000Z",
           }],
@@ -962,6 +1661,7 @@ describe("MapPage", () => {
           data: [{
             type: "SCREENSHOT_CREATED",
             sequence: 1,
+            mapKey: "Customs",
             fileName: "2026-08-08[09-00]_10, 1, 10_0, 0, 0, 1_0.png",
             detectedAt: "2026-08-08T00:00:01.000Z",
           }],
@@ -974,6 +1674,7 @@ describe("MapPage", () => {
           data: [{
             type: "SCREENSHOT_CREATED",
             sequence: 2,
+            mapKey: "Customs",
             fileName: "2026-08-08[09-01]_20, 1, 20_0, 0, 0, 1_0.png",
             detectedAt: "2026-08-08T00:00:02.000Z",
           }],
@@ -1086,7 +1787,9 @@ describe("MapPage", () => {
     expect(within(panel).getByText("전체 지도 레이어")).toBeInTheDocument();
     expect(within(panel).getByRole("heading", { name: "마커 표시" })).toBeInTheDocument();
     expect(panel.querySelector(".map-marker-layer-grid")).toBeInTheDocument();
-    expect(within(panel).getByRole("checkbox", { name: "퀘스트 마커 표시" })).toBeChecked();
+    expect(within(panel).getByRole("checkbox", {
+      name: "일반 퀘스트 마커 (선택 경로 제외)",
+    })).toBeChecked();
     expect(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" })).toBeChecked();
 
     fireEvent.click(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" }));

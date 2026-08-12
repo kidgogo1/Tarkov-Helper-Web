@@ -8,7 +8,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { ProfileType, QuestData } from "../../types/data";
+import type {
+  MapConfig,
+  MapFloorLocation,
+  ProfileType,
+  QuestData,
+} from "../../types/data";
 import type { ProfileState } from "../../types/state";
 import { QuestOverlaySurface } from "./QuestOverlaySurface";
 import "../../styles/quest-overlay.css";
@@ -29,10 +34,21 @@ interface QuestOverlayProps {
   activeProfile: ProfileType;
   onObjectiveChange: (objectiveId: string, completed: boolean) => void;
   onOpenChange?: (open: boolean) => void;
-  onQuestTrackedChange: (questId: string, tracked: boolean) => void;
+  onQuestMapRouteChange: (
+    questId: string,
+    visible: boolean,
+    selectableQuestIds?: readonly string[],
+  ) => void;
+  onQuestTrackedChange: (
+    questId: string,
+    tracked: boolean,
+    selectableQuestIds?: readonly string[],
+  ) => void;
   /** Injectable only so popup-blocking and lifecycle behavior can be tested without real windows. */
   openPopup?: () => Window | null;
   profile: ProfileState;
+  mapConfigs: readonly MapConfig[];
+  mapFloorLocations: readonly MapFloorLocation[];
   quests: readonly QuestData[];
 }
 
@@ -92,9 +108,12 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
     activeProfile,
     onObjectiveChange,
     onOpenChange,
+    onQuestMapRouteChange,
     onQuestTrackedChange,
     openPopup = defaultOpenPopup,
     profile,
+    mapConfigs,
+    mapFloorLocations,
     quests,
   }, ref) {
     const [portal, setPortal] = useState<QuestOverlayPortal | null>(null);
@@ -103,6 +122,8 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
     const fallbackOpenRef = useRef(false);
     const lifecycleCleanupRef = useRef<(() => void) | null>(null);
     const mountedRef = useRef(true);
+    const openerRef = useRef<HTMLElement | null>(null);
+    const fallbackSurfaceRef = useRef<HTMLElement>(null);
 
     const setFallback = useCallback((open: boolean) => {
       fallbackOpenRef.current = open;
@@ -115,14 +136,30 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
       cleanup?.();
     }, []);
 
+    const restoreOpenerFocus = useCallback(() => {
+      const opener = openerRef.current;
+      openerRef.current = null;
+      if (
+        opener?.isConnected &&
+        !opener.closest('[aria-hidden="true"]') &&
+        getComputedStyle(opener).visibility !== "hidden"
+      ) {
+        opener.focus();
+        return;
+      }
+      document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+    }, []);
+
     const close = useCallback(() => {
+      const wasOpen = Boolean(popupRef.current || fallbackOpenRef.current);
       clearLifecycle();
       const popup = popupRef.current;
       popupRef.current = null;
       if (mountedRef.current) setPortal(null);
       setFallback(false);
       if (popup && !popup.closed) popup.close();
-    }, [clearLifecycle, setFallback]);
+      if (wasOpen) queueMicrotask(restoreOpenerFocus);
+    }, [clearLifecycle, restoreOpenerFocus, setFallback]);
 
     const open = useCallback(() => {
       const existing = popupRef.current;
@@ -131,6 +168,10 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
         return;
       }
       if (fallbackOpenRef.current) return;
+
+      openerRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
 
       let popup: Window | null = null;
       try {
@@ -179,6 +220,18 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
     }, [fallbackOpen, onOpenChange, portal]);
 
     useEffect(() => {
+      if (!fallbackOpen) return;
+      fallbackSurfaceRef.current?.focus();
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== "Escape" || document.querySelector("dialog[open]")) return;
+        event.preventDefault();
+        close();
+      };
+      document.addEventListener("keydown", handleKeyDown);
+      return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [close, fallbackOpen]);
+
+    useEffect(() => {
       mountedRef.current = true;
       return () => {
         mountedRef.current = false;
@@ -194,10 +247,14 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
         activeProfile={activeProfile}
         onClose={close}
         onObjectiveChange={onObjectiveChange}
+        onQuestMapRouteChange={onQuestMapRouteChange}
         onQuestTrackedChange={onQuestTrackedChange}
         presentation={portal ? "popup" : "dock"}
         profile={profile}
+        mapConfigs={mapConfigs}
+        mapFloorLocations={mapFloorLocations}
         quests={quests}
+        surfaceRef={fallbackOpen && !portal ? fallbackSurfaceRef : undefined}
       />
     );
 

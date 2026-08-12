@@ -406,9 +406,25 @@
 .map-search-note,
 .map-search-limit {
   margin: 8px 1px 0;
-  color: var(--text-dim);
-  font-size: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
   line-height: 1.4;
+}
+
+.map-route-selection-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 7px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.map-route-selection-summary button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 10px;
 }
 
 .map-reward-item-button strong {
@@ -439,6 +455,42 @@
 .map-search-result-row > .map-region-quest-button {
   flex: 1 1 auto;
   width: auto;
+}
+
+.map-region-route-toggle {
+  display: inline-flex;
+  width: 31px;
+  min-width: 31px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.map-region-route-toggle:has(input:checked) {
+  border-color: rgb(217 184 63 / 58%);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.map-region-route-toggle:has(input:disabled) {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.map-region-route-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.map-region-route-toggle svg {
+  flex: 0 0 auto;
 }
 
 .map-search-result-actions {
@@ -753,6 +805,17 @@
 
 .map-toolbar + .map-inline-error {
   margin-top: -4px;
+}
+
+.map-route-notice {
+  margin: -4px 0 0;
+  border: 1px solid rgb(217 184 63 / 32%);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .map-objective-list {
@@ -1108,6 +1171,29 @@
   stroke: #173544;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
+}
+
+.map-quest-routes {
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.map-quest-routes line {
+  stroke: #ffd84f;
+  stroke-linecap: round;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+  filter:
+    drop-shadow(0 0 1px #000)
+    drop-shadow(0 1px 2px rgb(0 0 0 / 98%));
+}
+
+.map-quest-routes line.is-optional {
+  stroke: #ff8a52;
+  stroke-dasharray: 8 5;
 }
 
 .map-marker {

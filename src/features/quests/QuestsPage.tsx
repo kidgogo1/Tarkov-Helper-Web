@@ -544,7 +544,8 @@ export function QuestsPage({
             onOpenMap={onOpenMap}
             onOpenQuest={handleOpenQuest}
             onReset={handleReset}
-            onTrackedChange={setQuestTracked}
+            onTrackedChange={(questId, tracked) =>
+              setQuestTracked(questId, tracked, data.quests.map((quest) => quest.id))}
             profile={profile}
             quest={selectedQuest}
             status={statuses.get(selectedQuest.id) ?? "active"}

@@ -93,19 +93,50 @@
 .map-minimap-fallback {
   position: fixed;
   z-index: 1200;
-  top: 14px;
+  top: auto;
   right: 14px;
+  bottom: 14px;
   width: min(var(--mini-map-window-size, 300px), calc(100vw - 28px));
   height: min(var(--mini-map-window-size, 300px), calc(100vh - 28px));
   border: 0;
   border-radius: 0;
 }
 
+body:has(.quest-overlay--dock) .map-minimap-fallback {
+  right: auto;
+  left: 14px;
+  width: min(
+    var(--mini-map-window-size, 300px),
+    calc(100vw - min(430px, calc(100vw - 24px)) - 40px)
+  );
+  height: min(
+    var(--mini-map-window-size, 300px),
+    calc(100vw - min(430px, calc(100vw - 24px)) - 40px),
+    calc(100vh - 28px)
+  );
+}
+
+.map-minimap-fallback-close {
+  position: absolute;
+  z-index: 10;
+  top: 6px;
+  right: 6px;
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-color: rgb(255 255 255 / 22%);
+  background: rgb(8 12 13 / 88%);
+  color: #f3f4f1;
+  padding: 0;
+}
+
 .map-minimap-fallback-notice {
   position: absolute;
   z-index: 8;
+  top: -30px;
   right: 6px;
-  bottom: -30px;
+  bottom: auto;
   margin: 0;
   border: 1px solid rgb(110 183 255 / 35%);
   border-radius: 4px;
@@ -114,6 +145,39 @@
   padding: 5px 7px;
   font-size: 10px;
   white-space: nowrap;
+}
+
+@media (max-width: 710px) {
+  body:has(.quest-overlay--dock) .map-minimap-fallback {
+    z-index: 1200;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    height: min(var(--mini-map-window-size, 300px), calc(40vh - 12px));
+  }
+
+  body:has(.map-minimap-fallback) .quest-overlay--dock {
+    height: calc(55vh - 12px);
+  }
+}
+
+@media (max-width: 620px) {
+  body:not(:has(.quest-overlay--dock)) .map-minimap-fallback {
+    bottom: 82px;
+    max-height: calc(100vh - 96px);
+  }
+}
+
+@media (max-width: 710px) and (max-height: 640px) {
+  body:has(.quest-overlay--dock) .map-minimap-fallback {
+    top: calc(var(--header-height) + 140px);
+    right: 8px;
+    bottom: 8px;
+    left: auto;
+    width: calc(50vw - 12px);
+    height: auto;
+  }
 }
 
 .map-minimap {
@@ -196,6 +260,29 @@
   transform: translate(-50%, -50%) scale(var(--mini-map-inverse-scale, 1));
   transform-origin: center;
   pointer-events: none;
+}
+
+.map-minimap-quest-routes {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.map-minimap-quest-routes line {
+  stroke: #ffd84f;
+  stroke-linecap: round;
+  stroke-width: 3.5;
+  vector-effect: non-scaling-stroke;
+  filter:
+    drop-shadow(0 0 1px #000)
+    drop-shadow(0 1px 2px rgb(0 0 0 / 98%));
+}
+
+.map-minimap-quest-routes line.is-optional {
+  stroke: #ff8a52;
+  stroke-dasharray: 7 5;
 }
 
 .map-minimap-player > svg {

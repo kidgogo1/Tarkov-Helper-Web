@@ -14,6 +14,26 @@ const MAP_NAMES = new Map([
   ["woods", "Woods"],
 ]);
 
+// TarkovData currently leaves the objective-level locations empty for these
+// quests. Bind each correction to both the BSG quest id and an exact objective
+// id so a translated or rewritten description can never move a marker.
+// The opaque ids are from the existing enriched pack; the hexadecimal ids are
+// the matching upstream TarkovData objective ids.
+const OBJECTIVE_MAP_OVERRIDES = new Map([
+  ["5b478eca86f7744642012254", new Map([
+    ["EGAHYCvMa5BEU_0nItA_4Z", "Shoreline"],
+    ["5b478f6886f774464201225a", "Shoreline"],
+    ["vRBCUL9KyySlPdtxQs1X6u", "Interchange"],
+    ["5b4c826b86f7743cc87bcee4", "Interchange"],
+    ["IUXs1ycQH6QCq2RDps-v4y", "Interchange"],
+    ["5b4c82cd86f774170c6e4169", "Interchange"],
+  ])],
+  ["5d25e4ca86f77409dd5cdf2c", new Map([
+    ["ZQMUlzXjyfbANPjmdvAR-h", "Woods"],
+    ["5fd8aa3206fb3a6b8154a2c3", "Woods"],
+  ])],
+]);
+
 // The wiki retired the old Database - Part 2 title and now exposes the same
 // in-game quest as A Big Loss. Keep the existing opaque id so saved progress
 // remains compatible while refreshes follow the current wiki title.
@@ -169,6 +189,21 @@ function mapDisplayName(value) {
   return MAP_NAMES.get(normalized) ?? String(value);
 }
 
+function applyQuestObjectiveMapOverrides(quest) {
+  const bsgId = String(quest?.bsgId ?? quest?.gameId ?? "");
+  const overrides = OBJECTIVE_MAP_OVERRIDES.get(bsgId);
+  if (!overrides || !Array.isArray(quest?.objectives)) return quest;
+  let changed = false;
+  const objectives = quest.objectives.map((objective) => {
+    if (typeof objective?.mapName === "string" && objective.mapName.trim()) return objective;
+    const mapName = overrides.get(String(objective?.id ?? ""));
+    if (!mapName) return objective;
+    changed = true;
+    return { ...objective, mapName };
+  });
+  return changed ? { ...quest, objectives } : quest;
+}
+
 function objectiveLocations(remoteObjective) {
   return Array.isArray(remoteObjective?.locations) ? remoteObjective.locations : [];
 }
@@ -218,7 +253,7 @@ export function toAppQuest(remoteQuest) {
         appObjective(remoteQuest, objective, index, questId),
       )
     : [];
-  return {
+  return applyQuestObjectiveMapOverrides({
     id: questId,
     ...(remoteQuest?.gameId ? { bsgId: String(remoteQuest.gameId) } : {}),
     normalizedName: String(remoteQuest?.id ?? normalizeQuestName(remoteQuest?.name)),
@@ -235,7 +270,7 @@ export function toAppQuest(remoteQuest) {
     followUpQuestIds: [],
     objectives,
     requiredItems: [],
-  };
+  });
 }
 
 function hasLocalMatch(localQuest, remoteQuest, localByBsgId, localByName) {
@@ -264,7 +299,8 @@ export function mergeQuestSources(localPack, tarkovData, wikiMeta = {}) {
     .filter((quest) => !hasLocalMatch(localQuests, quest, localByBsgId, localByName))
     .map(toAppQuest)
     .sort((left, right) => left.name.localeCompare(right.name));
-  const quests = applyWikiQuestRenames([...preservedQuests, ...additions]);
+  const quests = applyWikiQuestRenames([...preservedQuests, ...additions])
+    .map(applyQuestObjectiveMapOverrides);
   const localMeta = localPack?.meta ?? {};
   const remoteGenerated = tarkovData?.meta?.generated;
   const sources = {

@@ -209,7 +209,11 @@ describe("App related navigation", () => {
 
     const questList = await screen.findByRole("region", { name: "퀘스트 목록" });
     fireEvent.click(within(questList).getByText("목표 임무"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "퀘스트 창에 표시" }));
+    const questDetail = screen.getByRole("article", { name: "퀘스트 상세" });
+    await waitFor(() => expect(
+      within(questDetail).getByRole("heading", { name: "목표 임무" }),
+    ).toBeInTheDocument());
+    fireEvent.click(within(questDetail).getByRole("checkbox", { name: "퀘스트 창에 표시" }));
 
     const openButton = screen.getByRole("button", { name: "퀘스트 창 열기 · 1개 선택" });
     fireEvent.click(openButton);

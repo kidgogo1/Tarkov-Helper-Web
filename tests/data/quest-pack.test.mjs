@@ -57,6 +57,35 @@ describe("quest pack refresh", () => {
     });
   });
 
+  it("bundles explicit maps for the corrected Vitamins and Hunting Trip objectives", () => {
+    const packPath = path.resolve(process.cwd(), "public/data/tarkov-data.json");
+    const pack = JSON.parse(readFileSync(packPath, "utf8"));
+    const vitamins = pack.quests.find((quest) => quest.bsgId === "5b478eca86f7744642012254");
+    const huntingTrip = pack.quests.find((quest) => quest.bsgId === "5d25e4ca86f77409dd5cdf2c");
+
+    expect(vitamins.objectives
+      .filter((objective) => objective.locationPoints.length > 0)
+      .map((objective) => objective.mapName))
+      .toEqual(["Shoreline", "Interchange", "Interchange"]);
+    expect(huntingTrip.objectives[0].mapName).toBe("Woods");
+  });
+
+  it("does not leave routed objectives ambiguous across zero or multiple quest maps", () => {
+    const packPath = path.resolve(process.cwd(), "public/data/tarkov-data.json");
+    const pack = JSON.parse(readFileSync(packPath, "utf8"));
+    const ambiguous = pack.quests.flatMap((quest) => {
+      if (quest.locations.length === 1) return [];
+      return quest.objectives
+        .filter((objective) => (
+          (objective.locationPoints.length > 0 || objective.optionalPoints.length > 0)
+          && !objective.mapName
+        ))
+        .map((objective) => `${quest.name}:${objective.id}`);
+    });
+
+    expect(ambiguous).toEqual([]);
+  });
+
   it("counts only the fixed quest table and excludes operational tasks", () => {
     const wiki = [
       "==List of Quests==",
@@ -247,5 +276,67 @@ describe("quest pack refresh", () => {
     });
 
     expect(result.locations).toEqual(["TheLab"]);
+  });
+
+  it("assigns evidence-bound maps to known location objectives with missing source maps", () => {
+    const vitamins = {
+      ...baseQuest,
+      id: "local-vitamins",
+      bsgId: "5b478eca86f7744642012254",
+      name: "Vitamins - Part 1",
+      locations: ["Shoreline", "Interchange"],
+      objectives: [
+        { id: "EGAHYCvMa5BEU_0nItA_4Z", locationPoints: [{ x: 1, y: 0, z: 1 }] },
+        { id: "vRBCUL9KyySlPdtxQs1X6u", locationPoints: [{ x: 2, y: 0, z: 2 }] },
+        { id: "IUXs1ycQH6QCq2RDps-v4y", locationPoints: [{ x: 3, y: 0, z: 3 }] },
+      ],
+    };
+    const huntingTrip = {
+      ...baseQuest,
+      id: "local-hunting-trip",
+      bsgId: "5d25e4ca86f77409dd5cdf2c",
+      name: "Hunting Trip",
+      locations: [],
+      objectives: [
+        { id: "ZQMUlzXjyfbANPjmdvAR-h", locationPoints: [{ x: 4, y: 0, z: 4 }] },
+      ],
+    };
+
+    const refreshed = mergeQuestSources(
+      { ...emptyPack, quests: [vitamins, huntingTrip] },
+      { meta: { generated: "now", count: 0 }, quests: [] },
+    );
+
+    expect(refreshed.quests[0].objectives.map((objective) => objective.mapName))
+      .toEqual(["Shoreline", "Interchange", "Interchange"]);
+    expect(refreshed.quests[1].objectives[0].mapName).toBe("Woods");
+  });
+
+  it("uses upstream objective ids without guessing from objective descriptions", () => {
+    const result = toAppQuest({
+      id: "vitamins-part-1",
+      gameId: "5b478eca86f7744642012254",
+      name: "Vitamins - Part 1",
+      trader: "Skier",
+      map: null,
+      objectives: [
+        { id: "5b478f6886f774464201225a", description: "renamed upstream text" },
+        { id: "5b4c826b86f7743cc87bcee4", description: "another renamed text" },
+        { id: "5b4c82cd86f774170c6e4169", description: "third renamed text" },
+      ],
+    });
+    const unrelated = toAppQuest({
+      id: "unrelated",
+      gameId: "different-quest",
+      name: "Vitamins - Part 1",
+      map: null,
+      objectives: [
+        { id: "5b478f6886f774464201225a", description: "on Shoreline" },
+      ],
+    });
+
+    expect(result.objectives.map((objective) => objective.mapName))
+      .toEqual(["Shoreline", "Interchange", "Interchange"]);
+    expect(unrelated.objectives[0]).not.toHaveProperty("mapName");
   });
 });

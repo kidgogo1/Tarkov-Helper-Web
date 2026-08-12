@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import type { ProfileType } from "../types/data";
+import { MAX_MAP_ROUTE_QUESTS } from "../domain/quest-map-routes";
 import {
   DEFAULT_MINI_MAP_ZOOM_IN_KEY,
   DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
@@ -51,7 +52,16 @@ export interface AppStoreValue {
   updateProfile: (patch: ProfilePatch) => void;
   setQuestStatus: (id: string, status: SavedQuestStatus | null) => void;
   setObjectiveProgress: (id: string, completed: boolean) => void;
-  setQuestTracked: (id: string, tracked: boolean) => void;
+  setQuestTracked: (
+    id: string,
+    tracked: boolean,
+    selectableQuestIds?: readonly string[],
+  ) => void;
+  setQuestMapRoute: (
+    id: string,
+    visible: boolean,
+    selectableQuestIds?: readonly string[],
+  ) => void;
   setHideoutLevel: (id: string, level: number) => void;
   setInventory: (id: string, amount: InventoryAmount) => void;
   upsertCustomMarker: (marker: CustomMapMarker) => void;
@@ -75,6 +85,7 @@ function createDefaultProfile(): ProfileState {
     questProgress: {},
     objectiveProgress: {},
     trackedQuestIds: [],
+    mapRouteQuestIds: [],
     hideoutLevels: {},
     inventory: {},
     customMarkers: [],
@@ -345,6 +356,16 @@ function sanitizeProfile(value: unknown): ProfileState {
       ))].slice(0, MAX_TRACKED_QUESTS)
     : [];
 
+  const mapRouteQuestIds = Array.isArray(value.mapRouteQuestIds)
+    ? [...new Set(value.mapRouteQuestIds.flatMap((id) => {
+        if (typeof id !== "string") return [];
+        const questId = id.trim();
+        return questId && questId.length <= 512 && !questId.includes("\0")
+          ? [questId]
+          : [];
+      }))].slice(0, MAX_MAP_ROUTE_QUESTS)
+    : [];
+
   const hideoutLevels: Record<string, number> = {};
   if (isRecord(value.hideoutLevels)) {
     for (const [id, level] of Object.entries(value.hideoutLevels)) {
@@ -402,6 +423,7 @@ function sanitizeProfile(value: unknown): ProfileState {
     questProgress,
     objectiveProgress,
     trackedQuestIds,
+    mapRouteQuestIds,
     hideoutLevels,
     inventory,
     customMarkers,
@@ -633,18 +655,58 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
   );
 
   const setQuestTracked = useCallback(
-    (id: string, tracked: boolean) => {
+    (id: string, tracked: boolean, selectableQuestIds?: readonly string[]) => {
       const questId = id.trim();
       if (!questId || questId.length > 512 || questId.includes("\0")) return;
       updateActiveProfile((profile) => {
         const alreadyTracked = profile.trackedQuestIds.includes(questId);
-        if (tracked === alreadyTracked) return profile;
-        if (tracked && profile.trackedQuestIds.length >= MAX_TRACKED_QUESTS) return profile;
+        const selectable = selectableQuestIds ? new Set(selectableQuestIds) : undefined;
+        const retainedSelections = selectable
+          ? profile.trackedQuestIds.filter((candidate) => selectable.has(candidate))
+          : profile.trackedQuestIds;
+        if (tracked === alreadyTracked && retainedSelections.length === profile.trackedQuestIds.length) {
+          return profile;
+        }
+        const retainedAlreadyTracked = retainedSelections.includes(questId);
+        if (tracked && !retainedAlreadyTracked && retainedSelections.length >= MAX_TRACKED_QUESTS) {
+          return profile;
+        }
         return {
           ...profile,
           trackedQuestIds: tracked
-            ? [...profile.trackedQuestIds, questId]
-            : profile.trackedQuestIds.filter((candidate) => candidate !== questId),
+            ? retainedAlreadyTracked ? retainedSelections : [...retainedSelections, questId]
+            : retainedSelections.filter((candidate) => candidate !== questId),
+        };
+      });
+    },
+    [updateActiveProfile],
+  );
+
+  const setQuestMapRoute = useCallback(
+    (id: string, visible: boolean, selectableQuestIds?: readonly string[]) => {
+      const questId = id.trim();
+      if (!questId || questId.length > 512 || questId.includes("\0")) return;
+      updateActiveProfile((profile) => {
+        const alreadyVisible = profile.mapRouteQuestIds.includes(questId);
+        const selectable = selectableQuestIds ? new Set(selectableQuestIds) : undefined;
+        const retainedSelections = selectable
+          ? profile.mapRouteQuestIds.filter((candidate) => selectable.has(candidate))
+          : profile.mapRouteQuestIds;
+        if (visible === alreadyVisible && retainedSelections.length === profile.mapRouteQuestIds.length) {
+          return profile;
+        }
+        const countedSelections = selectable
+          ? retainedSelections.length
+          : profile.mapRouteQuestIds.length;
+        const retainedAlreadyVisible = retainedSelections.includes(questId);
+        if (visible && !retainedAlreadyVisible && countedSelections >= MAX_MAP_ROUTE_QUESTS) {
+          return profile;
+        }
+        return {
+          ...profile,
+          mapRouteQuestIds: visible
+            ? retainedAlreadyVisible ? retainedSelections : [...retainedSelections, questId]
+            : retainedSelections.filter((candidate) => candidate !== questId),
         };
       });
     },
@@ -759,6 +821,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       setQuestStatus,
       setObjectiveProgress,
       setQuestTracked,
+      setQuestMapRoute,
       setHideoutLevel,
       setInventory,
       upsertCustomMarker,
@@ -776,6 +839,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       setQuestStatus,
       setObjectiveProgress,
       setQuestTracked,
+      setQuestMapRoute,
       setHideoutLevel,
       setInventory,
       upsertCustomMarker,

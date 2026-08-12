@@ -130,6 +130,28 @@ describe("local tracker API boundary", () => {
     );
   });
 
+  it("preserves a bounded optional map identity from newer screenshot events", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      protocolVersion: 1,
+      data: [{
+        type: "SCREENSHOT_CREATED",
+        sequence: 1,
+        fileName: "2026-08-07[12-34]_10.5, 3.25, -99.5_0, 0, 0, 1_0.png",
+        detectedAt: "2026-08-07T03:34:56.000Z",
+        mapKey: "  Customs  ",
+      }],
+      pagination: {
+        afterCursor: 0,
+        nextCursor: 1,
+        hasMore: false,
+      },
+    }));
+
+    await expect(fetchLocalTrackerEvents(0, undefined, request)).resolves.toMatchObject({
+      data: [{ mapKey: "Customs" }],
+    });
+  });
+
   it("accepts an explicit cursor reset from a bounded server event buffer", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,

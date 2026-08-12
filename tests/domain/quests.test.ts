@@ -57,6 +57,7 @@ function profile(overrides: Partial<ProfileState> = {}): ProfileState {
     questProgress: {},
     objectiveProgress: {},
     trackedQuestIds: [],
+    mapRouteQuestIds: [],
     hideoutLevels: {},
     inventory: {},
     customMarkers: [],

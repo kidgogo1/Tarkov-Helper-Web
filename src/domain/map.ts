@@ -422,6 +422,18 @@ function hasCompleteXzBounds(location: MapFloorLocation): boolean {
   );
 }
 
+function floorLocationContainsXz(
+  location: MapFloorLocation,
+  x: number,
+  z: number,
+): boolean {
+  return hasCompleteXzBounds(location) &&
+    x >= location.minX! &&
+    x <= location.maxX! &&
+    z >= location.minZ! &&
+    z <= location.maxZ!;
+}
+
 export function floorLocationContains(
   location: MapFloorLocation,
   x: number,
@@ -463,6 +475,30 @@ export function detectFloor(
       floorLocationContains(location, x, y, z),
     )?.floorId ?? null
   );
+}
+
+/**
+ * Resolves positions outside every explicit indoor X/Z footprint to the map's
+ * default floor. Positions inside a known footprint but outside all Y ranges
+ * remain unknown, because guessing there would connect different floors.
+ */
+export function detectPlayerFloor(
+  locations: readonly MapFloorLocation[],
+  config: Pick<MapConfig, "key" | "floors">,
+  x: number,
+  y: number,
+  z: number,
+): string | null {
+  const mapLocations = matchingFloorLocations(locations, config.key);
+  const detected = mapLocations.find((location) =>
+    floorLocationContains(location, x, y, z))?.floorId;
+  if (detected) return detected;
+  if (mapLocations.length === 0) return null;
+  if (mapLocations.some((location) => !hasCompleteXzBounds(location))) return null;
+  if (mapLocations.some((location) => floorLocationContainsXz(location, x, z))) {
+    return null;
+  }
+  return config.floors.find((floor) => floor.isDefault)?.layerId ?? null;
 }
 
 export function detectFloorByY(

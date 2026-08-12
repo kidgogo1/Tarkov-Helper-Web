@@ -43,6 +43,8 @@ export interface ProfileState {
   objectiveProgress: Record<string, boolean>;
   /** Quest ids explicitly chosen for the independent quest companion window. */
   trackedQuestIds: string[];
+  /** Quest ids whose mapped objectives are shown as player-connected routes. */
+  mapRouteQuestIds: string[];
   hideoutLevels: Record<string, number>;
   inventory: Record<string, InventoryAmount>;
   customMarkers: CustomMapMarker[];

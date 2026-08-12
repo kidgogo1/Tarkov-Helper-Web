@@ -7,6 +7,7 @@ import {
   collapseQuestLogEvents,
   detectFloor,
   detectFloorByY,
+  detectPlayerFloor,
   detectMapFromLogLine,
   getMapDirectionAngle,
   invertAffineTransform,
@@ -217,6 +218,80 @@ describe("floor detection", () => {
 
   it("legacy Y-only detection ignores spatially bounded regions", () => {
     expect(detectFloorByY(floors, "Labs", 6)).toBe("ground");
+  });
+
+  it("treats positions outside bounded indoor footprints as the default outdoor floor", () => {
+    const config: MapConfig = {
+      key: "Customs",
+      displayName: "Customs",
+      svgFileName: "customs.svg",
+      imageWidth: 1_000,
+      imageHeight: 1_000,
+      aliases: [],
+      floors: [
+        { layerId: "main", displayName: "1층", order: 0, isDefault: true },
+        { layerId: "level2", displayName: "2층", order: 1, isDefault: false },
+      ],
+    };
+    const dormFloors: MapFloorLocation[] = [
+      {
+        id: "dorm-main",
+        mapKey: "Customs",
+        floorId: "main",
+        minY: -2,
+        maxY: 4,
+        minX: 0,
+        maxX: 10,
+        minZ: 0,
+        maxZ: 10,
+        priority: 1,
+      },
+      {
+        id: "dorm-level2",
+        mapKey: "Customs",
+        floorId: "level2",
+        minY: 4,
+        maxY: 10,
+        minX: 0,
+        maxX: 10,
+        minZ: 0,
+        maxZ: 10,
+        priority: 2,
+      },
+    ];
+
+    expect(detectPlayerFloor(dormFloors, config, 5, 7, 5)).toBe("level2");
+    expect(detectPlayerFloor(dormFloors, config, 100, 0, 100)).toBe("main");
+  });
+
+  it("keeps the floor unknown inside an indoor footprint with no matching height", () => {
+    const config: MapConfig = {
+      key: "Customs",
+      displayName: "Customs",
+      svgFileName: "customs.svg",
+      imageWidth: 1_000,
+      imageHeight: 1_000,
+      aliases: [],
+      floors: [
+        { layerId: "main", displayName: "1층", order: 0, isDefault: true },
+        { layerId: "level2", displayName: "2층", order: 1, isDefault: false },
+      ],
+    };
+    const boundedFloor: MapFloorLocation = {
+      id: "dorm-level2",
+      mapKey: "Customs",
+      floorId: "level2",
+      minY: 4,
+      maxY: 10,
+      minX: 0,
+      maxX: 10,
+      minZ: 0,
+      maxZ: 10,
+      priority: 1,
+    };
+
+    expect(detectPlayerFloor([boundedFloor], config, 5, 20, 5)).toBeNull();
+    expect(detectPlayerFloor([], config, 100, 0, 100)).toBeNull();
   });
 
   it("shows the selected SVG layer over a dimmed default-floor background", () => {

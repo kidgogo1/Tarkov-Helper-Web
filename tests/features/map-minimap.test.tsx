@@ -8,6 +8,7 @@ import {
   type MapMiniMapLegendItem,
   type MapMiniMapMarker,
   type MapMiniMapPlayer,
+  type MapMiniMapRoute,
 } from "../../src/features/map/MapMiniMap";
 import type { MapConfig } from "../../src/types/data";
 import type { MapDisplaySettings } from "../../src/types/state";
@@ -38,12 +39,14 @@ function renderMiniMap(
   currentPlayer: MapMiniMapPlayer | undefined = player,
   markers: readonly MapMiniMapMarker[] = [],
   markerLegend: readonly MapMiniMapLegendItem[] = [],
+  routes: readonly MapMiniMapRoute[] = [],
 ) {
   return render(
     <MapMiniMap
       config={config}
       markerLegend={markerLegend}
       markers={markers}
+      routes={routes}
       orderedFloors={config.floors}
       player={currentPlayer}
       playerMarkerSize={18}
@@ -252,7 +255,11 @@ describe("MapMiniMap", () => {
     stylesheet.href = "/assets/app.css";
     document.head.append(stylesheet);
 
-    const view = renderMiniMap();
+    const view = renderMiniMap(player, [], [], [{
+      id: "pip-route",
+      start: player.screen,
+      end: { x: 300, y: 330 },
+    }]);
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
 
     await waitFor(() => expect(requestWindow).toHaveBeenCalledWith({ width: 300, height: 300 }));
@@ -262,6 +269,8 @@ describe("MapMiniMap", () => {
     expect(pipDialog.querySelector(".map-minimap-settings")).not.toBeInTheDocument();
     expect(pipDialog.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
     const pipWorld = within(pipWindow.document.body).getByTestId("map-minimap-world");
+    expect(within(pipWindow.document.body).getByTestId("map-minimap-quest-route-line"))
+      .toHaveAttribute("x2", "300");
     expect(pipWorld.style.transform).toBe("translate(275px, 90px) scale(0.45)");
 
     act(() => pipWindow.dispatchResize(400, 400));
@@ -334,9 +343,24 @@ describe("MapMiniMap", () => {
 
     expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
     expect(screen.getByText(/페이지 안 미니맵으로 열었습니다/)).toBeInTheDocument();
-    expect(screen.getByRole("dialog")).toHaveClass("map-minimap--fallback");
+    const fallbackDialog = screen.getByRole("dialog", { name: "Customs 미니맵" });
+    expect(fallbackDialog).toHaveClass("map-minimap-fallback");
+    expect(
+      await within(fallbackDialog).findByRole("region", { name: "Customs 미니맵" }),
+    ).toHaveClass("map-minimap--fallback");
+    expect(within(fallbackDialog).getByRole("button", { name: "페이지 안 미니맵 닫기" }))
+      .toHaveFocus();
     expect(screen.getByTestId("map-minimap-world").style.transform).toBe(
       "translate(120px, 90px) scale(0.3)",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("map-minimap-fallback")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "미니맵 열기" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
   });
 
@@ -354,7 +378,8 @@ describe("MapMiniMap", () => {
     renderMiniMap();
     fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
 
-    const surface = await screen.findByRole("dialog", { name: "Customs 미니맵" });
+    const dialog = await screen.findByRole("dialog", { name: "Customs 미니맵" });
+    const surface = await within(dialog).findByRole("region", { name: "Customs 미니맵" });
     expect(surface.style.backgroundColor).toBe("transparent");
   });
 
@@ -587,6 +612,27 @@ describe("MapMiniMap", () => {
     expect(screen.getByTestId("map-minimap-marker-label")).toHaveTextContent("Crossroads");
   });
 
+  it("draws selected quest routes in map coordinates below mini-map markers", async () => {
+    renderMiniMap(player, [{
+      id: "quest-target",
+      kind: "quest",
+      screen: { x: 300, y: 330 },
+      summary: "퀘스트 목표 · 물방 찾기",
+    }], [], [{
+      id: "route:quest-water:objective-water",
+      start: player.screen,
+      end: { x: 300, y: 330 },
+    }]);
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+
+    const line = await screen.findByTestId("map-minimap-quest-route-line");
+    expect(line).toHaveAttribute("x1", "100");
+    expect(line).toHaveAttribute("y1", "200");
+    expect(line).toHaveAttribute("x2", "300");
+    expect(line).toHaveAttribute("y2", "330");
+    expect(line.closest("svg")).toHaveAttribute("viewBox", "0 0 1000 800");
+  });
+
   it("uses the same icon and shape variants as the full map markers", async () => {
     renderMiniMap(player, [
       {
@@ -656,7 +702,9 @@ describe("MapMiniMap", () => {
     expect(within(panel).getByText("미니맵 레이어")).toBeInTheDocument();
     expect(within(panel).getByRole("heading", { name: "마커 표시" })).toBeInTheDocument();
     expect(panel.querySelector(".map-marker-layer-grid")).toBeInTheDocument();
-    expect(within(panel).getByRole("checkbox", { name: "퀘스트 마커 표시" })).toBeChecked();
+    expect(within(panel).getByRole("checkbox", {
+      name: "일반 퀘스트 마커 (선택 경로 제외)",
+    })).toBeChecked();
     expect(within(panel).getByRole("checkbox", { name: "탈출구 이름표 표시" })).toBeChecked();
     expect(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" })).toBeChecked();
 

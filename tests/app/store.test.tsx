@@ -36,6 +36,7 @@ describe("AppStoreProvider", () => {
       questProgress: {},
       objectiveProgress: {},
       trackedQuestIds: [],
+      mapRouteQuestIds: [],
       hideoutLevels: {},
       inventory: {},
       customMarkers: [],
@@ -102,6 +103,8 @@ describe("AppStoreProvider", () => {
       result.current.setObjectiveProgress("objective-pvp", true);
       result.current.setQuestTracked("quest-pvp", true);
       result.current.setQuestTracked("quest-pvp", true);
+      result.current.setQuestMapRoute("quest-pvp", true);
+      result.current.setQuestMapRoute("quest-pvp", true);
       result.current.setHideoutLevel("workbench", 2);
       result.current.setInventory("item-pvp", { fir: 3, nonFir: 4 });
     });
@@ -115,6 +118,7 @@ describe("AppStoreProvider", () => {
       questProgress: { "quest-pvp": "done" },
       objectiveProgress: { "objective-pvp": true },
       trackedQuestIds: ["quest-pvp"],
+      mapRouteQuestIds: ["quest-pvp"],
       hideoutLevels: { workbench: 2 },
       inventory: { "item-pvp": { fir: 3, nonFir: 4 } },
     });
@@ -135,6 +139,7 @@ describe("AppStoreProvider", () => {
       });
       result.current.setQuestStatus("quest-pve", "failed");
       result.current.setQuestTracked("quest-pve", true);
+      result.current.setQuestMapRoute("quest-pve", true);
     });
 
     expect(result.current.profile).toMatchObject({
@@ -144,6 +149,7 @@ describe("AppStoreProvider", () => {
       prestigeLevel: 5,
       questProgress: { "quest-pve": "failed" },
       trackedQuestIds: ["quest-pve"],
+      mapRouteQuestIds: ["quest-pve"],
     });
 
     act(() => {
@@ -152,6 +158,7 @@ describe("AppStoreProvider", () => {
 
     expect(result.current.profile.questProgress).toEqual({ "quest-pvp": "done" });
     expect(result.current.profile.trackedQuestIds).toEqual(["quest-pvp"]);
+    expect(result.current.profile.mapRouteQuestIds).toEqual(["quest-pvp"]);
     expect(result.current.profile.inventory).toEqual({
       "item-pvp": { fir: 3, nonFir: 4 },
     });
@@ -177,6 +184,7 @@ describe("AppStoreProvider", () => {
       result.current.setQuestStatus("quest-1", "done");
       result.current.setObjectiveProgress("objective-1", true);
       result.current.setQuestTracked("quest-1", true);
+      result.current.setQuestMapRoute("quest-1", true);
       result.current.setHideoutLevel("medstation", 3);
       result.current.setInventory("item-1", { fir: 2, nonFir: 1 });
       result.current.upsertCustomMarker(marker);
@@ -194,6 +202,7 @@ describe("AppStoreProvider", () => {
     expect(result.current.profile.questProgress).toEqual({});
     expect(result.current.profile.objectiveProgress).toEqual({});
     expect(result.current.profile.trackedQuestIds).toEqual(["quest-1"]);
+    expect(result.current.profile.mapRouteQuestIds).toEqual(["quest-1"]);
     expect(result.current.profile.hideoutLevels).toEqual({});
     expect(result.current.profile.inventory).toEqual({
       "item-1": { fir: 2, nonFir: 1 },
@@ -220,6 +229,71 @@ describe("AppStoreProvider", () => {
 
     expect(result.current.profile.trackedQuestIds).toHaveLength(100);
     expect(result.current.profile.trackedQuestIds).not.toContain("quest-100");
+  });
+
+  it("bounds and sanitizes the profile-specific quest map-route selection", async () => {
+    const state = createDefaultState();
+    state.profiles.pvp.mapRouteQuestIds = [
+      "quest-valid",
+      "quest-valid",
+      "",
+      `quest-${"x".repeat(600)}`,
+      ...Array.from({ length: 110 }, (_, index) => `quest-${index}`),
+    ];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    await waitFor(() => {
+      expect(result.current.profile.mapRouteQuestIds[0]).toBe("quest-valid");
+    });
+    expect(result.current.profile.mapRouteQuestIds).toHaveLength(100);
+    expect(new Set(result.current.profile.mapRouteQuestIds).size).toBe(100);
+
+    act(() => {
+      result.current.setActiveProfile("pve");
+      result.current.setQuestMapRoute("quest-pve-route", true);
+    });
+    expect(result.current.profile.mapRouteQuestIds).toEqual(["quest-pve-route"]);
+
+    act(() => {
+      result.current.setActiveProfile("pvp");
+      result.current.setQuestMapRoute("quest-valid", false);
+    });
+    expect(result.current.profile.mapRouteQuestIds).not.toContain("quest-valid");
+    expect(result.current.state.profiles.pve.mapRouteQuestIds).toEqual(["quest-pve-route"]);
+  });
+
+  it("does not let stale saved ids consume the selectable route limit", () => {
+    const state = createDefaultState();
+    state.profiles.pvp.mapRouteQuestIds = Array.from(
+      { length: 100 },
+      (_, index) => `removed-quest-${index}`,
+    );
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    act(() => {
+      result.current.setQuestMapRoute("current-quest", true, ["current-quest"]);
+    });
+
+    expect(result.current.profile.mapRouteQuestIds).toEqual(["current-quest"]);
+  });
+
+  it("prunes stale selections without duplicating an already selected quest", () => {
+    const state = createDefaultState();
+    state.profiles.pvp.trackedQuestIds = ["removed-tracked", "current-quest"];
+    state.profiles.pvp.mapRouteQuestIds = ["removed-route", "current-quest"];
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    act(() => {
+      result.current.setQuestTracked("current-quest", true, ["current-quest"]);
+      result.current.setQuestMapRoute("current-quest", true, ["current-quest"]);
+    });
+
+    expect(result.current.profile.trackedQuestIds).toEqual(["current-quest"]);
+    expect(result.current.profile.mapRouteQuestIds).toEqual(["current-quest"]);
   });
 
   it("shares settings across profiles and restores all state from localStorage", async () => {

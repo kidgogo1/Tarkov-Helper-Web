@@ -17,6 +17,8 @@ export interface ScreenshotCreatedEvent {
   sequence: number;
   fileName: string;
   detectedAt: string;
+  /** Optional map identity supplied by newer launchers. Omitted by protocol-v1 launchers. */
+  mapKey?: string;
 }
 
 export interface LocalTrackerPagination {
@@ -115,6 +117,7 @@ function parseScreenshotEvent(value: unknown): ScreenshotCreatedEvent | null {
     sequence: value.sequence,
     fileName: value.fileName,
     detectedAt: value.detectedAt,
+    ...(isNonEmptyString(value.mapKey, 128) ? { mapKey: value.mapKey.trim() } : {}),
   };
 }
 

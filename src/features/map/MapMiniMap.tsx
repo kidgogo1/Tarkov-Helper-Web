@@ -14,6 +14,7 @@ import {
   Navigation,
   Pin,
   Settings2,
+  X,
 } from "lucide-react";
 
 import { useAppStore } from "../../app/store";
@@ -73,6 +74,7 @@ export interface MapMiniMapPlayer {
     y: number;
   };
   angle?: number;
+  floorId?: string;
 }
 
 export type MapMiniMapMarkerKind = "quest" | "data" | "custom";
@@ -105,6 +107,13 @@ export interface MapMiniMapMarker {
   completed?: boolean;
 }
 
+export interface MapMiniMapRoute {
+  id: string;
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  optional?: boolean;
+}
+
 export interface MapMiniMapProps {
   config: MapConfig;
   orderedFloors: readonly MapFloor[];
@@ -113,6 +122,7 @@ export interface MapMiniMapProps {
   playerMarkerSize: number;
   markers?: readonly MapMiniMapMarker[];
   markerLegend?: readonly MapMiniMapLegendItem[];
+  routes?: readonly MapMiniMapRoute[];
 }
 
 function getPictureInPictureController():
@@ -243,6 +253,7 @@ function MiniMapSurface({
   playerMarkerSize,
   markers = [],
   markerLegend = [],
+  routes = [],
   nativeGlobalHotkeysAvailable,
   nativeOverlayMode,
   presentation,
@@ -464,7 +475,7 @@ function MiniMapSurface({
       className={`map-minimap map-minimap--${presentation}`}
       data-native-overlay={nativeOverlayMode ?? undefined}
       ref={surfaceRef}
-      role="dialog"
+      role={presentation === "pip" ? "dialog" : "region"}
       style={rootStyle}
     >
       <div
@@ -497,9 +508,30 @@ function MiniMapSurface({
             type="image/svg+xml"
             width={mapWidth}
           />
+          {routes.length > 0 ? (
+            <svg
+              aria-hidden="true"
+              className="map-minimap-quest-routes"
+              height={mapHeight}
+              viewBox={`0 0 ${mapWidth} ${mapHeight}`}
+              width={mapWidth}
+            >
+              {routes.map((route) => (
+                <line
+                  className={route.optional ? "is-optional" : undefined}
+                  data-testid="map-minimap-quest-route-line"
+                  key={route.id}
+                  x1={route.start.x}
+                  x2={route.end.x}
+                  y1={route.start.y}
+                  y2={route.end.y}
+                />
+              ))}
+            </svg>
+          ) : null}
           {player && playerStyle ? (
             <span
-              aria-label="현재 플레이어 위치와 방향"
+              aria-label={`현재 플레이어 위치와 방향${!player.floorId && config.floors.length > 1 ? ", 층 미확인" : ""}`}
               className="map-minimap-player"
               data-testid="map-minimap-player"
               role="img"
@@ -669,6 +701,10 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const [pictureInPicture, setPictureInPicture] =
     useState<PictureInPictureState | null>(null);
   const [fallbackOpen, setFallbackOpen] = useState(false);
+  const [fallbackViewport, setFallbackViewport] = useState({
+    width: miniMapSize,
+    height: miniMapSize,
+  });
   const [fallbackNotice, setFallbackNotice] = useState("");
   const [isOpening, setIsOpening] = useState(false);
   const [nativeSession, setNativeSession] =
@@ -687,6 +723,9 @@ export function MapMiniMap(props: MapMiniMapProps) {
   const nativeOverlayRef = useRef<NativeOverlayAttachment | null>(null);
   const nativeOpacityRef = useRef<number | null>(null);
   const nativeEventPollingAbortRef = useRef<AbortController | null>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const fallbackCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const fallbackRef = useRef<HTMLElement>(null);
   const sessionDetectionRef = useRef<Promise<NativeOverlaySession | null> | null>(null);
   const nativeSessionCheckedRef = useRef(false);
   const pipLifecycleCleanupRef = useRef<(() => void) | null>(null);
@@ -833,6 +872,62 @@ export function MapMiniMap(props: MapMiniMapProps) {
     if (pipWindow) pipWindow.close();
     closingRef.current = false;
   }, [clearPictureInPictureLifecycle, detachCurrentNativeOverlay]);
+
+  const restoreFocusAfterFallback = useCallback(() => {
+    const toggle = toggleButtonRef.current;
+    if (toggle && toggle.getClientRects().length > 0 && !toggle.closest('[aria-hidden="true"]')) {
+      toggle.focus();
+      return;
+    }
+    document.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"], a[aria-current="page"], button[aria-current="page"]',
+    )?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!fallbackOpen) return;
+    fallbackCloseButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      void closeMiniMap().then(restoreFocusAfterFallback);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [closeMiniMap, fallbackOpen, restoreFocusAfterFallback]);
+
+  useEffect(() => {
+    if (!fallbackOpen) return;
+    const fallback = fallbackRef.current;
+    if (!fallback) return;
+    const syncViewport = () => {
+      const bounds = fallback.getBoundingClientRect();
+      if (bounds.width < 2 || bounds.height < 2) {
+        // JSDOM and the first pre-layout browser frame can report a zero rect.
+        // Render with the configured square immediately, then let the observer
+        // replace it with the real collision-aware viewport after layout.
+        setFallbackViewport({ width: miniMapSize, height: miniMapSize });
+        return;
+      }
+      const next = {
+        width: Math.max(1, Math.round(bounds.width)),
+        height: Math.max(1, Math.round(bounds.height)),
+      };
+      setFallbackViewport((current) =>
+        current.width === next.width && current.height === next.height ? current : next);
+    };
+    syncViewport();
+    const observer = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(syncViewport);
+    observer?.observe(fallback);
+    window.addEventListener("resize", syncViewport);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", syncViewport);
+    };
+  }, [fallbackOpen, miniMapSize]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1105,17 +1200,25 @@ export function MapMiniMap(props: MapMiniMapProps) {
     "--mini-map-window-size": `${miniMapSize}px`,
   };
 
+  const toggleLabel = isOpening
+    ? "미니맵 여는 중"
+    : isOpen
+      ? "미니맵 닫기"
+      : "미니맵 열기";
+
   return (
     <>
       <button
+        aria-label={toggleLabel}
         aria-expanded={isOpen}
         className="map-minimap-toggle"
         disabled={isOpening}
         onClick={() => void openMiniMap()}
+        ref={toggleButtonRef}
         type="button"
       >
         <Navigation aria-hidden="true" />
-        {isOpening ? "미니맵 여는 중" : isOpen ? "미니맵 닫기" : "미니맵 열기"}
+        <span>{toggleLabel}</span>
       </button>
 
       {showNativeControls ? (
@@ -1171,7 +1274,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => updateMapSettings({ miniMapShowQuestMarkers: event.target.checked })}
                   type="checkbox"
                 />
-                <span>퀘스트 마커 표시</span>
+                <span>일반 퀘스트 마커 (선택 경로 제외)</span>
               </label>
               <label>
                 <input
@@ -1261,10 +1364,23 @@ export function MapMiniMap(props: MapMiniMapProps) {
       {fallbackOpen
         ? createPortal(
             <aside
+              aria-label={`${props.config.displayName} 미니맵`}
+              aria-modal="false"
               className="map-minimap-fallback"
               data-testid="map-minimap-fallback"
+              ref={fallbackRef}
+              role="dialog"
               style={fallbackStyle}
             >
+              <button
+                aria-label="페이지 안 미니맵 닫기"
+                className="map-minimap-fallback-close"
+                onClick={() => void closeMiniMap().then(restoreFocusAfterFallback)}
+                ref={fallbackCloseButtonRef}
+                type="button"
+              >
+                <X aria-hidden="true" size={15} />
+              </button>
               {fallbackNotice ? (
                 <p className="map-minimap-fallback-notice" role="status">
                   {fallbackNotice}
@@ -1273,7 +1389,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
               <MiniMapSurface
                 {...props}
                 presentation="fallback"
-                viewport={{ width: miniMapSize, height: miniMapSize }}
+                viewport={fallbackViewport}
               />
             </aside>,
             document.body,

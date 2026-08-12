@@ -248,6 +248,8 @@ try {
   await assertMapCentered(page, "Direct Customs initial fit");
   const trackedScreenshotName = "2026-08-08[00-20]_100, 1, 200_0, 0.7071068, 0, 0.7071068_16.74.png";
   await writeFile(path.join(screenshotFolder, trackedScreenshotName), Buffer.alloc(0));
+  await page.getByRole("button", { name: "현재 지도로 자동 위치 연결" }).waitFor();
+  await page.getByRole("button", { name: "현재 지도로 자동 위치 연결" }).click();
   await page.locator(".map-player-marker").waitFor({ timeout: 10_000 });
   const playerMarkerLabel = await page.locator(".map-player-marker").getAttribute("aria-label");
   assert(

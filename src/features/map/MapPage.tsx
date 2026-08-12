@@ -41,8 +41,8 @@ import {
 import { MapMarkerLayerPanel } from "./MapMarkerLayerPanel";
 import {
   applySvgFloorVisibility,
-  detectFloor,
   detectFloorByY,
+  detectPlayerFloor,
   getMapDirectionAngle,
   inverseMapPosition,
   parseScreenshotFilename,
@@ -51,6 +51,15 @@ import {
   type ScreenshotPosition,
 } from "../../domain/map";
 import { createQuestStatusResolver } from "../../domain/quests";
+import { objectiveDisplayText } from "../quests/quest-language";
+import {
+  findRouteMapConfig,
+  MAX_MAP_ROUTE_QUESTS,
+  mapConfigMatchesRouteName,
+  objectiveRouteMapName,
+  resolveRoutePointFloor,
+  routePointIsDisplayable,
+} from "../../domain/quest-map-routes";
 import {
   fetchLocalTrackerEvents,
   fetchLocalTrackerStatus,
@@ -82,6 +91,7 @@ interface ViewTransform {
 }
 
 interface PlayerMapPosition extends ScreenshotPosition {
+  mapKey: string;
   z: number;
   screen: ScreenPoint;
   floorId?: string;
@@ -174,7 +184,7 @@ function localTrackerNote(tracker: LocalTrackerViewState): {
     case "WATCHING":
       return {
         title: "폴더 자동 감지",
-        description: `${tracker.folderPath}에서 새 EFT 스크린샷 파일을 자동 감지합니다. 필요하면 아래 파일 선택도 계속 사용할 수 있습니다.`,
+        description: `${tracker.folderPath}에서 새 EFT 스크린샷 파일을 자동 감지합니다. 파일에는 지도 이름이 없으므로 현재 레이드 지도를 확인해 연결해야 합니다. 필요하면 아래 파일 선택도 계속 사용할 수 있습니다.`,
       };
     case "NOT_FOUND":
       return {
@@ -304,18 +314,14 @@ function normalized(value: string | undefined): string {
 }
 
 function mapMatches(config: MapConfig, name: string | undefined): boolean {
-  const candidate = normalized(name);
-  if (!candidate) return false;
-  return [config.key, config.displayName, ...config.aliases].some(
-    (value) => normalized(value) === candidate,
-  );
+  return mapConfigMatchesRouteName(config, name);
 }
 
 function findMapConfig(
   configs: readonly MapConfig[],
   name: string | undefined,
 ): MapConfig | undefined {
-  return configs.find((config) => mapMatches(config, name));
+  return findRouteMapConfig(configs, name);
 }
 
 function focusedQuestMap(
@@ -433,19 +439,18 @@ function buildQuestMapPoints(
   config: MapConfig,
   floorLocations: TarkovData["mapFloorLocations"],
 ): QuestMapPoint[] {
-  if (!objectiveAppliesToMap(entry, config)) return [];
+  const markerMapName = objectiveRouteMapName(entry.quest, entry.objective);
+  if (!markerMapName || !mapMatches(config, markerMapName)) return [];
 
   const buildPoint = (
     point: WorldPoint,
     index: number,
     isOptional: boolean,
   ): QuestMapPoint[] => {
+    if (!routePointIsDisplayable(config, point, floorLocations)) return [];
     const screen = transformMapPosition(config, point.x, point.z);
     if (!screen) return [];
-    const floorId =
-      point.floorId ??
-      detectFloor(floorLocations, config.key, point.x, point.y, point.z) ??
-      undefined;
+    const floorId = resolveRoutePointFloor(config, point, floorLocations);
     return [
       {
         id: `quest:${entry.quest.id}:${entry.objective.id}:${isOptional ? "optional" : "point"}:${index}`,
@@ -468,6 +473,14 @@ function buildQuestMapPoints(
       buildPoint(point, index, true),
     ),
   ];
+}
+
+function buildQuestRouteMapPoints(
+  entry: ObjectiveEntry,
+  config: MapConfig,
+  floorLocations: TarkovData["mapFloorLocations"],
+): QuestMapPoint[] {
+  return buildQuestMapPoints(entry, config, floorLocations);
 }
 
 function focusedQuestPoint(
@@ -793,9 +806,11 @@ export function MapPage({
   onQuestFocusConsumed,
 }: MapPageProps) {
   const {
+    activeProfile,
     profile,
     settings,
     setObjectiveProgress,
+    setQuestMapRoute,
     upsertCustomMarker,
     deleteCustomMarker,
     updateMapSettings,
@@ -822,6 +837,11 @@ export function MapPage({
   const [selectedFloor, setSelectedFloor] = useState<string | undefined>(() =>
     initialConfig ? defaultFloor(initialConfig) : undefined,
   );
+  const [floorSelectionMapKey, setFloorSelectionMapKey] = useState(initialConfig?.key ?? "");
+  const selectFloor = useCallback((floorId: string | undefined) => {
+    setSelectedFloor(floorId);
+    setFloorSelectionMapKey(config.key);
+  }, [config.key]);
   const [focusedQuestId, setFocusedQuestId] = useState(focusQuestId);
   const [view, setView] = useState<ViewTransform>({ scale: 1, x: 0, y: 0 });
   const hiddenBasicTypes = useMemo(
@@ -839,6 +859,9 @@ export function MapPage({
   const [groupObjectivesByQuest, setGroupObjectivesByQuest] = useState(true);
   const [playerPositions, setPlayerPositions] = useState<PlayerMapPosition[]>([]);
   const [positionError, setPositionError] = useState("");
+  const [trackerMapConfirmed, setTrackerMapConfirmed] = useState(false);
+  const [routeNotice, setRouteNotice] = useState("");
+  const [routeNoticeFloor, setRouteNoticeFloor] = useState<string>();
   const [localTracker, setLocalTracker] = useState<LocalTrackerViewState>({
     state: "CHECKING",
   });
@@ -867,7 +890,24 @@ export function MapPage({
   const deleteOpenerRef = useRef<HTMLElement | null>(null);
   const addMarkerButtonRef = useRef<HTMLButtonElement>(null);
   const playerSequenceRef = useRef(0);
-  const applyScreenshotFileNameRef = useRef<(fileName: string) => void>(() => undefined);
+  const applyScreenshotFileNameRef = useRef<(
+    fileName: string,
+    eventMapKey?: string,
+  ) => boolean>(() => false);
+  const applyTrackerScreenshotRef = useRef<(
+    fileName: string,
+    eventMapKey?: string,
+  ) => void>(() => undefined);
+  const trackerMapConfirmedRef = useRef(false);
+  const pendingMaplessScreenshotRef = useRef<string | undefined>(undefined);
+  const latestTrackerScreenshotByMapRef = useRef(new Map<string, string>());
+  const playerFloorOverrideRef = useRef<{ mapKey: string; floorId: string } | undefined>(undefined);
+  const handledRouteSelectionsRef = useRef({
+    profile: activeProfile,
+    selectedIds: new Set<string>(),
+    keys: new Set<string>(),
+  });
+  const routeVisibilityRef = useRef("");
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -970,15 +1010,20 @@ export function MapPage({
   useEffect(() => {
     if (previousMapRef.current === config.key) return;
     previousMapRef.current = config.key;
+    playerFloorOverrideRef.current = undefined;
+    trackerMapConfirmedRef.current = false;
+    setTrackerMapConfirmed(false);
     const pendingFocus =
       pendingMapFocusRef.current?.mapKey === config.key
         ? pendingMapFocusRef.current
         : undefined;
     pendingMapFocusRef.current = undefined;
-    setSelectedFloor(pendingFocus?.floorId ?? defaultFloor(config));
+    selectFloor(pendingFocus?.floorId ?? defaultFloor(config));
     setSelectedMarkerId(pendingFocus?.markerId);
     setPlayerPositions([]);
     setPositionError("");
+    setRouteNotice("");
+    setRouteNoticeFloor(undefined);
     if (pendingFocus) {
       viewIntentRef.current = {
         kind: "focus",
@@ -996,7 +1041,15 @@ export function MapPage({
     } else {
       resetView();
     }
-  }, [applyViewIntent, config, resetView]);
+    queueMicrotask(() => {
+      const mappedScreenshot = [...latestTrackerScreenshotByMapRef.current]
+        .find(([mapKey]) => mapMatches(config, mapKey));
+      if (mappedScreenshot) {
+        applyScreenshotFileNameRef.current(mappedScreenshot[1], mappedScreenshot[0]);
+        return;
+      }
+    });
+  }, [applyViewIntent, config, resetView, selectFloor]);
 
   useEffect(() => {
     if (!focusQuestId) return;
@@ -1026,13 +1079,13 @@ export function MapPage({
     }
     queueMicrotask(() => {
       if (targetPoint && targetConfig.key === config.key) {
-        if (targetPoint.floorId) setSelectedFloor(targetPoint.floorId);
+        if (targetPoint.floorId) selectFloor(targetPoint.floorId);
         setSelectedMarkerId(targetPoint.id);
         applyViewIntent();
       }
       setSelectedMapKey(targetConfig.key);
     });
-  }, [applyViewIntent, config.key, data, focusQuestId, onQuestFocusConsumed]);
+  }, [applyViewIntent, config.key, data, focusQuestId, onQuestFocusConsumed, selectFloor]);
 
   useEffect(() => {
     const syncFullscreenState = () => {
@@ -1063,6 +1116,40 @@ export function MapPage({
     return entries;
   }, [data.quests, focusedQuestId, questStatusResolver]);
 
+  const mapRouteQuestIds = useMemo(
+    () => new Set(profile.mapRouteQuestIds),
+    [profile.mapRouteQuestIds],
+  );
+  const selectableRouteQuestIds = useMemo(
+    () => data.quests.flatMap((quest) => quest.objectives.some((objective) => {
+      const targetConfig = findRouteMapConfig(
+        data.mapConfigs,
+        objectiveRouteMapName(quest, objective),
+      );
+      return Boolean(targetConfig && [...objective.locationPoints, ...objective.optionalPoints]
+        .some((point) => routePointIsDisplayable(
+          targetConfig,
+          point,
+          data.mapFloorLocations,
+        )));
+    }) ? [quest.id] : []),
+    [data.mapConfigs, data.mapFloorLocations, data.quests],
+  );
+  const selectedRouteQuestCount = useMemo(() => {
+    const selectable = new Set(selectableRouteQuestIds);
+    return profile.mapRouteQuestIds.filter((questId) => selectable.has(questId)).length;
+  }, [profile.mapRouteQuestIds, selectableRouteQuestIds]);
+  const mapRouteObjectiveEntries = useMemo<ObjectiveEntry[]>(
+    () => data.quests.flatMap((quest) =>
+      mapRouteQuestIds.has(quest.id)
+        ? [...quest.objectives]
+            .sort((left, right) => left.sortOrder - right.sortOrder)
+            .map((objective) => ({ quest, objective }))
+        : [],
+    ),
+    [data.quests, mapRouteQuestIds],
+  );
+
   const regionQuests = useMemo(
     () => data.quests
       .filter((quest) => questAppliesToMap(quest, config))
@@ -1080,6 +1167,20 @@ export function MapPage({
     if (!needle) return regionQuests;
     return regionQuests.filter((quest) => questSearchText(quest).includes(needle));
   }, [regionQuestQuery, regionQuests]);
+  const regionQuestRoutePoints = useMemo(() => {
+    const pointsByQuest = new Map<string, QuestMapPoint[]>();
+    for (const quest of regionQuests) {
+      pointsByQuest.set(
+        quest.id,
+        quest.objectives.flatMap((objective) => buildQuestRouteMapPoints(
+          { quest, objective },
+          config,
+          data.mapFloorLocations,
+        )),
+      );
+    }
+    return pointsByQuest;
+  }, [config, data.mapFloorLocations, regionQuests]);
   const filteredAllQuests = useMemo(() => {
     const needle = normalized(allQuestQuery);
     if (!needle) return allQuests;
@@ -1137,6 +1238,17 @@ export function MapPage({
         buildQuestMapPoints(entry, config, data.mapFloorLocations),
       ),
     [config, data.mapFloorLocations, objectiveEntries],
+  );
+  const mapRouteQuestPoints = useMemo(
+    () => mapRouteObjectiveEntries.flatMap((entry) =>
+      buildQuestRouteMapPoints(entry, config, data.mapFloorLocations)),
+    [config, data.mapFloorLocations, mapRouteObjectiveEntries],
+  );
+  const completedQuestIds = useMemo(
+    () => new Set(data.quests
+      .filter((quest) => questStatusResolver.getStatus(quest) === "done")
+      .map((quest) => quest.id)),
+    [data.quests, questStatusResolver],
   );
 
   const sortedObjectiveEntries = useMemo(
@@ -1261,18 +1373,24 @@ export function MapPage({
   );
 
   const visibleQuestPoints = useMemo(
-    () =>
-      mapSettings.showQuestMarkers
-        ? questPoints.filter(
+    () => {
+      const visible = [
+        ...(mapSettings.showQuestMarkers ? questPoints : []),
+        ...mapRouteQuestPoints,
+      ].filter(
             (point) =>
               markerFloorVisible(point.floorId, selectedFloor) &&
               (mapSettings.showCompletedObjectives ||
-                !profile.objectiveProgress[point.objective.id]),
-          )
-        : [],
+                (!profile.objectiveProgress[point.objective.id] &&
+                  !completedQuestIds.has(point.quest.id))),
+          );
+      return [...new Map(visible.map((point) => [point.id, point])).values()];
+    },
     [
       mapSettings.showCompletedObjectives,
       mapSettings.showQuestMarkers,
+      mapRouteQuestPoints,
+      completedQuestIds,
       profile.objectiveProgress,
       questPoints,
       selectedFloor,
@@ -1280,18 +1398,24 @@ export function MapPage({
   );
 
   const miniMapVisibleQuestPoints = useMemo(
-    () =>
-      mapSettings.miniMapShowQuestMarkers
-        ? questPoints.filter(
+    () => {
+      const visible = [
+        ...(mapSettings.miniMapShowQuestMarkers ? questPoints : []),
+        ...mapRouteQuestPoints,
+      ].filter(
             (point) =>
               markerFloorVisible(point.floorId, selectedFloor) &&
               (mapSettings.showCompletedObjectives ||
-                !profile.objectiveProgress[point.objective.id]),
-          )
-        : [],
+                (!profile.objectiveProgress[point.objective.id] &&
+                  !completedQuestIds.has(point.quest.id))),
+          );
+      return [...new Map(visible.map((point) => [point.id, point])).values()];
+    },
     [
       mapSettings.miniMapShowQuestMarkers,
       mapSettings.showCompletedObjectives,
+      mapRouteQuestPoints,
+      completedQuestIds,
       profile.objectiveProgress,
       questPoints,
       selectedFloor,
@@ -1341,7 +1465,7 @@ export function MapPage({
         iconUrl: point.isOptional ? undefined : questMarkerIcon(point.objective.objectiveType),
         optionalLabel: point.isOptional ? `선택 ${point.optionalIndex ?? 1}` : undefined,
         screen: point.screen,
-        summary: `퀘스트 목표 · ${localQuestName(point.quest)} · ${objectiveTypeLabel(point.objective.objectiveType)}`,
+        summary: `퀘스트 목표 · ${localQuestName(point.quest)} · ${objectiveDisplayText(point.objective, "ko")} · ${objectiveTypeLabel(point.objective.objectiveType)}`,
         selected: selectedMarkerId === point.id,
         completed: Boolean(profile.objectiveProgress[point.objective.id]),
       })),
@@ -1401,10 +1525,10 @@ export function MapPage({
   );
 
   const focusQuestPoint = useCallback((point: QuestMapPoint) => {
-    if (point.floorId) setSelectedFloor(point.floorId);
+    if (point.floorId) selectFloor(point.floorId);
     setSelectedMarkerId(point.id);
     centerOnPoint(point.screen);
-  }, [centerOnPoint]);
+  }, [centerOnPoint, selectFloor]);
 
   const focusObjectiveEntry = (entry: ObjectiveEntry) => {
     const targetConfig = objectiveTargetMap(entry, data.mapConfigs, config);
@@ -1501,7 +1625,7 @@ export function MapPage({
 
     setFocusedQuestId(undefined);
     if (targetConfig.key === config.key) {
-      if (marker.floorId) setSelectedFloor(marker.floorId);
+      if (marker.floorId) selectFloor(marker.floorId);
       setSelectedMarkerId(marker.id);
       centerOnPoint(screen);
       return;
@@ -1520,6 +1644,8 @@ export function MapPage({
     setFocusedQuestId(undefined);
     pendingMapFocusRef.current = undefined;
     setRegionQuestQuery("");
+    setRouteNotice("");
+    setRouteNoticeFloor(undefined);
     setSelectedMapKey(event.target.value);
   };
 
@@ -1625,30 +1751,37 @@ export function MapPage({
     }
   };
 
-  const applyScreenshotFileName = useCallback((fileName: string) => {
+  const applyScreenshotFileName = useCallback((fileName: string, eventMapKey?: string) => {
+    if (eventMapKey && !mapMatches(config, eventMapKey)) return false;
     const parsed = parseScreenshotFilename(fileName);
     if (!parsed || parsed.z === undefined) {
       setPositionError("EFT 스크린샷 파일 이름에서 위치를 읽지 못했습니다.");
-      return;
+      return false;
     }
     const screen = transformMapPosition(config, parsed.x, parsed.z);
     if (!screen) {
       setPositionError("이 지도의 좌표 변환 설정을 적용할 수 없습니다.");
-      return;
+      return false;
     }
 
-    const floorId =
-      detectFloor(
+    const detectedFloorId =
+      detectPlayerFloor(
         data.mapFloorLocations,
-        config.key,
+        config,
         parsed.x,
         parsed.y,
         parsed.z,
       ) ??
       detectFloorByY(data.mapFloorLocations, config.key, parsed.y) ??
       undefined;
+    const floorId = detectedFloorId ?? (
+      playerFloorOverrideRef.current?.mapKey === config.key
+        ? playerFloorOverrideRef.current.floorId
+        : undefined
+    );
     const position: PlayerMapPosition = {
       ...parsed,
+      mapKey: config.key,
       z: parsed.z,
       screen,
       floorId,
@@ -1656,13 +1789,71 @@ export function MapPage({
     };
     setPlayerPositions((current) => [...current, position].slice(-50));
     setPositionError("");
-    if (floorId) setSelectedFloor(floorId);
+    if (floorId) {
+      for (const key of handledRouteSelectionsRef.current.keys) {
+        if (key.endsWith(`:${config.key}`)) {
+          handledRouteSelectionsRef.current.keys.delete(key);
+        }
+      }
+      setRouteNotice("");
+      setRouteNoticeFloor(undefined);
+      selectFloor(floorId);
+    }
     if (!mapSettings.fixedView) centerOnPoint(screen);
-  }, [centerOnPoint, config, data.mapFloorLocations, mapSettings.fixedView]);
+    return true;
+  }, [centerOnPoint, config, data.mapFloorLocations, mapSettings.fixedView, selectFloor]);
 
   useEffect(() => {
     applyScreenshotFileNameRef.current = applyScreenshotFileName;
   }, [applyScreenshotFileName]);
+
+  const applyTrackerScreenshot = useCallback((fileName: string, eventMapKey?: string) => {
+    if (eventMapKey) {
+      const eventConfig = findMapConfig(data.mapConfigs, eventMapKey);
+      if (!eventConfig) return;
+      pendingMaplessScreenshotRef.current = undefined;
+      if (eventConfig.key === config.key) {
+        if (applyScreenshotFileName(fileName, eventConfig.key)) {
+          latestTrackerScreenshotByMapRef.current.set(eventConfig.key, fileName);
+        } else {
+          latestTrackerScreenshotByMapRef.current.delete(eventConfig.key);
+        }
+        return;
+      }
+      const parsed = parseScreenshotFilename(fileName);
+      if (
+        parsed?.z !== undefined &&
+        transformMapPosition(eventConfig, parsed.x, parsed.z)
+      ) {
+        latestTrackerScreenshotByMapRef.current.set(eventConfig.key, fileName);
+      } else {
+        latestTrackerScreenshotByMapRef.current.delete(eventConfig.key);
+      }
+      return;
+    }
+    if (trackerMapConfirmedRef.current) {
+      applyScreenshotFileName(fileName);
+      return;
+    }
+    pendingMaplessScreenshotRef.current = fileName;
+    setPositionError(
+      `자동 감지된 스크린샷에는 지도 이름이 없습니다. ${config.displayName} 레이드가 맞는지 확인한 뒤 현재 지도로 연결해 주세요.`,
+    );
+  }, [applyScreenshotFileName, config, data.mapConfigs]);
+
+  useEffect(() => {
+    applyTrackerScreenshotRef.current = applyTrackerScreenshot;
+  }, [applyTrackerScreenshot]);
+
+  const invalidateTrackerHistory = useCallback(() => {
+    latestTrackerScreenshotByMapRef.current.clear();
+    pendingMaplessScreenshotRef.current = undefined;
+    playerFloorOverrideRef.current = undefined;
+    setPlayerPositions([]);
+    handledRouteSelectionsRef.current.keys.clear();
+    setRouteNotice("");
+    setRouteNoticeFloor(undefined);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1708,7 +1899,7 @@ export function MapPage({
         // A bounded server buffer means part of the trail is unavailable.
         // Drop the discontinuous local trail, but still apply the retained
         // events so the newest known player position is not lost.
-        setPlayerPositions([]);
+        invalidateTrackerHistory();
       }
 
       const pageSequences = new Set<number>();
@@ -1720,7 +1911,7 @@ export function MapPage({
           continue;
         }
         pageSequences.add(screenshotEvent.sequence);
-        applyScreenshotFileNameRef.current(screenshotEvent.fileName);
+        applyTrackerScreenshotRef.current(screenshotEvent.fileName, screenshotEvent.mapKey);
       }
       cursor = Math.max(cursor, page.pagination.nextCursor);
 
@@ -1758,7 +1949,7 @@ export function MapPage({
         cursor = Math.max(0, status.latestCursor - 1);
         cursorInitialized = true;
         if (needsTrackerResync) {
-          setPlayerPositions([]);
+          invalidateTrackerHistory();
           needsTrackerResync = false;
         }
       }
@@ -1777,17 +1968,48 @@ export function MapPage({
       if (pollTimer !== undefined) window.clearTimeout(pollTimer);
       controller.abort();
     };
-  }, []);
+  }, [invalidateTrackerHistory]);
 
   const importScreenshot = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     event.currentTarget.value = "";
+    pendingMaplessScreenshotRef.current = undefined;
+    trackerMapConfirmedRef.current = true;
+    setTrackerMapConfirmed(true);
     applyScreenshotFileName(file.name);
   };
 
+  const confirmTrackerMap = () => {
+    trackerMapConfirmedRef.current = true;
+    setTrackerMapConfirmed(true);
+    const pendingFileName = pendingMaplessScreenshotRef.current;
+    if (pendingFileName) {
+      pendingMaplessScreenshotRef.current = undefined;
+      applyScreenshotFileName(pendingFileName);
+    } else {
+      setPositionError("");
+    }
+  };
+
   const clearPlayerTrail = () => {
-    setPlayerPositions([]);
+    invalidateTrackerHistory();
+    setPositionError("");
+  };
+
+  const assignLatestPlayerToSelectedFloor = () => {
+    if (!selectedFloor) return;
+    playerFloorOverrideRef.current = { mapKey: config.key, floorId: selectedFloor };
+    setPlayerPositions((current) => {
+      const latestIndex = current.length - 1;
+      const latest = current[latestIndex];
+      if (!latest || latest.mapKey !== config.key || latest.floorId === selectedFloor) {
+        return current;
+      }
+      const next = [...current];
+      next[latestIndex] = { ...latest, floorId: selectedFloor };
+      return next;
+    });
     setPositionError("");
   };
 
@@ -1921,7 +2143,217 @@ export function MapPage({
   };
 
   const latestPlayerPosition = playerPositions.at(-1);
-  const trailPoints = playerPositions.map((position) => `${position.screen.x},${position.screen.y}`).join(" ");
+  const positionIsOnSelectedFloor = (position: PlayerMapPosition) =>
+    config.floors.length <= 1 ||
+    !position.floorId ||
+    position.floorId === selectedFloor;
+  const visibleLatestPlayerPosition = latestPlayerPosition &&
+    latestPlayerPosition.mapKey === config.key &&
+    positionIsOnSelectedFloor(latestPlayerPosition)
+    ? latestPlayerPosition
+    : undefined;
+  const visiblePlayerPositions = visibleLatestPlayerPosition
+    ? playerPositions.filter((position) =>
+        position.mapKey === config.key &&
+        positionIsOnSelectedFloor(position))
+    : [];
+  const trailPoints = visiblePlayerPositions
+    .map((position) => `${position.screen.x},${position.screen.y}`)
+    .join(" ");
+  const visibleQuestPointIds = useMemo(
+    () => new Set(visibleQuestPoints.map((point) => point.id)),
+    [visibleQuestPoints],
+  );
+  const miniMapVisibleQuestPointIds = useMemo(
+    () => new Set(miniMapVisibleQuestPoints.map((point) => point.id)),
+    [miniMapVisibleQuestPoints],
+  );
+  const routePointVisibleFromPlayer = useCallback(
+    (point: QuestMapPoint) => {
+      if (!visibleLatestPlayerPosition) return false;
+      if (!markerFloorVisible(point.floorId, selectedFloor)) return false;
+      if (
+        config.floors.length > 1 &&
+        (!point.floorId || !visibleLatestPlayerPosition.floorId)
+      ) return false;
+      return !(
+        point.floorId &&
+        visibleLatestPlayerPosition.floorId &&
+        point.floorId !== visibleLatestPlayerPosition.floorId
+      );
+    },
+    [config.floors.length, selectedFloor, visibleLatestPlayerPosition],
+  );
+  const fullMapQuestRoutes = useMemo(
+    () => visibleLatestPlayerPosition
+      ? mapRouteQuestPoints
+          .filter((point) =>
+            visibleQuestPointIds.has(point.id) &&
+            routePointVisibleFromPlayer(point))
+          .map((point) => ({
+            id: `full:${point.id}`,
+            start: visibleLatestPlayerPosition.screen,
+            end: point.screen,
+            optional: point.isOptional,
+          }))
+      : [],
+    [visibleLatestPlayerPosition, mapRouteQuestPoints, routePointVisibleFromPlayer,
+      visibleQuestPointIds],
+  );
+  const miniMapQuestRoutes = useMemo(
+    () => visibleLatestPlayerPosition
+      ? mapRouteQuestPoints
+          .filter((point) =>
+            miniMapVisibleQuestPointIds.has(point.id) &&
+            routePointVisibleFromPlayer(point))
+          .map((point) => ({
+            id: `mini:${point.id}`,
+            start: visibleLatestPlayerPosition.screen,
+            end: point.screen,
+            optional: point.isOptional,
+          }))
+      : [],
+    [visibleLatestPlayerPosition, mapRouteQuestPoints, miniMapVisibleQuestPointIds,
+      routePointVisibleFromPlayer],
+  );
+  const setRegionQuestRoute = (quest: QuestData, visible: boolean) => {
+    setQuestMapRoute(quest.id, visible, selectableRouteQuestIds);
+    if (!visible) {
+      setRouteNotice("");
+      setRouteNoticeFloor(undefined);
+    }
+  };
+  const clearSelectedQuestRoutes = () => {
+    for (const questId of profile.mapRouteQuestIds) {
+      setQuestMapRoute(questId, false, selectableRouteQuestIds);
+    }
+    setRouteNotice("");
+    setRouteNoticeFloor(undefined);
+  };
+
+  const routeVisibilitySignature = useMemo(
+    () => JSON.stringify({
+      mapKey: config.key,
+      showCompleted: mapSettings.showCompletedObjectives,
+      points: mapRouteObjectiveEntries.map(({ quest, objective }) => [
+        quest.id,
+        objective.id,
+        completedQuestIds.has(quest.id),
+        Boolean(profile.objectiveProgress[objective.id]),
+      ]),
+    }),
+    [completedQuestIds, config.key, mapRouteObjectiveEntries,
+      mapSettings.showCompletedObjectives, profile.objectiveProgress],
+  );
+
+  useEffect(() => {
+    // The map-change effect runs first and resets selectedFloor. Wait for that
+    // state update before consuming quest+map route intents.
+    if (floorSelectionMapKey !== config.key) return;
+    if (!routeVisibilityRef.current) {
+      routeVisibilityRef.current = routeVisibilitySignature;
+    } else if (routeVisibilityRef.current !== routeVisibilitySignature) {
+      routeVisibilityRef.current = routeVisibilitySignature;
+      for (const key of handledRouteSelectionsRef.current.keys) {
+        if (key.endsWith(`:${config.key}`)) handledRouteSelectionsRef.current.keys.delete(key);
+      }
+      setRouteNotice("");
+      setRouteNoticeFloor(undefined);
+    }
+    const currentIds = new Set(profile.mapRouteQuestIds);
+    const state = handledRouteSelectionsRef.current;
+    const profileChanged = state.profile !== activeProfile;
+    if (profileChanged) {
+      state.profile = activeProfile;
+      state.keys.clear();
+      setRouteNotice("");
+      setRouteNoticeFloor(undefined);
+    }
+    for (const previousId of state.selectedIds) {
+      if (currentIds.has(previousId)) continue;
+      for (const key of state.keys) {
+        if (key.startsWith(`${previousId}:`)) state.keys.delete(key);
+      }
+    }
+    state.selectedIds = currentIds;
+
+    const candidates = profile.mapRouteQuestIds
+      .map((questId) => data.quests.find((quest) => quest.id === questId))
+      .filter((quest): quest is QuestData => Boolean(
+        quest &&
+        (regionQuestRoutePoints.get(quest.id)?.some((point) =>
+          mapSettings.showCompletedObjectives ||
+          (!profile.objectiveProgress[point.objective.id] &&
+            !completedQuestIds.has(point.quest.id))) ?? false) &&
+        !state.keys.has(`${quest.id}:${config.key}`),
+      ));
+    if (candidates.length === 0) return;
+    // A selected quest can have explicit objectives on several maps. Record
+    // handling per quest+map, not only per quest, so a later map visit still
+    // receives its own floor switch or explanation. Mark all current-map
+    // candidates together to avoid oscillating between conflicting floors.
+    for (const candidate of candidates) {
+      state.keys.add(`${candidate.id}:${config.key}`);
+    }
+    const hiddenCandidates = candidates
+      .map((quest) => ({
+        quest,
+        points: (regionQuestRoutePoints.get(quest.id) ?? []).filter((point) =>
+          mapSettings.showCompletedObjectives ||
+          (!profile.objectiveProgress[point.objective.id] &&
+            !completedQuestIds.has(point.quest.id))),
+      }))
+      .map((entry) => ({
+        ...entry,
+        hiddenPoints: entry.points.filter(
+          (point) => !markerFloorVisible(point.floorId, selectedFloor),
+        ),
+      }))
+      .filter((entry) => entry.hiddenPoints.length > 0);
+    if (hiddenCandidates.length === 0) {
+      setRouteNotice("");
+      setRouteNoticeFloor(undefined);
+      return;
+    }
+
+    const hiddenFloorIds = [...new Set(hiddenCandidates.flatMap((entry) =>
+      entry.hiddenPoints.flatMap((point) => point.floorId ? [point.floorId] : [])))];
+    if (hiddenFloorIds.length === 0) return;
+    const hiddenFloorNames = hiddenFloorIds.map((floorId) =>
+      orderedFloors.find((floor) => floor.layerId === floorId)?.displayName ?? floorId);
+    const allCandidatePointsHidden = hiddenCandidates.length === candidates.length &&
+      hiddenCandidates.every((entry) => entry.hiddenPoints.length === entry.points.length);
+    const targetFloor = hiddenFloorIds.length === 1 ? hiddenFloorIds[0] : undefined;
+    const questLabel = hiddenCandidates.length === 1
+      ? localQuestName(hiddenCandidates[0].quest)
+      : `선택한 경로 중 ${hiddenCandidates.length}개 퀘스트`;
+    const canAutoSwitch = allCandidatePointsHidden && targetFloor && (
+      !visibleLatestPlayerPosition?.floorId ||
+      visibleLatestPlayerPosition.floorId === targetFloor
+    );
+    if (canAutoSwitch) {
+      selectFloor(targetFloor);
+      setRouteNotice(
+        `${questLabel} 목표가 있는 ${hiddenFloorNames[0]} 층으로 전환했습니다.`,
+      );
+      setRouteNoticeFloor(targetFloor);
+      return;
+    }
+    const currentFloorName = visibleLatestPlayerPosition?.floorId
+      ? orderedFloors.find(
+          (floor) => floor.layerId === visibleLatestPlayerPosition.floorId,
+        )?.displayName ?? visibleLatestPlayerPosition.floorId
+      : undefined;
+    setRouteNotice(
+      `${questLabel} 목표 일부는 ${hiddenFloorNames.join(", ")} 층에 있습니다. ` +
+      `${currentFloorName ? `현재 위치는 ${currentFloorName} 층입니다. ` : ""}` +
+      "층을 바꾸면 해당 마커를 볼 수 있고, 연결선은 같은 층에서만 표시됩니다.",
+    );
+    setRouteNoticeFloor(selectedFloor);
+  }, [activeProfile, completedQuestIds, config, data.quests, floorSelectionMapKey,
+    mapSettings.showCompletedObjectives, orderedFloors,
+    profile.mapRouteQuestIds, profile.objectiveProgress, regionQuestRoutePoints,
+    routeVisibilitySignature, selectedFloor, selectFloor, visibleLatestPlayerPosition]);
   const markerScale = config.markerScale ?? 1;
   const trackerNote = localTrackerNote(localTracker);
 
@@ -2026,7 +2458,13 @@ export function MapPage({
                 aria-pressed={selectedFloor === floor.layerId}
                 className={selectedFloor === floor.layerId ? "active" : ""}
                 key={floor.layerId}
-                onClick={() => setSelectedFloor(floor.layerId)}
+                onClick={() => {
+                  selectFloor(floor.layerId);
+                  if (routeNoticeFloor !== floor.layerId) {
+                    setRouteNotice("");
+                    setRouteNoticeFloor(undefined);
+                  }
+                }}
                 type="button"
               >
                 {floor.displayName}
@@ -2065,7 +2503,7 @@ export function MapPage({
                     onChange={(event) => updateMapSettings({ showQuestMarkers: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>퀘스트 마커 표시</span>
+                  <span>일반 퀘스트 마커 (선택 경로 제외)</span>
                 </label>
                 <label>
                   <input
@@ -2130,8 +2568,9 @@ export function MapPage({
             markerLegend={miniMapMarkerLegend}
             markers={miniMapMarkers}
             orderedFloors={orderedFloors}
-            player={latestPlayerPosition}
+            player={visibleLatestPlayerPosition}
             playerMarkerSize={mapSettings.playerMarkerSize}
+            routes={miniMapQuestRoutes}
             selectedFloor={selectedFloor}
           />
           <button aria-label="지도 보기 초기화" onClick={resetView} title="지도 보기 초기화" type="button">
@@ -2150,6 +2589,7 @@ export function MapPage({
       </header>
 
       {fullscreenError ? <p className="map-inline-error" role="alert">{fullscreenError}</p> : null}
+      {routeNotice ? <p className="map-route-notice" role="status">{routeNotice}</p> : null}
 
       <div className="map-layout">
         <aside aria-label="지도 도구" className="map-sidebar panel">
@@ -2198,6 +2638,10 @@ export function MapPage({
                 <span>
                   방향 {Math.round(latestPlayerPosition.angle ?? 0)}°
                   {latestPlayerPosition.floorId ? ` · ${orderedFloors.find((floor) => floor.layerId === latestPlayerPosition.floorId)?.displayName ?? latestPlayerPosition.floorId}` : ""}
+                  {!latestPlayerPosition.floorId && config.floors.length > 1
+                    ? " · 층 미확인 (연결선 숨김)"
+                    : ""}
+                  {` · ${config.displayName} 선택 기준`}
                 </span>
               </div>
             ) : (
@@ -2205,6 +2649,32 @@ export function MapPage({
             )}
             {positionError ? <p className="map-inline-error" role="alert">{positionError}</p> : null}
             <div className="map-position-actions">
+              {localTracker.state === "WATCHING" ? (
+                <button
+                  aria-pressed={trackerMapConfirmed}
+                  className="compact"
+                  onClick={confirmTrackerMap}
+                  type="button"
+                >
+                  <Crosshair aria-hidden="true" size={14} />
+                  {trackerMapConfirmed ? `${config.displayName} 자동 위치 연결됨` : "현재 지도로 자동 위치 연결"}
+                </button>
+              ) : null}
+              {latestPlayerPosition &&
+              latestPlayerPosition.mapKey === config.key &&
+              config.floors.length > 1 &&
+              selectedFloor &&
+              latestPlayerPosition.floorId !== selectedFloor ? (
+                <button
+                  className="compact"
+                  onClick={assignLatestPlayerToSelectedFloor}
+                  type="button"
+                >
+                  <LocateFixed aria-hidden="true" size={14} />
+                  현재 위치를 {orderedFloors.find((floor) => floor.layerId === selectedFloor)
+                    ?.displayName ?? selectedFloor} 층으로 지정
+                </button>
+              ) : null}
               <label className="map-check-row">
                 <input
                   checked={mapSettings.fixedView}
@@ -2232,6 +2702,21 @@ export function MapPage({
               </div>
               <span className="badge">{filteredRegionQuests.length}/{regionQuests.length}</span>
             </div>
+            <p className="map-search-note" id="map-route-selection-help">
+              핀을 선택하면 전체 지도와 미니맵에 목표가 표시됩니다. 좌표가 없거나
+              {` ${MAX_MAP_ROUTE_QUESTS}개 한도에 도달한 퀘스트는 선택할 수 없습니다.`}
+            </p>
+            <div className="map-route-selection-summary">
+              <span>선택 {selectedRouteQuestCount}/{MAX_MAP_ROUTE_QUESTS}</span>
+              <button
+                className="compact ghost"
+                disabled={selectedRouteQuestCount === 0}
+                onClick={clearSelectedQuestRoutes}
+                type="button"
+              >
+                선택 경로 모두 해제
+              </button>
+            </div>
             <label className="map-region-quest-search">
               <Search aria-hidden="true" size={15} />
               <span className="sr-only">현재 지역 퀘스트 검색</span>
@@ -2248,10 +2733,49 @@ export function MapPage({
                 {filteredRegionQuests.map((quest) => (
                   <li key={quest.id} data-testid="map-region-quest-item">
                     <div className="map-search-result-row">
+                      <label
+                        className="map-region-route-toggle"
+                        title={regionQuestRoutePoints.get(quest.id)?.length
+                          ? selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS &&
+                              !profile.mapRouteQuestIds.includes(quest.id)
+                            ? `지도 경로는 프로필마다 최대 ${MAX_MAP_ROUTE_QUESTS}개까지 선택할 수 있습니다`
+                            : "전체 지도와 미니맵에 목표 마커·현재 위치 연결선 표시"
+                          : "이 지도에 사용할 수 있는 안전한 목표 좌표가 없습니다"}
+                      >
+                        <input
+                          aria-describedby="map-route-selection-help"
+                          aria-label={`${localQuestName(quest)} 지도 경로 표시${
+                            !(regionQuestRoutePoints.get(quest.id)?.length)
+                              ? ": 지도 좌표 없음"
+                              : selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS &&
+                                  !profile.mapRouteQuestIds.includes(quest.id)
+                                ? `: ${MAX_MAP_ROUTE_QUESTS}개 선택 한도 도달`
+                                : ""
+                          }`}
+                          checked={profile.mapRouteQuestIds.includes(quest.id)}
+                          disabled={
+                            !profile.mapRouteQuestIds.includes(quest.id) &&
+                            (!(regionQuestRoutePoints.get(quest.id)?.length) ||
+                              selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS)
+                          }
+                          onChange={(event) => {
+                            if (event.target.checked && !(regionQuestRoutePoints.get(quest.id)?.length)) {
+                              return;
+                            }
+                            if (
+                              event.target.checked &&
+                              selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS
+                            ) return;
+                            setRegionQuestRoute(quest, event.target.checked);
+                          }}
+                          type="checkbox"
+                        />
+                        <MapPin aria-hidden="true" size={13} />
+                      </label>
                       <button
                         className="map-region-quest-button"
                         onClick={() => focusRegionQuest(quest)}
-                        title="목표 마커 표시/해제"
+                        title="첫 목표 마커로 이동"
                         type="button"
                       >
                         <span>
@@ -2259,6 +2783,7 @@ export function MapPage({
                           <small>
                             {quest.trader} · {quest.objectives.length}개 목표
                             {quest.objectives[0]?.description ? ` · ${quest.objectives[0].description}` : ""}
+                            {!(regionQuestRoutePoints.get(quest.id)?.length) ? " · 지도 좌표 없음" : ""}
                           </small>
                         </span>
                         <span aria-hidden="true">›</span>
@@ -2577,7 +3102,7 @@ export function MapPage({
                   onChange={(event) => updateMapSettings({ showQuestMarkers: event.target.checked })}
                   type="checkbox"
                 />
-                <span>퀘스트 마커 표시</span>
+                <span>일반 퀘스트 마커 (선택 경로 제외)</span>
               </label>
               <label className="map-check-row">
                 <input
@@ -2690,7 +3215,7 @@ export function MapPage({
                 width={config.imageWidth}
               />
 
-              {playerPositions.length > 1 ? (
+              {visiblePlayerPositions.length > 1 ? (
                 <svg
                   aria-hidden="true"
                   className="map-player-trail"
@@ -2700,12 +3225,34 @@ export function MapPage({
                   width={config.imageWidth}
                 >
                   <polyline points={trailPoints} />
-                  {playerPositions.slice(0, -1).map((position) => (
+                  {visiblePlayerPositions.slice(0, -1).map((position) => (
                     <circle
                       cx={position.screen.x}
                       cy={position.screen.y}
                       key={position.sequence}
                       r={3 / view.scale}
+                    />
+                  ))}
+                </svg>
+              ) : null}
+
+              {fullMapQuestRoutes.length > 0 ? (
+                <svg
+                  aria-hidden="true"
+                  className="map-quest-routes"
+                  height={config.imageHeight}
+                  viewBox={`0 0 ${config.imageWidth} ${config.imageHeight}`}
+                  width={config.imageWidth}
+                >
+                  {fullMapQuestRoutes.map((route) => (
+                    <line
+                      className={route.optional ? "is-optional" : undefined}
+                      data-testid="map-quest-route-line"
+                      key={route.id}
+                      x1={route.start.x}
+                      x2={route.end.x}
+                      y1={route.start.y}
+                      y2={route.end.y}
                     />
                   ))}
                 </svg>
@@ -2747,16 +3294,16 @@ export function MapPage({
                 );
               })}
 
-              {mapSettings.showQuestMarkers
-                ? visibleQuestPoints
+              {visibleQuestPoints
                     .map((point) => {
                       const completed = Boolean(profile.objectiveProgress[point.objective.id]);
                       const choiceLabel = point.isOptional
                         ? `선택 ${point.optionalIndex ?? 1}`
                         : undefined;
+                      const objectiveText = objectiveDisplayText(point.objective, "ko");
                       return (
                         <button
-                          aria-label={`${choiceLabel ? `${choiceLabel} ` : ""}퀘스트 마커 ${point.objective.description}`}
+                          aria-label={`${choiceLabel ? `${choiceLabel} ` : ""}퀘스트 마커 ${objectiveText}`}
                           aria-pressed={selectedMarkerId === point.id}
                           className={`map-marker map-quest-marker ${point.isOptional ? "optional" : ""} ${completed ? "completed" : ""} ${selectedMarkerId === point.id ? "selected" : ""}`}
                           key={point.id}
@@ -2765,7 +3312,7 @@ export function MapPage({
                               setSelectedMarkerId(undefined);
                               return;
                             }
-                            if (point.floorId) setSelectedFloor(point.floorId);
+                            if (point.floorId) selectFloor(point.floorId);
                             setSelectedMarkerId(point.id);
                             const viewport = viewportRef.current;
                             if (!viewport) return;
@@ -2783,7 +3330,7 @@ export function MapPage({
                             "--marker-size": `${mapSettings.markerSize * markerScale}px`,
                             "--quest-name-size": `${mapSettings.questNameSize}px`,
                           } as CSSProperties}
-                          title={`${choiceLabel ? `[${choiceLabel}] ` : ""}${localQuestName(point.quest)} · ${point.objective.description}`}
+                          title={`${choiceLabel ? `[${choiceLabel}] ` : ""}${localQuestName(point.quest)} · ${objectiveText}`}
                           type="button"
                         >
                           {point.isOptional ? (
@@ -2799,12 +3346,11 @@ export function MapPage({
                             mapSettings.questMarkerStyle.includes("Name") &&
                             selectedMarkerId === point.id
                           ) ? (
-                            <span className="map-marker-label">{point.objective.description}</span>
+                            <span className="map-marker-label">{objectiveText}</span>
                           ) : null}
                         </button>
                       );
-                    })
-                : null}
+                    })}
 
               {customMarkers.map((marker) => {
                 const screen = markerScreenPosition(config, marker);
@@ -2840,18 +3386,18 @@ export function MapPage({
                 );
               })}
 
-              {latestPlayerPosition ? (
+              {visibleLatestPlayerPosition ? (
                 <button
-                  aria-label={`플레이어 위치 X ${formatCoordinate(latestPlayerPosition.x)} Y ${formatCoordinate(latestPlayerPosition.y)} Z ${formatCoordinate(latestPlayerPosition.z)} 방향 ${Math.round(latestPlayerPosition.angle ?? 0)}`}
+                  aria-label={`플레이어 위치 X ${formatCoordinate(visibleLatestPlayerPosition.x)} Y ${formatCoordinate(visibleLatestPlayerPosition.y)} Z ${formatCoordinate(visibleLatestPlayerPosition.z)} 방향 ${Math.round(visibleLatestPlayerPosition.angle ?? 0)}${!visibleLatestPlayerPosition.floorId && config.floors.length > 1 ? " 층 미확인" : ""}`}
                   className="map-marker map-player-marker"
-                  onClick={() => centerOnPoint(latestPlayerPosition.screen)}
+                  onClick={() => centerOnPoint(visibleLatestPlayerPosition.screen)}
                   onPointerDown={(event) => event.stopPropagation()}
                   style={{
-                    left: latestPlayerPosition.screen.x,
-                    top: latestPlayerPosition.screen.y,
+                    left: visibleLatestPlayerPosition.screen.x,
+                    top: visibleLatestPlayerPosition.screen.y,
                     "--marker-size": `${mapSettings.playerMarkerSize}px`,
                     "--player-angle": `${getMapDirectionAngle(
-                      latestPlayerPosition.angle ?? 0,
+                      visibleLatestPlayerPosition.angle ?? 0,
                       config.key,
                       config.mapRotation,
                     )}deg`,

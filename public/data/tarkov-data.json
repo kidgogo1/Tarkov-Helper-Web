@@ -23736,6 +23736,7 @@
           "description": "Eliminate Shturman with a headshot from over 75 meters away while using an M700 Sniper rifle with the specified scope",
           "targetType": "Shturman",
           "targetCount": 1,
+          "mapName": "Woods",
           "requiresFir": false,
           "locationPoints": [
             {
@@ -55691,6 +55692,7 @@
           "objectiveType": "Custom",
           "description": "Obtain the first Chemical container",
           "itemId": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DaGVtaWNhbF9jb250YWluZXJfMQ",
+          "mapName": "Shoreline",
           "requiresFir": false,
           "locationPoints": [
             {
@@ -55720,6 +55722,7 @@
           "objectiveType": "Custom",
           "description": "Obtain the second Chemical container",
           "itemId": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DaGVtaWNhbF9jb250YWluZXJfMg",
+          "mapName": "Interchange",
           "requiresFir": false,
           "locationPoints": [
             {
@@ -55749,6 +55752,7 @@
           "objectiveType": "Custom",
           "description": "Obtain the third Chemical container",
           "itemId": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DaGVtaWNhbF9jb250YWluZXJfMw",
+          "mapName": "Interchange",
           "requiresFir": false,
           "locationPoints": [
             {
