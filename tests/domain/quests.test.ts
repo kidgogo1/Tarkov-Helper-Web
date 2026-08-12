@@ -56,6 +56,7 @@ function profile(overrides: Partial<ProfileState> = {}): ProfileState {
     faction: "usec",
     questProgress: {},
     objectiveProgress: {},
+    trackedQuestIds: [],
     hideoutLevels: {},
     inventory: {},
     customMarkers: [],

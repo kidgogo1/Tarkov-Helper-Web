@@ -41,6 +41,8 @@ export interface ProfileState {
   faction: "bear" | "usec" | null;
   questProgress: Record<string, SavedQuestStatus>;
   objectiveProgress: Record<string, boolean>;
+  /** Quest ids explicitly chosen for the independent quest companion window. */
+  trackedQuestIds: string[];
   hideoutLevels: Record<string, number>;
   inventory: Record<string, InventoryAmount>;
   customMarkers: CustomMapMarker[];

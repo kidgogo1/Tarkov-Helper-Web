@@ -92,6 +92,7 @@ export function QuestsPage({
   const {
     profile,
     setObjectiveProgress,
+    setQuestTracked,
     setQuestStatus,
     updateProfile,
   } = useAppStore();
@@ -543,10 +544,12 @@ export function QuestsPage({
             onOpenMap={onOpenMap}
             onOpenQuest={handleOpenQuest}
             onReset={handleReset}
+            onTrackedChange={setQuestTracked}
             profile={profile}
             quest={selectedQuest}
             status={statuses.get(selectedQuest.id) ?? "active"}
             statusResolver={statusResolver}
+            tracked={profile.trackedQuestIds.includes(selectedQuest.id)}
             language={language}
           />
         ) : (

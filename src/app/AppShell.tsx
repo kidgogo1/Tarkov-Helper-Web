@@ -4,6 +4,7 @@ import {
   House,
   ListChecks,
   Map,
+  ListTodo,
   RotateCcw,
   Settings,
   Trophy,
@@ -24,10 +25,13 @@ interface AppShellProps {
   children: ReactNode;
   onTabChange: (tab: AppTab) => void;
   onProfileChange: (profile: ProfileType) => void;
+  onQuestWindowToggle?: () => void;
   onLevelChange: (level: number) => void;
   onReset: () => void;
   onSettings: () => void;
+  questWindowOpen?: boolean;
   storageWarning?: boolean;
+  trackedQuestCount?: number;
 }
 
 interface TabDefinition {
@@ -52,10 +56,13 @@ export function AppShell({
   children,
   onTabChange,
   onProfileChange,
+  onQuestWindowToggle,
   onLevelChange,
   onReset,
   onSettings,
+  questWindowOpen = false,
   storageWarning = false,
+  trackedQuestCount = 0,
 }: AppShellProps) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -146,31 +153,45 @@ export function AppShell({
           </div>
         </div>
 
-        <nav aria-label="주요 화면" className="app-tabs" role="tablist">
-          {TABS.map((tab, index) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                aria-controls={`app-panel-${tab.id}`}
-                aria-selected={activeTab === tab.id}
-                className={activeTab === tab.id ? "active" : ""}
-                id={`app-tab-${tab.id}`}
-                key={tab.id}
-                onClick={() => onTabChange(tab.id)}
-                onKeyDown={(event) => handleTabKeyDown(event, index)}
-                ref={(element) => {
-                  tabRefs.current[index] = element;
-                }}
-                role="tab"
-                tabIndex={activeTab === tab.id ? 0 : -1}
-                type="button"
-              >
-                <Icon aria-hidden="true" size={17} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <div className="app-navigation-row">
+          <nav aria-label="주요 화면" className="app-tabs" role="tablist">
+            {TABS.map((tab, index) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  aria-controls={`app-panel-${tab.id}`}
+                  aria-selected={activeTab === tab.id}
+                  className={activeTab === tab.id ? "active" : ""}
+                  id={`app-tab-${tab.id}`}
+                  key={tab.id}
+                  onClick={() => onTabChange(tab.id)}
+                  onKeyDown={(event) => handleTabKeyDown(event, index)}
+                  ref={(element) => {
+                    tabRefs.current[index] = element;
+                  }}
+                  role="tab"
+                  tabIndex={activeTab === tab.id ? 0 : -1}
+                  type="button"
+                >
+                  <Icon aria-hidden="true" size={17} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+          <button
+            aria-label={`${questWindowOpen ? "퀘스트 창 닫기" : "퀘스트 창 열기"} · ${trackedQuestCount}개 선택`}
+            aria-pressed={questWindowOpen}
+            className={`quest-window-nav-button${questWindowOpen ? " active" : ""}`}
+            disabled={!onQuestWindowToggle}
+            onClick={onQuestWindowToggle}
+            type="button"
+          >
+            <ListTodo aria-hidden="true" size={17} />
+            <span>퀘스트 창</span>
+            <strong>{trackedQuestCount}</strong>
+          </button>
+        </div>
       </header>
 
       {storageWarning ? (

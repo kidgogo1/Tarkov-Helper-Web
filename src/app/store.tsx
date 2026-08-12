@@ -24,6 +24,7 @@ import {
 
 export const APP_STATE_VERSION = 1 as const;
 export const APP_STATE_STORAGE_KEY = "tarkov-helper-web:state";
+const MAX_TRACKED_QUESTS = 100;
 
 type ProfileFields = Pick<
   ProfileState,
@@ -50,6 +51,7 @@ export interface AppStoreValue {
   updateProfile: (patch: ProfilePatch) => void;
   setQuestStatus: (id: string, status: SavedQuestStatus | null) => void;
   setObjectiveProgress: (id: string, completed: boolean) => void;
+  setQuestTracked: (id: string, tracked: boolean) => void;
   setHideoutLevel: (id: string, level: number) => void;
   setInventory: (id: string, amount: InventoryAmount) => void;
   upsertCustomMarker: (marker: CustomMapMarker) => void;
@@ -72,6 +74,7 @@ function createDefaultProfile(): ProfileState {
     faction: null,
     questProgress: {},
     objectiveProgress: {},
+    trackedQuestIds: [],
     hideoutLevels: {},
     inventory: {},
     customMarkers: [],
@@ -332,6 +335,16 @@ function sanitizeProfile(value: unknown): ProfileState {
     }
   }
 
+  const trackedQuestIds = Array.isArray(value.trackedQuestIds)
+    ? [...new Set(value.trackedQuestIds.filter(
+        (id): id is string =>
+          typeof id === "string" &&
+          id.trim().length > 0 &&
+          id.length <= 512 &&
+          !id.includes("\0"),
+      ))].slice(0, MAX_TRACKED_QUESTS)
+    : [];
+
   const hideoutLevels: Record<string, number> = {};
   if (isRecord(value.hideoutLevels)) {
     for (const [id, level] of Object.entries(value.hideoutLevels)) {
@@ -388,6 +401,7 @@ function sanitizeProfile(value: unknown): ProfileState {
     ...updateProfileFields(defaults, fields),
     questProgress,
     objectiveProgress,
+    trackedQuestIds,
     hideoutLevels,
     inventory,
     customMarkers,
@@ -618,6 +632,25 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
     [updateActiveProfile],
   );
 
+  const setQuestTracked = useCallback(
+    (id: string, tracked: boolean) => {
+      const questId = id.trim();
+      if (!questId || questId.length > 512 || questId.includes("\0")) return;
+      updateActiveProfile((profile) => {
+        const alreadyTracked = profile.trackedQuestIds.includes(questId);
+        if (tracked === alreadyTracked) return profile;
+        if (tracked && profile.trackedQuestIds.length >= MAX_TRACKED_QUESTS) return profile;
+        return {
+          ...profile,
+          trackedQuestIds: tracked
+            ? [...profile.trackedQuestIds, questId]
+            : profile.trackedQuestIds.filter((candidate) => candidate !== questId),
+        };
+      });
+    },
+    [updateActiveProfile],
+  );
+
   const setHideoutLevel = useCallback(
     (id: string, level: number) => {
       updateActiveProfile((profile) => ({
@@ -725,6 +758,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       updateProfile,
       setQuestStatus,
       setObjectiveProgress,
+      setQuestTracked,
       setHideoutLevel,
       setInventory,
       upsertCustomMarker,
@@ -741,6 +775,7 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       updateProfile,
       setQuestStatus,
       setObjectiveProgress,
+      setQuestTracked,
       setHideoutLevel,
       setInventory,
       upsertCustomMarker,

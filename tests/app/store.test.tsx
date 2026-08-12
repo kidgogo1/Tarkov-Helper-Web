@@ -35,6 +35,7 @@ describe("AppStoreProvider", () => {
       faction: null,
       questProgress: {},
       objectiveProgress: {},
+      trackedQuestIds: [],
       hideoutLevels: {},
       inventory: {},
       customMarkers: [],
@@ -99,6 +100,8 @@ describe("AppStoreProvider", () => {
       });
       result.current.setQuestStatus("quest-pvp", "done");
       result.current.setObjectiveProgress("objective-pvp", true);
+      result.current.setQuestTracked("quest-pvp", true);
+      result.current.setQuestTracked("quest-pvp", true);
       result.current.setHideoutLevel("workbench", 2);
       result.current.setInventory("item-pvp", { fir: 3, nonFir: 4 });
     });
@@ -111,6 +114,7 @@ describe("AppStoreProvider", () => {
       faction: "bear",
       questProgress: { "quest-pvp": "done" },
       objectiveProgress: { "objective-pvp": true },
+      trackedQuestIds: ["quest-pvp"],
       hideoutLevels: { workbench: 2 },
       inventory: { "item-pvp": { fir: 3, nonFir: 4 } },
     });
@@ -130,6 +134,7 @@ describe("AppStoreProvider", () => {
         prestigeLevel: 99,
       });
       result.current.setQuestStatus("quest-pve", "failed");
+      result.current.setQuestTracked("quest-pve", true);
     });
 
     expect(result.current.profile).toMatchObject({
@@ -138,6 +143,7 @@ describe("AppStoreProvider", () => {
       dspDecodeCount: 0,
       prestigeLevel: 5,
       questProgress: { "quest-pve": "failed" },
+      trackedQuestIds: ["quest-pve"],
     });
 
     act(() => {
@@ -145,6 +151,7 @@ describe("AppStoreProvider", () => {
     });
 
     expect(result.current.profile.questProgress).toEqual({ "quest-pvp": "done" });
+    expect(result.current.profile.trackedQuestIds).toEqual(["quest-pvp"]);
     expect(result.current.profile.inventory).toEqual({
       "item-pvp": { fir: 3, nonFir: 4 },
     });
@@ -169,6 +176,7 @@ describe("AppStoreProvider", () => {
     act(() => {
       result.current.setQuestStatus("quest-1", "done");
       result.current.setObjectiveProgress("objective-1", true);
+      result.current.setQuestTracked("quest-1", true);
       result.current.setHideoutLevel("medstation", 3);
       result.current.setInventory("item-1", { fir: 2, nonFir: 1 });
       result.current.upsertCustomMarker(marker);
@@ -185,6 +193,7 @@ describe("AppStoreProvider", () => {
 
     expect(result.current.profile.questProgress).toEqual({});
     expect(result.current.profile.objectiveProgress).toEqual({});
+    expect(result.current.profile.trackedQuestIds).toEqual(["quest-1"]);
     expect(result.current.profile.hideoutLevels).toEqual({});
     expect(result.current.profile.inventory).toEqual({
       "item-1": { fir: 2, nonFir: 1 },
@@ -198,6 +207,19 @@ describe("AppStoreProvider", () => {
     });
 
     expect(result.current.profile.customMarkers).toEqual([]);
+  });
+
+  it("bounds the saved quest-window selection list", () => {
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    act(() => {
+      for (let index = 0; index <= 100; index += 1) {
+        result.current.setQuestTracked(`quest-${index}`, true);
+      }
+    });
+
+    expect(result.current.profile.trackedQuestIds).toHaveLength(100);
+    expect(result.current.profile.trackedQuestIds).not.toContain("quest-100");
   });
 
   it("shares settings across profiles and restores all state from localStorage", async () => {

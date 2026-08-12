@@ -73,7 +73,18 @@ const data: TarkovData = {
       requirements: [],
       alternativeQuestIds: [],
       followUpQuestIds: [],
-      objectives: [],
+      objectives: [
+        {
+          id: "target-objective",
+          sortOrder: 0,
+          objectiveType: "visit",
+          description: "목표 지점을 확인하기",
+          requiresFir: false,
+          mapName: "Customs",
+          locationPoints: [],
+          optionalPoints: [],
+        },
+      ],
       requiredItems: [
         {
           id: "bolts-requirement",
@@ -190,6 +201,31 @@ describe("App related navigation", () => {
     window.history.replaceState(null, "", "#/quests");
     dataMocks.loadTarkovData.mockReset();
     dataMocks.loadTarkovData.mockResolvedValue(data);
+  });
+
+  it("tracks a quest and opens its title and objectives from the map-adjacent quest window button", async () => {
+    const openPopup = vi.spyOn(window, "open").mockReturnValue(null);
+    renderApp();
+
+    const questList = await screen.findByRole("region", { name: "퀘스트 목록" });
+    fireEvent.click(within(questList).getByText("목표 임무"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "퀘스트 창에 표시" }));
+
+    const openButton = screen.getByRole("button", { name: "퀘스트 창 열기 · 1개 선택" });
+    fireEvent.click(openButton);
+
+    const overlay = screen.getByRole("complementary", { name: "퀘스트 창" });
+    expect(within(overlay).getByRole("heading", { name: "목표 임무" })).toBeInTheDocument();
+    expect(within(overlay).getByRole("checkbox", { name: "목표 지점을 확인하기" }))
+      .not.toBeChecked();
+
+    fireEvent.click(within(overlay).getByRole("checkbox", { name: "목표 지점을 확인하기" }));
+    expect(within(overlay).getByRole("checkbox", { name: "목표 지점을 확인하기" }))
+      .toBeChecked();
+    expect(screen.getByRole("button", { name: "퀘스트 창 닫기 · 1개 선택" }))
+      .toHaveAttribute("aria-pressed", "true");
+
+    openPopup.mockRestore();
   });
 
   it("restores the selected item from an item deep link", async () => {

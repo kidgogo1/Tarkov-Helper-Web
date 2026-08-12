@@ -632,6 +632,21 @@ describe("QuestsPage", () => {
     expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
   });
 
+  it("lets the user choose quests for the independent quest window", () => {
+    renderPage(vi.fn(), "q-main");
+
+    const detail = screen.getByRole("article", { name: "퀘스트 상세" });
+    const tracked = within(detail).getByRole("checkbox", { name: "퀘스트 창에 표시" });
+    expect(tracked).not.toBeChecked();
+
+    fireEvent.click(tracked);
+    expect(readProfile().trackedQuestIds).toEqual(["q-main"]);
+    expect(tracked).toBeChecked();
+
+    fireEvent.click(tracked);
+    expect(readProfile().trackedQuestIds).toEqual([]);
+  });
+
   it("resets filters and selects a quest handed off by the app", () => {
     const onQuestFocusConsumed = vi.fn();
     const view = render(

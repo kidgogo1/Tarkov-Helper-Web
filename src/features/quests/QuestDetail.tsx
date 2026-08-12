@@ -30,6 +30,8 @@ interface QuestDetailProps {
   onOpenMap: (mapKey?: string, questId?: string) => void;
   onOpenQuest: (questId: string) => void;
   onReset: (quest: QuestData) => void;
+  onTrackedChange: (questId: string, tracked: boolean) => void;
+  tracked: boolean;
 }
 
 const STATUS_LABELS: Record<QuestStatus, string> = {
@@ -171,6 +173,8 @@ export function QuestDetail({
   onOpenMap,
   onOpenQuest,
   onReset,
+  onTrackedChange,
+  tracked,
 }: QuestDetailProps) {
   const requirementGroups = groupQuestRequirementsForDisplay(quest.requirements);
   const directRequirements = requirementGroups.direct;
@@ -204,6 +208,14 @@ export function QuestDetail({
           ))}
         </div>
         <div className="quest-detail-actions">
+          <label className="quest-window-track-toggle">
+            <input
+              checked={tracked}
+              onChange={(event) => onTrackedChange(quest.id, event.target.checked)}
+              type="checkbox"
+            />
+            <span>퀘스트 창에 표시</span>
+          </label>
           <button
             className="primary"
             disabled={!canCompleteQuest(status)}

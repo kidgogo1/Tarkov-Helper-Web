@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, FileClock, LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Dialog } from "../components/Dialog";
 import { EmptyState } from "../components/EmptyState";
@@ -19,6 +19,10 @@ import { HideoutPage } from "../features/hideout/HideoutPage";
 import { ItemsPage } from "../features/items/ItemsPage";
 import { MapPage } from "../features/map/MapPage";
 import { MapMiniMapSettingsDialog } from "../features/map/MapMiniMapSettingsDialog";
+import {
+  QuestOverlay,
+  type QuestOverlayHandle,
+} from "../features/overlay/QuestOverlay";
 import { QuestsPage } from "../features/quests/QuestsPage";
 import { PriceSearchPage } from "../features/prices/PriceSearchPage";
 import { InProgressQuestDialog } from "../features/settings/InProgressQuestDialog";
@@ -110,11 +114,13 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [miniMapSettingsOpen, setMiniMapSettingsOpen] = useState(false);
   const [inProgressQuestsOpen, setInProgressQuestsOpen] = useState(false);
+  const [questOverlayOpen, setQuestOverlayOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [mapFocusQuestId, setMapFocusQuestId] = useState<string>();
   const [logPreview, setLogPreview] = useState<LogImportPreview | null>(null);
   const [readingLogs, setReadingLogs] = useState(false);
   const [logImportError, setLogImportError] = useState<string | null>(null);
+  const questOverlayRef = useRef<QuestOverlayHandle>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -404,10 +410,15 @@ export function App() {
         level={store.profile.level}
         onLevelChange={(level) => store.updateProfile({ level })}
         onProfileChange={(profile: ProfileType) => store.setActiveProfile(profile)}
+        onQuestWindowToggle={() => questOverlayRef.current?.toggle()}
         onReset={() => setResetOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onTabChange={changeTab}
+        questWindowOpen={questOverlayOpen}
         storageWarning={store.storageWarning}
+        trackedQuestCount={store.profile.trackedQuestIds.filter(
+          (questId) => data.quests.some((quest) => quest.id === questId),
+        ).length}
       >
         <div
           aria-hidden={activeTab === "map" ? undefined : true}
@@ -417,6 +428,16 @@ export function App() {
         </div>
         {activeTab !== "map" ? <div className="app-page-layer">{page}</div> : null}
       </AppShell>
+
+      <QuestOverlay
+        activeProfile={store.activeProfile}
+        onObjectiveChange={store.setObjectiveProgress}
+        onOpenChange={setQuestOverlayOpen}
+        onQuestTrackedChange={store.setQuestTracked}
+        profile={store.profile}
+        quests={data.quests}
+        ref={questOverlayRef}
+      />
 
       <SettingsDialog
         dataMeta={data.meta}

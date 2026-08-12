@@ -62,4 +62,36 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("button", { name: /설정/ }));
     expect(onSettings).toHaveBeenCalledOnce();
   });
+
+  it("places an independent quest window action beside the map tab", () => {
+    const onQuestWindowToggle = vi.fn();
+
+    render(
+      <AppShell
+        activeProfile="pvp"
+        activeTab="quests"
+        level={15}
+        onLevelChange={vi.fn()}
+        onProfileChange={vi.fn()}
+        onQuestWindowToggle={onQuestWindowToggle}
+        onReset={vi.fn()}
+        onSettings={vi.fn()}
+        onTabChange={vi.fn()}
+        questWindowOpen={false}
+        trackedQuestCount={2}
+      >
+        <p>화면 내용</p>
+      </AppShell>,
+    );
+
+    const mapTab = screen.getByRole("tab", { name: "지도" });
+    const questWindowButton = screen.getByRole("button", { name: "퀘스트 창 열기 · 2개 선택" });
+    expect(mapTab.compareDocumentPosition(questWindowButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(questWindowButton).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(questWindowButton);
+    expect(onQuestWindowToggle).toHaveBeenCalledOnce();
+  });
 });
