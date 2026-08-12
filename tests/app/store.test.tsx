@@ -57,6 +57,7 @@ describe("AppStoreProvider", () => {
       miniMapOffsetY: 0,
       miniMapShowQuestMarkers: true,
       miniMapShowExtractMarkers: true,
+      miniMapShowExtractLabels: true,
       miniMapShowPmcExtracts: true,
       miniMapShowScavExtracts: true,
       miniMapShowTransits: true,
@@ -72,6 +73,7 @@ describe("AppStoreProvider", () => {
       result.current.updateMapSettings({
         showQuestMarkers: false,
         miniMapShowQuestMarkers: true,
+        miniMapShowExtractLabels: false,
         miniMapShowPmcExtracts: false,
         miniMapHiddenMarkerTypes: ["BossSpawn"],
       });
@@ -79,6 +81,7 @@ describe("AppStoreProvider", () => {
 
     expect(result.current.settings.map.showQuestMarkers).toBe(false);
     expect(result.current.settings.map.miniMapShowQuestMarkers).toBe(true);
+    expect(result.current.settings.map.miniMapShowExtractLabels).toBe(false);
     expect(result.current.settings.map.miniMapShowPmcExtracts).toBe(false);
     expect(result.current.settings.map.miniMapHiddenMarkerTypes).toEqual(["BossSpawn"]);
   });

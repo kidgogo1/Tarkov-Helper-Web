@@ -22,6 +22,7 @@ import {
   getMapDirectionAngle,
 } from "../../domain/map";
 import type { MapConfig, MapFloor } from "../../types/data";
+import { MapMarkerLayerPanel } from "./MapMarkerLayerPanel";
 import {
   DEFAULT_MINI_MAP_ZOOM_IN_KEY,
   DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
@@ -92,6 +93,8 @@ export interface MapMiniMapMarker {
   color?: string;
   size?: number;
   optionalLabel?: string;
+  /** Short visible label rendered below a marker, such as an extraction name. */
+  label?: string;
   screen: {
     x: number;
     y: number;
@@ -535,6 +538,15 @@ function MiniMapSurface({
               ) : (
                 <span className="map-minimap-marker-fallback" />
               )}
+              {marker.label ? (
+                <span
+                  aria-hidden="true"
+                  className="map-minimap-marker-name"
+                  data-testid="map-minimap-marker-label"
+                >
+                  {marker.label}
+                </span>
+              ) : null}
             </span>
           ))}
         </div>
@@ -1148,10 +1160,10 @@ export function MapMiniMap(props: MapMiniMapProps) {
             <span>마커</span>
           </button>
           {markerMenuOpen ? (
-            <div
-              aria-label="미니맵 마커 표시 설정"
+            <MapMarkerLayerPanel
+              ariaLabel="미니맵 마커 표시 설정"
               className="map-minimap-marker-controls"
-              role="group"
+              eyebrow="미니맵 레이어"
             >
               <label>
                 <input
@@ -1159,7 +1171,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => updateMapSettings({ miniMapShowQuestMarkers: event.target.checked })}
                   type="checkbox"
                 />
-                <span>미니맵 퀘스트 마커</span>
+                <span>퀘스트 마커 표시</span>
               </label>
               <label>
                 <input
@@ -1167,7 +1179,15 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => updateMapSettings({ miniMapShowExtractMarkers: event.target.checked })}
                   type="checkbox"
                 />
-                <span>미니맵 탈출구</span>
+                <span>탈출구 표시</span>
+              </label>
+              <label>
+                <input
+                  checked={mapSettings.miniMapShowExtractLabels}
+                  onChange={(event) => updateMapSettings({ miniMapShowExtractLabels: event.target.checked })}
+                  type="checkbox"
+                />
+                <span>탈출구 이름표 표시</span>
               </label>
               <label>
                 <input
@@ -1175,7 +1195,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => toggleMiniMapBasicMarker("BossSpawn", event.target.checked)}
                   type="checkbox"
                 />
-                <span>미니맵 보스</span>
+                <span>보스 표시</span>
               </label>
               <label>
                 <input
@@ -1183,7 +1203,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => toggleMiniMapBasicMarker("CultistSpawn", event.target.checked)}
                   type="checkbox"
                 />
-                <span>미니맵 컬티</span>
+                <span>컬티스트 표시</span>
               </label>
               <label>
                 <input
@@ -1191,31 +1211,31 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => toggleMiniMapBasicMarker("PmcSpawn", event.target.checked)}
                   type="checkbox"
                 />
-                <span>미니맵 PMC 스폰 위치</span>
+                <span>PMC 스폰 위치 표시</span>
               </label>
-              <label>
+              <label className="map-marker-layer-child">
                 <input
                   checked={mapSettings.miniMapShowPmcExtracts}
                   onChange={(event) => updateMapSettings({ miniMapShowPmcExtracts: event.target.checked })}
                   type="checkbox"
                 />
-                <span>미니맵 PMC 탈출구</span>
+                <span>PMC 탈출구 표시</span>
               </label>
-              <label>
+              <label className="map-marker-layer-child">
                 <input
                   checked={mapSettings.miniMapShowScavExtracts}
                   onChange={(event) => updateMapSettings({ miniMapShowScavExtracts: event.target.checked })}
                   type="checkbox"
                 />
-                <span>미니맵 스캐브 탈출구</span>
+                <span>Scav 탈출구 표시</span>
               </label>
-              <label>
+              <label className="map-marker-layer-child">
                 <input
                   checked={mapSettings.miniMapShowTransits}
                   onChange={(event) => updateMapSettings({ miniMapShowTransits: event.target.checked })}
                   type="checkbox"
                 />
-                <span>미니맵 트랜짓</span>
+                <span>트랜짓 탈출구 표시</span>
               </label>
               <label>
                 <input
@@ -1223,9 +1243,9 @@ export function MapMiniMap(props: MapMiniMapProps) {
                   onChange={(event) => updateMapSettings({ miniMapShowCustomMarkers: event.target.checked })}
                   type="checkbox"
                 />
-                <span>미니맵 사용자 마커</span>
+                <span>사용자 마커 표시</span>
               </label>
-            </div>
+            </MapMarkerLayerPanel>
           ) : null}
           {nativeNotice ? (
             <span

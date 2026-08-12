@@ -77,6 +77,7 @@ export interface MapDisplaySettings {
   miniMapOffsetY: number;
   miniMapShowQuestMarkers: boolean;
   miniMapShowExtractMarkers: boolean;
+  miniMapShowExtractLabels: boolean;
   miniMapShowPmcExtracts: boolean;
   miniMapShowScavExtracts: boolean;
   miniMapShowTransits: boolean;

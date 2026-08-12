@@ -50,28 +50,9 @@
   z-index: 30;
   top: calc(100% + 5px);
   right: 0;
-  display: grid;
-  min-width: 190px;
-  gap: 2px;
-  border: 1px solid rgb(110 183 255 / 35%);
-  border-radius: 5px;
-  background: rgb(13 18 20 / 98%);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 42%);
-  padding: 6px;
-}
-
-.map-minimap-marker-controls label {
-  display: flex;
-  min-height: 26px;
-  align-items: center;
-  gap: 7px;
-  color: #d8e3e7;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.map-minimap-marker-controls input {
-  accent-color: var(--accent);
+  width: min(390px, calc(100vw - 24px));
+  max-height: min(70vh, 430px);
+  overflow-y: auto;
 }
 
 .map-minimap-native-status {
@@ -257,6 +238,26 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.map-minimap-marker-name {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 50%;
+  max-width: 112px;
+  overflow: hidden;
+  border: 1px solid rgb(217 184 63 / 34%);
+  border-radius: 3px;
+  background: rgb(10 13 12 / 88%);
+  color: #f2f1e9;
+  padding: 2px 4px;
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px #000;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .map-minimap-marker-fallback {

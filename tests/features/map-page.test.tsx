@@ -1081,12 +1081,29 @@ describe("MapPage", () => {
     renderPage({ focusQuestId: "quest-customs" }, true);
 
     fireEvent.click(screen.getByRole("button", { name: "전체 지도 마커 설정" }));
-    expect(screen.getByRole("checkbox", { name: "전체 지도 퀘스트 마커" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "전체 지도 PMC 탈출구" })).toBeChecked();
+    const panel = screen.getByRole("group", { name: "전체 지도 마커 표시 설정" });
+    expect(panel).toHaveClass("map-marker-layer-panel");
+    expect(within(panel).getByText("전체 지도 레이어")).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "마커 표시" })).toBeInTheDocument();
+    expect(panel.querySelector(".map-marker-layer-grid")).toBeInTheDocument();
+    expect(within(panel).getByRole("checkbox", { name: "퀘스트 마커 표시" })).toBeChecked();
+    expect(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" })).toBeChecked();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "전체 지도 PMC 탈출구" }));
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" }));
     expect(settingsState().map.showPmcExtracts).toBe(false);
     expect(settingsState().map.miniMapShowPmcExtracts).toBe(true);
+  });
+
+  it("shows extraction names on the mini-map by default", async () => {
+    renderPage({ focusQuestId: "quest-customs" });
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const miniMap = await screen.findByTestId("map-minimap-fallback");
+    const labels = within(miniMap).getAllByTestId("map-minimap-marker-label");
+
+    expect(labels.map((label) => label.textContent)).toEqual(
+      expect.arrayContaining(["Crossroads", "Co-op exit", "Transit to Factory"]),
+    );
   });
 
   it("tracks objective progress and selects its corresponding marker", () => {

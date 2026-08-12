@@ -38,6 +38,7 @@ import {
   type MapMiniMapLegendItem,
   type MapMiniMapMarker,
 } from "./MapMiniMap";
+import { MapMarkerLayerPanel } from "./MapMarkerLayerPanel";
 import {
   applySvgFloorVisibility,
   detectFloor,
@@ -1353,6 +1354,9 @@ export function MapPage({
           kind: "data" as const,
           shape: "icon" as const,
           iconUrl: markerIcon(marker.markerType),
+          label: isExtractionType(marker.markerType) && mapSettings.miniMapShowExtractLabels
+            ? label
+            : undefined,
           screen,
           summary: `${markerLabel(marker.markerType)} · ${label}`,
           selected: selectedMarkerId === marker.id,
@@ -1378,6 +1382,7 @@ export function MapPage({
       miniMapCustomMarkers,
       miniMapVisibleDataMarkers,
       miniMapVisibleQuestPoints,
+      mapSettings.miniMapShowExtractLabels,
       profile.objectiveProgress,
       selectedMarkerId,
     ],
@@ -2049,10 +2054,10 @@ export function MapPage({
               <span>전체 지도 마커</span>
             </button>
             {fullMapMarkerMenuOpen ? (
-              <div
-                aria-label="전체 지도 마커 표시 설정"
+              <MapMarkerLayerPanel
+                ariaLabel="전체 지도 마커 표시 설정"
                 className="map-marker-settings-menu"
-                role="group"
+                eyebrow="전체 지도 레이어"
               >
                 <label>
                   <input
@@ -2060,7 +2065,7 @@ export function MapPage({
                     onChange={(event) => updateMapSettings({ showQuestMarkers: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>전체 지도 퀘스트 마커</span>
+                  <span>퀘스트 마커 표시</span>
                 </label>
                 <label>
                   <input
@@ -2068,31 +2073,31 @@ export function MapPage({
                     onChange={(event) => updateMapSettings({ showExtractMarkers: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>전체 지도 탈출구</span>
+                  <span>탈출구 표시</span>
                 </label>
-                <label>
+                <label className="map-marker-layer-child">
                   <input
                     checked={mapSettings.showPmcExtracts}
                     onChange={(event) => updateMapSettings({ showPmcExtracts: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>전체 지도 PMC 탈출구</span>
+                  <span>PMC 탈출구 표시</span>
                 </label>
-                <label>
+                <label className="map-marker-layer-child">
                   <input
                     checked={mapSettings.showScavExtracts}
                     onChange={(event) => updateMapSettings({ showScavExtracts: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>전체 지도 스캐브 탈출구</span>
+                  <span>Scav 탈출구 표시</span>
                 </label>
-                <label>
+                <label className="map-marker-layer-child">
                   <input
                     checked={mapSettings.showTransits}
                     onChange={(event) => updateMapSettings({ showTransits: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>전체 지도 트랜짓</span>
+                  <span>트랜짓 탈출구 표시</span>
                 </label>
                 <label>
                   <input
@@ -2100,7 +2105,7 @@ export function MapPage({
                     onChange={(event) => updateMapSettings({ showCustomMarkers: event.target.checked })}
                     type="checkbox"
                   />
-                  <span>전체 지도 사용자 마커</span>
+                  <span>사용자 마커 표시</span>
                 </label>
                 {basicMarkerTypes.map((type) => (
                   <label key={`full-map-menu-${type}`}>
@@ -2114,10 +2119,10 @@ export function MapPage({
                       }}
                       type="checkbox"
                     />
-                    <span>전체 지도 {markerLabel(type)}</span>
+                    <span>{markerLabel(type)} 표시</span>
                   </label>
                 ))}
-              </div>
+              </MapMarkerLayerPanel>
             ) : null}
           </div>
           <MapMiniMap

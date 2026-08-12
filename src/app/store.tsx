@@ -109,6 +109,7 @@ function createDefaultMapSettings(): MapDisplaySettings {
     miniMapOffsetY: 0,
     miniMapShowQuestMarkers: true,
     miniMapShowExtractMarkers: true,
+    miniMapShowExtractLabels: true,
     miniMapShowPmcExtracts: true,
     miniMapShowScavExtracts: true,
     miniMapShowTransits: true,
@@ -249,6 +250,9 @@ function normalizeMapSettings(
     miniMapShowExtractMarkers: typeof next.miniMapShowExtractMarkers === "boolean"
       ? next.miniMapShowExtractMarkers
       : current.miniMapShowExtractMarkers,
+    miniMapShowExtractLabels: typeof next.miniMapShowExtractLabels === "boolean"
+      ? next.miniMapShowExtractLabels
+      : current.miniMapShowExtractLabels,
     miniMapShowPmcExtracts: typeof next.miniMapShowPmcExtracts === "boolean"
       ? next.miniMapShowPmcExtracts
       : current.miniMapShowPmcExtracts,
@@ -437,6 +441,7 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "miniMapKeyboardShortcutsEnabled",
     "miniMapShowQuestMarkers",
     "miniMapShowExtractMarkers",
+    "miniMapShowExtractLabels",
     "miniMapShowPmcExtracts",
     "miniMapShowScavExtracts",
     "miniMapShowTransits",

@@ -547,7 +547,7 @@ describe("MapMiniMap", () => {
     expect(document.querySelector(".map-minimap-browser-note")).not.toBeInTheDocument();
   });
 
-  it("renders marker dots without names and shows the categorized legend at the bottom", async () => {
+  it("renders compact extraction names and shows the categorized legend at the bottom", async () => {
     renderMiniMap(player, [
       {
         id: "quest:water-room:visit",
@@ -559,6 +559,7 @@ describe("MapMiniMap", () => {
       {
         id: "extract-crossroads",
         kind: "data",
+        label: "Crossroads",
         screen: { x: 300, y: 330 },
         summary: "탈출구 · Crossroads",
       },
@@ -583,7 +584,7 @@ describe("MapMiniMap", () => {
     expect(legend).toHaveTextContent("스캐브 탈출구");
     expect(within(legend).getAllByTestId("map-minimap-legend-item")).toHaveLength(6);
     expect(screen.queryByText("Water Room")).not.toBeInTheDocument();
-    expect(screen.queryByText("Crossroads")).not.toBeInTheDocument();
+    expect(screen.getByTestId("map-minimap-marker-label")).toHaveTextContent("Crossroads");
   });
 
   it("uses the same icon and shape variants as the full map markers", async () => {
@@ -650,11 +651,19 @@ describe("MapMiniMap", () => {
     await screen.findByRole("button", { name: "오버레이 위치 고정" });
 
     fireEvent.click(screen.getByRole("button", { name: "미니맵 마커 설정" }));
-    expect(screen.getByRole("checkbox", { name: "미니맵 퀘스트 마커" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "미니맵 PMC 탈출구" })).toBeChecked();
+    const panel = screen.getByRole("group", { name: "미니맵 마커 표시 설정" });
+    expect(panel).toHaveClass("map-marker-layer-panel");
+    expect(within(panel).getByText("미니맵 레이어")).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "마커 표시" })).toBeInTheDocument();
+    expect(panel.querySelector(".map-marker-layer-grid")).toBeInTheDocument();
+    expect(within(panel).getByRole("checkbox", { name: "퀘스트 마커 표시" })).toBeChecked();
+    expect(within(panel).getByRole("checkbox", { name: "탈출구 이름표 표시" })).toBeChecked();
+    expect(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" })).toBeChecked();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "미니맵 PMC 탈출구" }));
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "탈출구 이름표 표시" }));
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" }));
     const stored = JSON.parse(window.localStorage.getItem(APP_STATE_STORAGE_KEY) ?? "{}");
+    expect(stored.settings.map.miniMapShowExtractLabels).toBe(false);
     expect(stored.settings.map.miniMapShowPmcExtracts).toBe(false);
     expect(stored.settings.map.showPmcExtracts).toBe(true);
   });
