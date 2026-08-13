@@ -240,9 +240,15 @@ describe("QuestOverlay", () => {
     const pageHideListeners = new Set<EventListener>();
     const close = vi.fn();
     const focus = vi.fn();
+    let closed = false;
     const popupWindow = {
-      closed: false,
-      close,
+      get closed() {
+        return closed;
+      },
+      close: () => {
+        closed = true;
+        close();
+      },
       document: popupDocument,
       focus,
       addEventListener: (type: string, listener: EventListener) => {
@@ -274,6 +280,9 @@ describe("QuestOverlay", () => {
     });
     expect(screen.queryByRole("complementary", { name: "퀘스트 창" })).not.toBeInTheDocument();
     expect(popupDocument.title).toBe("Tarkov Helper Quest List");
+    expect(popupDocument.body.textContent).toContain(
+      "일반 브라우저 창입니다 · 항상 위 기능은 바로 실행 버전에서 지원됩니다.",
+    );
     expect(requestWindow).not.toHaveBeenCalled();
     expect(closeMiniMap).not.toHaveBeenCalled();
 
@@ -302,6 +311,10 @@ describe("QuestOverlay", () => {
       },
     } as unknown as Window;
     const order: string[] = [];
+    let resolveClaim!: (response: Response) => void;
+    const claimResponse = new Promise<Response>((resolve) => {
+      resolveClaim = resolve;
+    });
     const attachment = {
       protocolVersion: 2,
       overlayKind: "quest-list",
@@ -317,12 +330,7 @@ describe("QuestOverlay", () => {
       if (path.endsWith("/session")) return jsonResponse(nativeV2Session);
       if (path.endsWith("/claims")) {
         order.push("CLAIM");
-        return jsonResponse({
-          protocolVersion: 2,
-          overlayKind: "quest-list",
-          claimId: "c".repeat(43),
-          expiresAt: "2026-08-13T12:00:15.000Z",
-        }, 201);
+        return claimResponse;
       }
       if (path.endsWith("/windows") && method === "POST") {
         order.push("ATTACH");
@@ -330,7 +338,7 @@ describe("QuestOverlay", () => {
       }
       if (path.endsWith("/windows") && method === "DELETE") {
         order.push("DETACH");
-        return new Response(null, { status: 204 });
+        return new Promise<Response>(() => undefined);
       }
       return jsonResponse({ error: "unexpected" }, 500);
     });
@@ -344,25 +352,48 @@ describe("QuestOverlay", () => {
         }}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    expect(order).toEqual(["OPEN"]);
+    expect(popupDocument.title).toMatch(
+      /^Tarkov Helper Quest List \[[A-Za-z0-9_-]{43}\]$/,
+    );
     await waitFor(() => expect(nativeRequest).toHaveBeenCalledWith(
       "/api/v2/native-overlay/session",
       expect.any(Object),
     ));
-    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
-
-    await waitFor(() => expect(order).toEqual(["CLAIM", "OPEN", "ATTACH"]));
+    await waitFor(() => expect(order).toEqual(["OPEN", "CLAIM"]));
+    const claimBody = JSON.parse(
+      nativeRequest.mock.calls.find(([input]) => String(input).endsWith("/claims"))?.[1]
+        ?.body as string,
+    );
+    expect(claimBody).toEqual({
+      overlayKind: "quest-list",
+      windowNonce: popupDocument.title.slice(-44, -1),
+    });
+    resolveClaim(jsonResponse({
+      protocolVersion: 2,
+      overlayKind: "quest-list",
+      claimId: "c".repeat(43),
+      expiresAt: "2026-08-13T12:00:15.000Z",
+    }, 201));
+    await waitFor(() => expect(order).toEqual(["OPEN", "CLAIM", "ATTACH"]));
     expect(popupDocument.title).toBe("Tarkov Helper Quest List");
     expect(popupDocument.body.textContent).toContain("화면 위에 표시됨 · 이동 가능");
     expect(popupDocument.body.textContent).toContain("물병자리 작전");
 
-    const closeButton = popupDocument.querySelector<HTMLButtonElement>(
-      'button[aria-label="퀘스트 창 닫기"]',
-    );
-    expect(closeButton).not.toBeNull();
-    closeButton?.click();
+    popupDocument.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    }));
     await waitFor(() => expect(order.at(-1)).toBe("DETACH"));
     await waitFor(() => expect(close).toHaveBeenCalledOnce());
     expect(pageHideListeners.size).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    expect(order.filter((entry) => entry === "OPEN")).toHaveLength(2);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("keeps a usable regular popup when native window matching fails closed", async () => {
@@ -400,11 +431,11 @@ describe("QuestOverlay", () => {
     });
 
     render(<OverlayHarness nativeRequest={nativeRequest} openPopup={() => popupWindow} />);
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
     await waitFor(() => expect(nativeRequest).toHaveBeenCalledWith(
       "/api/v2/native-overlay/session",
       expect.any(Object),
     ));
-    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
 
     await waitFor(() => expect(popupDocument.body.textContent).toContain(
       "화면 위 연결을 사용할 수 없어 일반 퀘스트 창으로 열었습니다.",
@@ -417,5 +448,47 @@ describe("QuestOverlay", () => {
       'button[aria-label="퀘스트 창 닫기"]',
     )?.click();
     await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  });
+
+  it("opens synchronously and cleans up the native quest window when its opener unloads", async () => {
+    const popupDocument = document.implementation.createHTMLDocument("");
+    const close = vi.fn();
+    const popupWindow = {
+      closed: false,
+      close,
+      document: popupDocument,
+      focus: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    let resolveSession!: (response: Response) => void;
+    const sessionResponse = new Promise<Response>((resolve) => {
+      resolveSession = resolve;
+    });
+    const nativeRequest = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).endsWith("/session")) return sessionResponse;
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    const openPopup = vi.fn(() => popupWindow);
+
+    render(
+      <OverlayHarness nativeRequest={nativeRequest} openPopup={openPopup} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+
+    expect(openPopup).toHaveBeenCalledOnce();
+    expect(popupDocument.body.textContent).toContain("물병자리 작전");
+    window.dispatchEvent(new Event("pagehide"));
+    expect(close).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("complementary", { name: "퀘스트 창" }))
+      .not.toBeInTheDocument();
+    resolveSession(jsonResponse(nativeV2Session));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(nativeRequest.mock.calls.some(([input]) => String(input).endsWith("/claims")))
+      .toBe(false);
+
+    window.dispatchEvent(new Event("pageshow"));
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    expect(openPopup).toHaveBeenCalledTimes(2);
   });
 });

@@ -47,12 +47,16 @@ $screenshotWatcherState = [pscustomobject]@{ state = "NOT_FOUND" }
 $screenshotNextDiscoveryUtc = [DateTime]::MinValue
 $screenshotNextReconciliationUtc = [DateTime]::MinValue
 $nativeOverlayProtocolVersion = 1
+$nativeOverlayV2ProtocolVersion = 2
+$nativeOverlayV2Capability = "WINDOWS_MULTI_OVERLAY"
 $nativeOverlayWindowTitle = "Tarkov Helper Web"
+$nativeOverlayQuestListWindowTitle = "Tarkov Helper Quest List"
 $nativeOverlayClaimLifetimeSeconds = 15
 $nativeOverlayMinimumSize = 240
 $nativeOverlayMaximumSize = 1000
-$nativeOverlayClaims = @{}
-$nativeOverlayRecord = $null
+$nativeOverlayClaims = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+$nativeOverlayCompletedClaims = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+$nativeOverlayRecords = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
 $appUpdateProtocolVersion = 1
 $appUpdateToken = $null
@@ -640,12 +644,12 @@ function Assert-JsonObjectShape {
 
     $properties = @($Value.PSObject.Properties | ForEach-Object { $_.Name })
     foreach ($property in $properties) {
-        if ($AllowedProperties -notcontains $property) {
+        if ($AllowedProperties -cnotcontains $property) {
             throw [ArgumentException]::new("The request contains an unsupported property.")
         }
     }
     foreach ($property in $RequiredProperties) {
-        if ($properties -notcontains $property) {
+        if ($properties -cnotcontains $property) {
             throw [ArgumentException]::new("The request is missing a required property.")
         }
     }
@@ -1182,6 +1186,7 @@ namespace TarkovHelper {
     public sealed class NativeWindowInfo {
         public long Handle { get; set; }
         public int ProcessId { get; set; }
+        public int ThreadId { get; set; }
         public string Title { get; set; }
         public string ClassName { get; set; }
         public long Style { get; set; }
@@ -1245,6 +1250,13 @@ namespace TarkovHelper {
         private static extern int GetClassName(IntPtr window, StringBuilder className, int maximumCount);
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetProp(IntPtr window, string name, IntPtr data);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr GetProp(IntPtr window, string name);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr RemoveProp(IntPtr window, string name);
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")]
@@ -1767,11 +1779,12 @@ namespace TarkovHelper {
                 Rect rect;
                 GetWindowText(window, title, title.Capacity);
                 GetClassName(window, className, className.Capacity);
-                GetWindowThreadProcessId(window, out processId);
+                uint threadId = GetWindowThreadProcessId(window, out processId);
                 if (!GetWindowRect(window, out rect)) return true;
                 windows.Add(new NativeWindowInfo {
                     Handle = window.ToInt64(),
                     ProcessId = unchecked((int)processId),
+                    ThreadId = unchecked((int)threadId),
                     Title = title.ToString(),
                     ClassName = className.ToString(),
                     Style = ReadWindowLong(window, StyleIndex),
@@ -1789,6 +1802,25 @@ namespace TarkovHelper {
 
         public static bool IsWindowHandle(long handle) {
             return IsWindow(new IntPtr(handle));
+        }
+
+        public static void AddWindowMarker(long handle, string markerName) {
+            if (string.IsNullOrEmpty(markerName)) {
+                throw new ArgumentException("A native overlay marker name is required.", "markerName");
+            }
+            if (!SetProp(new IntPtr(handle), markerName, new IntPtr(1))) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+
+        public static bool HasWindowMarker(long handle, string markerName) {
+            return !string.IsNullOrEmpty(markerName) &&
+                GetProp(new IntPtr(handle), markerName) == new IntPtr(1);
+        }
+
+        public static bool RemoveWindowMarker(long handle, string markerName) {
+            return !string.IsNullOrEmpty(markerName) &&
+                RemoveProp(new IntPtr(handle), markerName) == new IntPtr(1);
         }
 
         private static void SetPosition(
@@ -2035,6 +2067,7 @@ function Get-NativeBrowserWindows {
             $windows.Add([pscustomobject]@{
                 handle = [long]$window.Handle
                 processId = [int]$window.ProcessId
+                threadId = [int]$window.ThreadId
                 processStartTimeUtc = $startTimeUtc
                 processIdentity = "$([int]$window.ProcessId)|$startTimeUtc"
                 title = [string]$window.Title
@@ -2084,13 +2117,22 @@ function Convert-NativeOpacityToAlpha {
 }
 
 function Get-NativeOverlayEventsPayload {
-    param([Parameter(Mandatory = $true)][string]$RequestTarget)
+    param(
+        [Parameter(Mandatory = $true)][string]$RequestTarget,
+        [ValidateSet(1, 2)][int]$ProtocolVersion = 1
+    )
 
     $query = Get-QueryParameters -RequestTarget $RequestTarget
     foreach ($name in $query.Keys) {
-        if ($name -cne "after") {
+        if ($name -cne "after" -and ($ProtocolVersion -ne 2 -or $name -cne "kind")) {
             throw [ArgumentException]::new("Unknown query parameter.")
         }
+    }
+    if ($ProtocolVersion -eq 2 -and (
+        -not $query.ContainsKey("kind") -or
+        $query["kind"] -cne "minimap"
+    )) {
+        throw [ArgumentException]::new("kind must be minimap.")
     }
     $after = [long]0
     if ($query.ContainsKey("after")) {
@@ -2102,10 +2144,15 @@ function Get-NativeOverlayEventsPayload {
         throw [ArgumentException]::new("after must be a non-negative safe integer.")
     }
     Initialize-NativeOverlayBridge
-    if ($null -ne $script:nativeOverlayRecord -and $null -eq (Get-CurrentNativeOverlayWindow)) {
-        if (-not [TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
+    $miniMapRecord = if ($script:nativeOverlayRecords.ContainsKey("minimap")) {
+        $script:nativeOverlayRecords["minimap"]
+    } else {
+        $null
+    }
+    if ($null -ne $miniMapRecord -and $null -eq (Get-CurrentNativeOverlayWindow -OverlayKind "minimap")) {
+        if (-not [TarkovHelper.NativeOverlayBridge]::IsWindowHandle($miniMapRecord.handle)) {
             [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
-            $script:nativeOverlayRecord = $null
+            [void]$script:nativeOverlayRecords.Remove("minimap")
             $after = [long]0
         } else {
             # Do not continue consuming global input when the claimed HWND identity
@@ -2120,7 +2167,7 @@ function Get-NativeOverlayEventsPayload {
         throw [ArgumentException]::new("after is ahead of the latest cursor.")
     }
     return [pscustomobject]@{
-        protocolVersion = $nativeOverlayProtocolVersion
+        protocolVersion = $ProtocolVersion
         latestCursor = [long]$payload.LatestCursor
         events = @($payload.Events | ForEach-Object {
             [pscustomobject]@{
@@ -2132,19 +2179,66 @@ function Get-NativeOverlayEventsPayload {
 }
 
 function Update-NativeOverlayBridge {
-    if ($null -eq $script:nativeOverlayRecord) { return }
+    Remove-ExpiredNativeOverlayClaims
+    if ($script:nativeOverlayRecords.Count -eq 0) { return }
     $now = [DateTime]::UtcNow
     if ($now -lt $script:nativeOverlayNextReconciliationUtc) { return }
     $script:nativeOverlayNextReconciliationUtc = $now.AddSeconds(1)
-    try {
-        if ($null -ne (Get-CurrentNativeOverlayWindow)) { return }
-        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
-        if (-not [TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
-            $script:nativeOverlayRecord = $null
+    foreach ($overlayKind in @($script:nativeOverlayRecords.Keys)) {
+        try {
+            if ($null -ne (Get-CurrentNativeOverlayWindow -OverlayKind $overlayKind)) { continue }
+            $record = $script:nativeOverlayRecords[$overlayKind]
+            if ($overlayKind -ceq "quest-list") {
+                if ($null -ne (Get-NativeOverlayIdentityWindow -OverlayKind $overlayKind)) {
+                    $null = Remove-NativeOverlay -OverlayKind $overlayKind -IgnoreIdentifier
+                } else {
+                    Remove-NativeOverlayRecordState -OverlayKind $overlayKind
+                }
+                continue
+            }
+            if ($overlayKind -ceq "minimap") {
+                [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+            }
+            if (-not [TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
+                [void]$script:nativeOverlayRecords.Remove($overlayKind)
+            }
+        } catch {
+            # A failed reconciliation must not stop the local server. Mutating API
+            # calls will continue to fail closed until identity can be proven again.
         }
+    }
+}
+
+function Remove-NativeOverlayClaimMarker {
+    param([Parameter(Mandatory = $true)][pscustomobject]$Claim)
+
+    if (
+        $Claim.overlayKind -cne "quest-list" -or
+        [string]::IsNullOrEmpty([string]$Claim.markerName) -or
+        $null -eq $Claim.boundWindow
+    ) {
+        return
+    }
+    try {
+        $boundWindow = $Claim.boundWindow
+        $current = @(Get-NativeBrowserWindows | Where-Object {
+            $_.handle -eq $boundWindow.handle -and
+            $_.processId -eq $boundWindow.processId -and
+            $_.processStartTimeUtc -ceq $boundWindow.processStartTimeUtc -and
+            $_.className -ceq $boundWindow.className -and
+            $_.threadId -eq $boundWindow.threadId -and
+            [TarkovHelper.NativeOverlayBridge]::HasWindowMarker(
+                [long]$_.handle,
+                [string]$Claim.markerName
+            )
+        }) | Select-Object -First 1
+        if ($null -eq $current) { return }
+        $null = [TarkovHelper.NativeOverlayBridge]::RemoveWindowMarker(
+            [long]$current.handle,
+            [string]$Claim.markerName
+        )
     } catch {
-        # A failed reconciliation must not stop the local server. Mutating API
-        # calls will continue to fail closed until identity can be proven again.
+        Write-PortableLog "A stale quest overlay claim marker could not be removed."
     }
 }
 
@@ -2152,33 +2246,146 @@ function Remove-ExpiredNativeOverlayClaims {
     $now = [DateTime]::UtcNow
     foreach ($claimId in @($script:nativeOverlayClaims.Keys)) {
         if ($script:nativeOverlayClaims[$claimId].expiresAtUtc -le $now) {
-            $script:nativeOverlayClaims.Remove($claimId)
+            Remove-NativeOverlayClaimMarker -Claim $script:nativeOverlayClaims[$claimId]
+            [void]$script:nativeOverlayClaims.Remove($claimId)
+        }
+    }
+    foreach ($claimId in @($script:nativeOverlayCompletedClaims.Keys)) {
+        if ($script:nativeOverlayCompletedClaims[$claimId].expiresAtUtc -le $now) {
+            [void]$script:nativeOverlayCompletedClaims.Remove($claimId)
         }
     }
 }
 
+function Remove-NativeOverlayRecordState {
+    param([Parameter(Mandatory = $true)][ValidateSet("minimap", "quest-list")][string]$OverlayKind)
+
+    if (-not $script:nativeOverlayRecords.ContainsKey($OverlayKind)) { return }
+    $record = $script:nativeOverlayRecords[$OverlayKind]
+    foreach ($claimId in @($script:nativeOverlayCompletedClaims.Keys)) {
+        if (
+            $script:nativeOverlayCompletedClaims[$claimId].overlayKind -ceq $OverlayKind -and
+            $script:nativeOverlayCompletedClaims[$claimId].overlayId -ceq $record.overlayId
+        ) {
+            [void]$script:nativeOverlayCompletedClaims.Remove($claimId)
+        }
+    }
+    [void]$script:nativeOverlayRecords.Remove($OverlayKind)
+}
+
 function New-NativeOverlayClaim {
+    param(
+        [ValidateSet("minimap", "quest-list")][string]$OverlayKind = "minimap",
+        [ValidateSet(1, 2)][int]$ProtocolVersion = 1,
+        [string]$WindowNonce
+    )
+
     Remove-ExpiredNativeOverlayClaims
     $windows = @(Get-NativeBrowserWindows)
+    $boundWindow = $null
+    $pendingWindowTitle = $null
+    $markerName = $null
+    if ($OverlayKind -ceq "quest-list") {
+        if (-not (Test-NativeQuestWindowNonce -WindowNonce $WindowNonce)) {
+            throw [ArgumentException]::new("The quest overlay window nonce is invalid.")
+        }
+        $pendingWindowTitle = "$nativeOverlayQuestListWindowTitle [$WindowNonce]"
+        $styleVisible = [long]0x10000000
+        $styleCaption = [long]0x00C00000
+        $matches = @()
+        $inspectionDeadlineUtc = [DateTime]::UtcNow.AddMilliseconds(750)
+        do {
+            $windows = @(Get-NativeBrowserWindows)
+            $matches = @($windows | Where-Object {
+                $_.title -ceq $pendingWindowTitle -and
+                ($_.style -band $styleVisible) -eq $styleVisible -and
+                ($_.style -band $styleCaption) -eq $styleCaption
+            })
+            if ($matches.Count -ne 0) { break }
+            Start-Sleep -Milliseconds 25
+        } while ([DateTime]::UtcNow -lt $inspectionDeadlineUtc)
+        if ($matches.Count -eq 0) {
+            return [pscustomobject]@{ errorCode = "WINDOW_NOT_FOUND" }
+        }
+        if ($matches.Count -ne 1) {
+            return [pscustomobject]@{ errorCode = "AMBIGUOUS_WINDOW" }
+        }
+        $boundWindow = $matches[0]
+        foreach ($pendingClaimId in @($script:nativeOverlayClaims.Keys)) {
+            $pendingClaim = $script:nativeOverlayClaims[$pendingClaimId]
+            if ($pendingClaim.overlayKind -cne "quest-list" -or $null -eq $pendingClaim.boundWindow) { continue }
+            if (-not [TarkovHelper.NativeOverlayBridge]::HasWindowMarker(
+                [long]$pendingClaim.boundWindow.handle,
+                [string]$pendingClaim.markerName
+            )) {
+                [void]$script:nativeOverlayClaims.Remove($pendingClaimId)
+            }
+        }
+        $alreadyClaimed = @($script:nativeOverlayClaims.Values | Where-Object {
+            $_.overlayKind -ceq "quest-list" -and
+            $null -ne $_.boundWindow -and
+            $_.boundWindow.handle -eq $boundWindow.handle -and
+            $_.boundWindow.processId -eq $boundWindow.processId -and
+            $_.boundWindow.processStartTimeUtc -ceq $boundWindow.processStartTimeUtc -and
+            $_.boundWindow.threadId -eq $boundWindow.threadId -and
+            $_.boundWindow.className -ceq $boundWindow.className -and
+            [TarkovHelper.NativeOverlayBridge]::HasWindowMarker(
+                [long]$_.boundWindow.handle,
+                [string]$_.markerName
+            )
+        })
+        if ($alreadyClaimed.Count -ne 0) {
+            return [pscustomobject]@{ errorCode = "OVERLAY_ALREADY_ATTACHED" }
+        }
+    }
     $claimId = Get-RandomToken
     $expiresAtUtc = [DateTime]::UtcNow.AddSeconds($nativeOverlayClaimLifetimeSeconds)
+    if ($OverlayKind -ceq "quest-list") {
+        $markerName = "TarkovHelper.NativeOverlay.$claimId"
+        [TarkovHelper.NativeOverlayBridge]::AddWindowMarker(
+            [long]$boundWindow.handle,
+            $markerName
+        )
+    }
     $script:nativeOverlayClaims[$claimId] = [pscustomobject]@{
         claimId = $claimId
         expiresAtUtc = $expiresAtUtc
+        overlayKind = $OverlayKind
+        pendingWindowTitle = $pendingWindowTitle
+        markerName = $markerName
+        boundWindow = $boundWindow
         handles = @($windows | ForEach-Object { [string]$_.handle })
         processIdentities = @($windows | ForEach-Object { $_.processIdentity } | Select-Object -Unique)
     }
-    return [pscustomobject]@{
-        protocolVersion = $nativeOverlayProtocolVersion
-        claimId = $claimId
-        expiresAt = $expiresAtUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    $response = [ordered]@{
+        protocolVersion = $ProtocolVersion
     }
+    if ($ProtocolVersion -eq 2) {
+        $response.overlayKind = $OverlayKind
+    }
+    $response.claimId = $claimId
+    $response.expiresAt = $expiresAtUtc.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    return [pscustomobject]$response
 }
 
-function Test-NativePictureInPictureWindow {
+function Get-NativeOverlayWindowTitle {
+    param([Parameter(Mandatory = $true)][ValidateSet("minimap", "quest-list")][string]$OverlayKind)
+
+    if ($OverlayKind -ceq "quest-list") { return $nativeOverlayQuestListWindowTitle }
+    return $nativeOverlayWindowTitle
+}
+
+function Test-NativeQuestWindowNonce {
+    param([string]$WindowNonce)
+
+    return $null -ne $WindowNonce -and $WindowNonce -cmatch "^[A-Za-z0-9_-]{43}$"
+}
+
+function Test-NativeOverlayCandidate {
     param(
         [Parameter(Mandatory = $true)][pscustomobject]$Window,
-        [Parameter(Mandatory = $true)][pscustomobject]$Claim
+        [Parameter(Mandatory = $true)][pscustomobject]$Claim,
+        [Parameter(Mandatory = $true)][ValidateSet("minimap", "quest-list")][string]$OverlayKind
     )
 
     $styleVisible = [long]0x10000000
@@ -2186,12 +2393,15 @@ function Test-NativePictureInPictureWindow {
     $styleMinimizeBox = [long]0x00020000
     $styleMaximizeBox = [long]0x00010000
     $exStyleTopmost = [long]0x00000008
-    return (
+    $isCommonCandidate = (
         $Claim.handles -notcontains [string]$Window.handle -and
         $Claim.processIdentities -contains $Window.processIdentity -and
         $Window.title -ceq $nativeOverlayWindowTitle -and
         ($Window.style -band $styleVisible) -eq $styleVisible -and
-        ($Window.style -band $styleCaption) -eq $styleCaption -and
+        ($Window.style -band $styleCaption) -eq $styleCaption
+    )
+    if (-not $isCommonCandidate) { return $false }
+    return (
         ($Window.style -band $styleMinimizeBox) -eq 0 -and
         ($Window.style -band $styleMaximizeBox) -eq 0 -and
         ($Window.exStyle -band $exStyleTopmost) -eq $exStyleTopmost
@@ -2199,112 +2409,234 @@ function Test-NativePictureInPictureWindow {
 }
 
 function Complete-NativeOverlayClaim {
-    param([Parameter(Mandatory = $true)][string]$ClaimId)
+    param(
+        [Parameter(Mandatory = $true)][string]$ClaimId,
+        [ValidateSet("minimap", "quest-list")][string]$OverlayKind = "minimap",
+        [ValidateSet(1, 2)][int]$ProtocolVersion = 1,
+        [string]$WindowTitle
+    )
 
     Remove-ExpiredNativeOverlayClaims
     if (-not $script:nativeOverlayClaims.ContainsKey($ClaimId)) {
+        if ($ProtocolVersion -eq 2 -and $script:nativeOverlayCompletedClaims.ContainsKey($ClaimId)) {
+            $completedClaim = $script:nativeOverlayCompletedClaims[$ClaimId]
+            if (
+                $completedClaim.overlayKind -ceq $OverlayKind -and
+                $completedClaim.windowTitle -ceq $WindowTitle -and
+                $script:nativeOverlayRecords.ContainsKey($OverlayKind) -and
+                $script:nativeOverlayRecords[$OverlayKind].overlayId -ceq $completedClaim.overlayId -and
+                $null -ne (Get-CurrentNativeOverlayWindow -OverlayKind $OverlayKind)
+            ) {
+                return Get-NativeOverlayResponse -OverlayKind $OverlayKind -ProtocolVersion $ProtocolVersion
+            }
+        }
         return [pscustomobject]@{ errorCode = "CLAIM_NOT_FOUND" }
     }
-    if ($null -ne $script:nativeOverlayRecord) {
-        if ($null -ne (Get-CurrentNativeOverlayWindow)) {
+    $claim = $script:nativeOverlayClaims[$ClaimId]
+    [void]$script:nativeOverlayClaims.Remove($ClaimId)
+    if (
+        $claim.overlayKind -cne $OverlayKind -or
+        ($OverlayKind -ceq "quest-list" -and $WindowTitle -cne $nativeOverlayQuestListWindowTitle)
+    ) {
+        Remove-NativeOverlayClaimMarker -Claim $claim
+        return [pscustomobject]@{ errorCode = "CLAIM_NOT_FOUND" }
+    }
+    if ($script:nativeOverlayRecords.ContainsKey($OverlayKind)) {
+        $existingRecord = $script:nativeOverlayRecords[$OverlayKind]
+        if ($null -ne (Get-CurrentNativeOverlayWindow -OverlayKind $OverlayKind)) {
+            Remove-NativeOverlayClaimMarker -Claim $claim
             return [pscustomobject]@{ errorCode = "OVERLAY_ALREADY_ATTACHED" }
         }
-        if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($script:nativeOverlayRecord.handle)) {
+        if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($existingRecord.handle)) {
+            Remove-NativeOverlayClaimMarker -Claim $claim
             return [pscustomobject]@{ errorCode = "OVERLAY_ALREADY_ATTACHED" }
         }
-        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
-        $script:nativeOverlayRecord = $null
+        if ($OverlayKind -ceq "minimap") {
+            [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+        }
+        Remove-NativeOverlayRecordState -OverlayKind $OverlayKind
     }
 
-    $claim = $script:nativeOverlayClaims[$ClaimId]
-    $script:nativeOverlayClaims.Remove($ClaimId)
-    $browserWindows = @(Get-NativeBrowserWindows)
-    $matches = @(
-        $browserWindows |
-            Where-Object { Test-NativePictureInPictureWindow -Window $_ -Claim $claim }
-    )
-    Write-PortableLog "Native overlay claim inspected $($browserWindows.Count) browser windows and found $($matches.Count) eligible new windows."
+    $browserWindows = @()
+    $matches = @()
+    $inspectionDeadlineUtc = [DateTime]::UtcNow.AddMilliseconds(750)
+    do {
+        $browserWindows = @(Get-NativeBrowserWindows)
+    $matches = @(if ($OverlayKind -ceq "quest-list") {
+        $browserWindows | Where-Object {
+                $_.handle -eq $claim.boundWindow.handle -and
+                $_.processId -eq $claim.boundWindow.processId -and
+                $_.processStartTimeUtc -ceq $claim.boundWindow.processStartTimeUtc -and
+                $_.className -ceq $claim.boundWindow.className -and
+                $_.threadId -eq $claim.boundWindow.threadId -and
+                $_.title -ceq $nativeOverlayQuestListWindowTitle -and
+                [TarkovHelper.NativeOverlayBridge]::HasWindowMarker(
+                    [long]$_.handle,
+                    [string]$claim.markerName
+                )
+        }
+    } else {
+        $browserWindows | Where-Object {
+            Test-NativeOverlayCandidate -Window $_ -Claim $claim -OverlayKind $OverlayKind
+        }
+    })
+        if ($matches.Count -ne 0 -or $OverlayKind -ceq "minimap") { break }
+        Start-Sleep -Milliseconds 25
+    } while ([DateTime]::UtcNow -lt $inspectionDeadlineUtc)
+    Write-PortableLog "Native $OverlayKind overlay claim inspected $($browserWindows.Count) browser windows and found $($matches.Count) eligible new windows."
     if ($matches.Count -eq 0) {
+        Remove-NativeOverlayClaimMarker -Claim $claim
         return [pscustomobject]@{ errorCode = "WINDOW_NOT_FOUND" }
     }
     if ($matches.Count -ne 1) {
+        Remove-NativeOverlayClaimMarker -Claim $claim
         return [pscustomobject]@{ errorCode = "AMBIGUOUS_WINDOW" }
     }
 
     $window = $matches[0]
     $overlayId = Get-RandomToken
-    $originalRegionData = [TarkovHelper.NativeOverlayBridge]::CaptureRegion([long]$window.handle)
-    $script:nativeOverlayRecord = [pscustomobject]@{
-        overlayId = $overlayId
-        handle = [long]$window.handle
-        processId = [int]$window.processId
-        processStartTimeUtc = [string]$window.processStartTimeUtc
-        windowTitle = [string]$window.title
-        originalStyle = [long]$window.style
-        originalExStyle = [long]$window.exStyle
-        originalRegionData = $originalRegionData
-        originalRect = $window.rect
-        normalStyle = [long]$window.style
-        normalExStyle = [long]$window.exStyle
-        normalRegionData = $originalRegionData
-        normalRect = $window.rect
-        lockedVisibleRect = $null
-        lockedBoundsDip = $null
-        nativeOpacity = [double]1
-        globalHotkeysAvailable = $false
-        mode = "UNLOCKED"
+    $record = $null
+    try {
+        $originalRegionData = [TarkovHelper.NativeOverlayBridge]::CaptureRegion([long]$window.handle)
+        $record = [pscustomobject]@{
+            overlayKind = $OverlayKind
+            overlayId = $overlayId
+            handle = [long]$window.handle
+            processId = [int]$window.processId
+            threadId = [int]$window.threadId
+            processStartTimeUtc = [string]$window.processStartTimeUtc
+            className = [string]$window.className
+            windowTitle = [string]$window.title
+            markerName = if ($OverlayKind -ceq "quest-list") { [string]$claim.markerName } else { $null }
+            originalStyle = [long]$window.style
+            originalExStyle = [long]$window.exStyle
+            originalRegionData = $originalRegionData
+            originalRect = $window.rect
+            normalStyle = [long]$window.style
+            normalExStyle = [long]$window.exStyle
+            normalRegionData = $originalRegionData
+            normalRect = $window.rect
+            lockedVisibleRect = $null
+            lockedBoundsDip = $null
+            nativeOpacity = [double]1
+            globalHotkeysAvailable = $false
+            mode = "UNLOCKED"
+        }
+        $script:nativeOverlayRecords[$OverlayKind] = $record
+        if ($OverlayKind -ceq "minimap") {
+            $registeredHotKeys = [TarkovHelper.NativeOverlayBridge]::StartHotKeys()
+            $record.globalHotkeysAvailable = $registeredHotKeys -eq 4
+            Write-PortableLog "Native overlay hotkey bridge registered $registeredHotKeys of 4 shortcuts."
+        } else {
+            # A quest popup must behave like a PiP companion immediately while
+            # retaining its normal frame so the user can still move and resize it.
+            $null = Set-NativeOverlayMode -OverlayKind $OverlayKind `
+                -OverlayId $overlayId -Mode "UNLOCKED" -ProtocolVersion $ProtocolVersion
+        }
+        if ($ProtocolVersion -eq 2) {
+            $script:nativeOverlayCompletedClaims[$ClaimId] = [pscustomobject]@{
+                overlayKind = $OverlayKind
+                overlayId = $overlayId
+                windowTitle = $WindowTitle
+                expiresAtUtc = [DateTime]::UtcNow.AddSeconds($nativeOverlayClaimLifetimeSeconds)
+            }
+        }
+        return Get-NativeOverlayResponse -OverlayKind $OverlayKind -ProtocolVersion $ProtocolVersion
+    } catch {
+        try {
+            if ($script:nativeOverlayRecords.ContainsKey($OverlayKind)) {
+                $null = Remove-NativeOverlay -OverlayKind $OverlayKind -OverlayId $overlayId
+            } else {
+                Remove-NativeOverlayClaimMarker -Claim $claim
+            }
+        } catch {
+            Write-PortableLog "Native $OverlayKind overlay attach rollback failed."
+        }
+        throw
     }
-    $registeredHotKeys = [TarkovHelper.NativeOverlayBridge]::StartHotKeys()
-    $script:nativeOverlayRecord.globalHotkeysAvailable = $registeredHotKeys -eq 4
-    Write-PortableLog "Native overlay hotkey bridge registered $registeredHotKeys of 4 shortcuts."
-    return Get-NativeOverlayResponse
 }
 
 function Get-NativeOverlayResponse {
-    $record = $script:nativeOverlayRecord
-    $current = Get-CurrentNativeOverlayWindow
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("minimap", "quest-list")][string]$OverlayKind,
+        [ValidateSet(1, 2)][int]$ProtocolVersion = 1
+    )
+
+    $record = $script:nativeOverlayRecords[$OverlayKind]
+    $current = Get-CurrentNativeOverlayWindow -OverlayKind $OverlayKind
     $bounds = if ($record.mode -eq "UNLOCKED") {
         $physicalBounds = if ($null -ne $current) { $current.rect } else { $record.originalRect }
         Convert-NativeRectToDips -Handle $record.handle -Rect $physicalBounds
     } else {
         $record.lockedBoundsDip
     }
-    return [pscustomobject]@{
-        protocolVersion = $nativeOverlayProtocolVersion
-        overlayId = $record.overlayId
-        state = "ATTACHED"
-        mode = $record.mode
-        globalHotkeysAvailable = [bool]$record.globalHotkeysAvailable
-        bounds = [pscustomobject]@{
+    $response = [ordered]@{
+        protocolVersion = $ProtocolVersion
+    }
+    if ($ProtocolVersion -eq 2) {
+        $response.overlayKind = $OverlayKind
+    }
+    $response.overlayId = $record.overlayId
+    $response.state = "ATTACHED"
+    $response.mode = $record.mode
+    $response.globalHotkeysAvailable = [bool]$record.globalHotkeysAvailable
+    $response.bounds = [pscustomobject]@{
             left = [int]$bounds.left
             top = [int]$bounds.top
             width = [int]$bounds.width
             height = [int]$bounds.height
-        }
     }
+    return [pscustomobject]$response
 }
 
-function Get-CurrentNativeOverlayWindow {
-    if ($null -eq $script:nativeOverlayRecord) { return $null }
-    $record = $script:nativeOverlayRecord
+function Get-NativeOverlayIdentityWindow {
+    param([Parameter(Mandatory = $true)][ValidateSet("minimap", "quest-list")][string]$OverlayKind)
+
+    if (-not $script:nativeOverlayRecords.ContainsKey($OverlayKind)) { return $null }
+    $record = $script:nativeOverlayRecords[$OverlayKind]
     return @(
         Get-NativeBrowserWindows |
             Where-Object {
-                $_.handle -eq $record.handle -and
-                $_.processId -eq $record.processId -and
-                $_.processStartTimeUtc -ceq $record.processStartTimeUtc -and
-                $_.title -ceq $record.windowTitle
+                $identityMatches = (
+                    $_.handle -eq $record.handle -and
+                    $_.processId -eq $record.processId -and
+                    $_.processStartTimeUtc -ceq $record.processStartTimeUtc
+                )
+                if (-not $identityMatches) { return $false }
+                if ($OverlayKind -ceq "minimap") {
+                    return $true
+                }
+                return (
+                    $_.className -ceq $record.className -and
+                    $_.threadId -eq $record.threadId -and
+                    [TarkovHelper.NativeOverlayBridge]::HasWindowMarker(
+                        [long]$_.handle,
+                        [string]$record.markerName
+                    )
+                )
             }
     ) | Select-Object -First 1
 }
 
+function Get-CurrentNativeOverlayWindow {
+    param([Parameter(Mandatory = $true)][ValidateSet("minimap", "quest-list")][string]$OverlayKind)
+
+    if (-not $script:nativeOverlayRecords.ContainsKey($OverlayKind)) { return $null }
+    $record = $script:nativeOverlayRecords[$OverlayKind]
+    $identityWindow = Get-NativeOverlayIdentityWindow -OverlayKind $OverlayKind
+    if ($null -eq $identityWindow -or $identityWindow.title -cne $record.windowTitle) { return $null }
+    return $identityWindow
+}
+
 function Set-NativeOverlayMode {
     param(
+        [ValidateSet("minimap", "quest-list")][string]$OverlayKind = "minimap",
         [Parameter(Mandatory = $true)][string]$OverlayId,
         [Parameter(Mandatory = $true)][ValidateSet("UNLOCKED", "LOCKED", "CLICK_THROUGH")][string]$Mode,
         [Nullable[int]]$Width,
         [Nullable[int]]$Height,
-        [Nullable[double]]$Opacity
+        [Nullable[double]]$Opacity,
+        [ValidateSet(1, 2)][int]$ProtocolVersion = 1
     )
 
     if (@("UNLOCKED", "LOCKED", "CLICK_THROUGH") -cnotcontains $Mode) {
@@ -2313,17 +2645,30 @@ function Set-NativeOverlayMode {
     if ($null -ne $Opacity) {
         [void](Convert-NativeOpacityToAlpha -Opacity ([double]$Opacity))
     }
-    if ($null -eq $script:nativeOverlayRecord -or $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
+    if (
+        -not $script:nativeOverlayRecords.ContainsKey($OverlayKind) -or
+        $script:nativeOverlayRecords[$OverlayKind].overlayId -cne $OverlayId
+    ) {
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
     }
-    $record = $script:nativeOverlayRecord
-    $current = Get-CurrentNativeOverlayWindow
+    $record = $script:nativeOverlayRecords[$OverlayKind]
+    $current = Get-CurrentNativeOverlayWindow -OverlayKind $OverlayKind
     if ($null -eq $current) {
+        if ($OverlayKind -ceq "quest-list") {
+            if ($null -ne (Get-NativeOverlayIdentityWindow -OverlayKind $OverlayKind)) {
+                $null = Remove-NativeOverlay -OverlayKind $OverlayKind -IgnoreIdentifier
+            } else {
+                Remove-NativeOverlayRecordState -OverlayKind $OverlayKind
+            }
+            return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
+        }
         if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
             throw [InvalidOperationException]::new("The overlay window identity could not be verified.")
         }
-        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
-        $script:nativeOverlayRecord = $null
+        if ($OverlayKind -ceq "minimap") {
+            [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+        }
+        Remove-NativeOverlayRecordState -OverlayKind $OverlayKind
         return [pscustomobject]@{ errorCode = "OVERLAY_NOT_FOUND" }
     }
 
@@ -2338,6 +2683,11 @@ function Set-NativeOverlayMode {
         # compositor surface. This makes the configured opacity work before
         # the user pins the overlay as well as after it is locked.
         $transparentNormalExStyle = $record.normalExStyle -bor [long]0x00080000
+        $normalTopmost = ($record.normalExStyle -band [long]0x00000008) -ne 0
+        if ($OverlayKind -ceq "quest-list") {
+            $transparentNormalExStyle = $transparentNormalExStyle -bor [long]0x00000008
+            $normalTopmost = $true
+        }
         [TarkovHelper.NativeOverlayBridge]::ApplyOriginal(
             $record.handle,
             $record.normalStyle,
@@ -2346,7 +2696,7 @@ function Set-NativeOverlayMode {
             $record.normalRect.top,
             $record.normalRect.width,
             $record.normalRect.height,
-            (($record.normalExStyle -band [long]0x00000008) -ne 0),
+            $normalTopmost,
             $record.normalRegionData
         )
         [TarkovHelper.NativeOverlayBridge]::SetLayeredAlpha(
@@ -2355,7 +2705,7 @@ function Set-NativeOverlayMode {
         )
         $record.nativeOpacity = $nextOpacity
         $record.mode = "UNLOCKED"
-        return Get-NativeOverlayResponse
+        return Get-NativeOverlayResponse -OverlayKind $OverlayKind -ProtocolVersion $ProtocolVersion
     }
 
     if ($record.mode -ceq "UNLOCKED") {
@@ -2458,24 +2808,37 @@ function Set-NativeOverlayMode {
     $record.lockedBoundsDip = $nextBoundsDip
     $record.nativeOpacity = $nextOpacity
     $record.mode = $Mode
-    return Get-NativeOverlayResponse
+    return Get-NativeOverlayResponse -OverlayKind $OverlayKind -ProtocolVersion $ProtocolVersion
 }
 
 function Remove-NativeOverlay {
     param(
+        [ValidateSet("minimap", "quest-list")][string]$OverlayKind = "minimap",
         [string]$OverlayId,
         [switch]$IgnoreIdentifier
     )
 
-    if ($null -eq $script:nativeOverlayRecord) {
+    if (-not $script:nativeOverlayRecords.ContainsKey($OverlayKind)) {
         return $true
     }
-    if (-not $IgnoreIdentifier -and $script:nativeOverlayRecord.overlayId -cne $OverlayId) {
+    if (-not $IgnoreIdentifier -and $script:nativeOverlayRecords[$OverlayKind].overlayId -cne $OverlayId) {
         return $false
     }
 
-    $record = $script:nativeOverlayRecord
-    $current = Get-CurrentNativeOverlayWindow
+    $record = $script:nativeOverlayRecords[$OverlayKind]
+    foreach ($claimId in @($script:nativeOverlayCompletedClaims.Keys)) {
+        if (
+            $script:nativeOverlayCompletedClaims[$claimId].overlayKind -ceq $OverlayKind -and
+            $script:nativeOverlayCompletedClaims[$claimId].overlayId -ceq $record.overlayId
+        ) {
+            [void]$script:nativeOverlayCompletedClaims.Remove($claimId)
+        }
+    }
+    $current = if ($OverlayKind -ceq "quest-list") {
+        Get-NativeOverlayIdentityWindow -OverlayKind $OverlayKind
+    } else {
+        Get-CurrentNativeOverlayWindow -OverlayKind $OverlayKind
+    }
     if ($null -ne $current) {
         [TarkovHelper.NativeOverlayBridge]::ApplyOriginal(
             $record.handle,
@@ -2488,16 +2851,52 @@ function Remove-NativeOverlay {
             (($record.originalExStyle -band [long]0x00000008) -ne 0),
             $record.originalRegionData
         )
-        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
-        $script:nativeOverlayRecord = $null
+        if ($OverlayKind -ceq "quest-list") {
+            try {
+                if (-not [TarkovHelper.NativeOverlayBridge]::RemoveWindowMarker(
+                    $record.handle,
+                    [string]$record.markerName
+                )) {
+                    Write-PortableLog "The detached quest overlay marker was already absent."
+                }
+            } catch {
+                Write-PortableLog "The detached quest overlay marker could not be removed."
+            }
+        }
+        if ($OverlayKind -ceq "minimap") {
+            [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+        }
+        Remove-NativeOverlayRecordState -OverlayKind $OverlayKind
     } else {
         if ([TarkovHelper.NativeOverlayBridge]::IsWindowHandle($record.handle)) {
             throw [InvalidOperationException]::new("The overlay window identity could not be verified.")
         }
-        [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
-        $script:nativeOverlayRecord = $null
+        if ($OverlayKind -ceq "minimap") {
+            [TarkovHelper.NativeOverlayBridge]::StopHotKeys()
+        }
+        Remove-NativeOverlayRecordState -OverlayKind $OverlayKind
     }
     return $true
+}
+
+function Remove-AllNativeOverlays {
+    $failed = $false
+    foreach ($overlayKind in @($script:nativeOverlayRecords.Keys)) {
+        try {
+            $null = Remove-NativeOverlay -OverlayKind $overlayKind -IgnoreIdentifier
+        } catch {
+            $failed = $true
+            Write-PortableLog "Native $overlayKind overlay restoration failed during shutdown."
+        }
+    }
+    foreach ($claimId in @($script:nativeOverlayClaims.Keys)) {
+        Remove-NativeOverlayClaimMarker -Claim $script:nativeOverlayClaims[$claimId]
+        [void]$script:nativeOverlayClaims.Remove($claimId)
+    }
+    $script:nativeOverlayCompletedClaims.Clear()
+    if ($failed) {
+        throw [InvalidOperationException]::new("One or more native overlays could not be restored.")
+    }
 }
 
 function Get-InstancePath {
@@ -3461,14 +3860,71 @@ function Test-RecordedProcessIdentity {
     }
 }
 
+function Get-SupportedPortableBrowserPath {
+    if (-not $IsWindowsPlatform) { return $null }
+
+    # Use only fixed installation roots. In particular, do not resolve these
+    # executables through PATH or a per-user App Paths override.
+    $candidates = @(
+        $(if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+            Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"
+        }),
+        $(if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+            Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"
+        }),
+        $(if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+            Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
+        }),
+        $(if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+            Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"
+        }),
+        $(if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"
+        })
+    )
+
+    foreach ($candidatePath in $candidates) {
+        try {
+            $fullPath = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($candidatePath))
+            $fileName = [IO.Path]::GetFileName($fullPath)
+            if (
+                @("msedge.exe", "chrome.exe") -ccontains $fileName -and
+                [IO.File]::Exists($fullPath)
+            ) {
+                return $fullPath
+            }
+        } catch {
+            # Ignore malformed environment paths and continue through the fixed
+            # browser installation candidates.
+        }
+    }
+    return $null
+}
+
 function Open-PortableBrowser {
     param([string]$Url)
 
     if ($NoBrowser) { return }
     try {
-        [Diagnostics.Process]::Start($Url) | Out-Null
+        $supportedBrowserPath = Get-SupportedPortableBrowserPath
+        if ($null -ne $supportedBrowserPath) {
+            try {
+                $startInfo = New-Object Diagnostics.ProcessStartInfo
+                $startInfo.FileName = $supportedBrowserPath
+                $startInfo.Arguments = ConvertTo-ProcessArgument -Value $Url
+                $startInfo.UseShellExecute = $false
+                [Diagnostics.Process]::Start($startInfo) | Out-Null
+                return
+            } catch {
+                Write-PortableLog "The supported browser could not be opened; falling back to the default browser."
+            }
+            [Diagnostics.Process]::Start($Url) | Out-Null
+        } else {
+            Write-PortableLog "Edge or Chrome was not found; native overlay features will be unavailable in the default browser."
+            [Diagnostics.Process]::Start($Url) | Out-Null
+        }
     } catch {
-        Write-PortableLog "The default browser could not be opened."
+        Write-PortableLog "A supported browser could not be opened."
     }
 }
 
@@ -4682,12 +5138,24 @@ try {
 
             $isNativeOverlayMutation = (
                 $requestPath -eq "/api/v1/native-overlay/claims" -or
-                $requestPath -eq "/api/v1/native-overlay/minimap"
+                $requestPath -eq "/api/v1/native-overlay/minimap" -or
+                $requestPath -eq "/api/v2/native-overlay/claims" -or
+                $requestPath -eq "/api/v2/native-overlay/windows"
             )
             if ($isNativeOverlayMutation) {
+                $isNativeOverlayV2 = $requestPath.StartsWith("/api/v2/native-overlay/", [StringComparison]::Ordinal)
+                $nativeProtocolVersion = if ($isNativeOverlayV2) { 2 } else { 1 }
+                $isNativeClaimPath = $requestPath -in @(
+                    "/api/v1/native-overlay/claims",
+                    "/api/v2/native-overlay/claims"
+                )
+                $isNativeWindowPath = $requestPath -in @(
+                    "/api/v1/native-overlay/minimap",
+                    "/api/v2/native-overlay/windows"
+                )
                 $allowedNativeMethod = (
-                    ($requestPath -eq "/api/v1/native-overlay/claims" -and $method -eq "POST") -or
-                    ($requestPath -eq "/api/v1/native-overlay/minimap" -and $method -in @("POST", "PATCH", "DELETE"))
+                    ($isNativeClaimPath -and $method -eq "POST") -or
+                    ($isNativeWindowPath -and $method -in @("POST", "PATCH", "DELETE"))
                 )
                 if (-not $allowedNativeMethod) {
                     Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
@@ -4719,10 +5187,57 @@ try {
                     continue
                 }
 
-                if ($requestPath -eq "/api/v1/native-overlay/claims") {
+                if ($isNativeClaimPath) {
                     try {
-                        Assert-JsonObjectShape -Value $requestObject -AllowedProperties @()
-                        $claimResponse = New-NativeOverlayClaim
+                        if ($isNativeOverlayV2) {
+                            Assert-JsonObjectShape -Value $requestObject `
+                                -AllowedProperties @("overlayKind", "windowNonce") -RequiredProperties @("overlayKind")
+                            if (
+                                $requestObject.overlayKind -isnot [string] -or
+                                @("minimap", "quest-list") -cnotcontains $requestObject.overlayKind
+                            ) {
+                                throw [ArgumentException]::new("The overlay kind is invalid.")
+                            }
+                            if ($requestObject.overlayKind -ceq "quest-list") {
+                                Assert-JsonObjectShape -Value $requestObject `
+                                    -AllowedProperties @("overlayKind", "windowNonce") `
+                                    -RequiredProperties @("overlayKind", "windowNonce")
+                                if (
+                                    $requestObject.windowNonce -isnot [string] -or
+                                    -not (Test-NativeQuestWindowNonce -WindowNonce $requestObject.windowNonce)
+                                ) {
+                                    throw [ArgumentException]::new("The quest overlay window nonce is invalid.")
+                                }
+                                $claimResponse = New-NativeOverlayClaim `
+                                    -OverlayKind "quest-list" -ProtocolVersion 2 `
+                                    -WindowNonce $requestObject.windowNonce
+                            } else {
+                                Assert-JsonObjectShape -Value $requestObject `
+                                    -AllowedProperties @("overlayKind") -RequiredProperties @("overlayKind")
+                                $claimResponse = New-NativeOverlayClaim `
+                                    -OverlayKind "minimap" -ProtocolVersion 2
+                            }
+                        } else {
+                            Assert-JsonObjectShape -Value $requestObject -AllowedProperties @()
+                            $claimResponse = New-NativeOverlayClaim
+                        }
+                        switch ($claimResponse.errorCode) {
+                            "OVERLAY_ALREADY_ATTACHED" {
+                                Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" `
+                                    -Code "OVERLAY_ALREADY_ATTACHED" -Message "A native overlay is already attached or claimed."
+                                continue
+                            }
+                            "WINDOW_NOT_FOUND" {
+                                Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" `
+                                    -Code "WINDOW_NOT_FOUND" -Message "No eligible quest overlay window was found."
+                                continue
+                            }
+                            "AMBIGUOUS_WINDOW" {
+                                Send-JsonError -Stream $stream -StatusCode 409 -Reason "Conflict" `
+                                    -Code "AMBIGUOUS_WINDOW" -Message "More than one eligible quest overlay window was found."
+                                continue
+                            }
+                        }
                         Send-JsonResponse -Stream $stream -StatusCode 201 -Reason "Created" -Value $claimResponse
                     } catch [ArgumentException] {
                         Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
@@ -4736,14 +5251,28 @@ try {
 
                 if ($method -eq "POST") {
                     try {
+                        $postAllowedProperties = if ($isNativeOverlayV2) {
+                            @("overlayKind", "claimId", "windowTitle")
+                        } else {
+                            @("claimId", "windowTitle")
+                        }
                         Assert-JsonObjectShape -Value $requestObject `
-                            -AllowedProperties @("claimId", "windowTitle") `
-                            -RequiredProperties @("claimId", "windowTitle")
+                            -AllowedProperties $postAllowedProperties `
+                            -RequiredProperties $postAllowedProperties
+                        $overlayKind = if ($isNativeOverlayV2) {
+                            [string]$requestObject.overlayKind
+                        } else {
+                            "minimap"
+                        }
+                        if (@("minimap", "quest-list") -cnotcontains $overlayKind) {
+                            throw [ArgumentException]::new("The overlay kind is invalid.")
+                        }
+                        $expectedWindowTitle = Get-NativeOverlayWindowTitle -OverlayKind $overlayKind
                         if (
                             $requestObject.claimId -isnot [string] -or
                             $requestObject.claimId -notmatch "^[A-Za-z0-9_-]{40,64}$" -or
                             $requestObject.windowTitle -isnot [string] -or
-                            $requestObject.windowTitle -cne $nativeOverlayWindowTitle
+                            $requestObject.windowTitle -cne $expectedWindowTitle
                         ) {
                             throw [ArgumentException]::new("The claim identifier or window title is invalid.")
                         }
@@ -4754,7 +5283,10 @@ try {
                     }
 
                     try {
-                        $completeResponse = Complete-NativeOverlayClaim -ClaimId $requestObject.claimId
+                        $completeResponse = Complete-NativeOverlayClaim `
+                            -ClaimId $requestObject.claimId -OverlayKind $overlayKind `
+                            -ProtocolVersion $nativeProtocolVersion `
+                            -WindowTitle $requestObject.windowTitle
                     } catch {
                         Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                             -Code "NATIVE_FAILURE" -Message "The native overlay window could not be inspected."
@@ -4791,10 +5323,26 @@ try {
                     $hasHeight = @($requestObject.PSObject.Properties.Name) -contains "height"
                     $hasOpacity = @($requestObject.PSObject.Properties.Name) -contains "opacity"
                     try {
+                        $patchAllowedProperties = if ($isNativeOverlayV2) {
+                            @("overlayKind", "overlayId", "mode", "width", "height", "opacity")
+                        } else {
+                            @("overlayId", "mode", "width", "height", "opacity")
+                        }
+                        $patchRequiredProperties = if ($isNativeOverlayV2) {
+                            @("overlayKind", "overlayId", "mode")
+                        } else {
+                            @("overlayId", "mode")
+                        }
                         Assert-JsonObjectShape -Value $requestObject `
-                            -AllowedProperties @("overlayId", "mode", "width", "height", "opacity") `
-                            -RequiredProperties @("overlayId", "mode")
+                            -AllowedProperties $patchAllowedProperties `
+                            -RequiredProperties $patchRequiredProperties
+                        $overlayKind = if ($isNativeOverlayV2) {
+                            [string]$requestObject.overlayKind
+                        } else {
+                            "minimap"
+                        }
                         if (
+                            @("minimap", "quest-list") -cnotcontains $overlayKind -or
                             $requestObject.overlayId -isnot [string] -or
                             $requestObject.overlayId -notmatch "^[A-Za-z0-9_-]{40,64}$" -or
                             $requestObject.mode -isnot [string] -or
@@ -4842,8 +5390,10 @@ try {
                         $width = if ($hasWidth) { [Nullable[int]]([int]$requestObject.width) } else { $null }
                         $height = if ($hasHeight) { [Nullable[int]]([int]$requestObject.height) } else { $null }
                         $opacity = if ($hasOpacity) { [Nullable[double]]([double]$requestObject.opacity) } else { $null }
-                        $updateResponse = Set-NativeOverlayMode -OverlayId $requestObject.overlayId `
-                            -Mode $requestObject.mode -Width $width -Height $height -Opacity $opacity
+                        $updateResponse = Set-NativeOverlayMode -OverlayKind $overlayKind `
+                            -OverlayId $requestObject.overlayId -Mode $requestObject.mode `
+                            -Width $width -Height $height -Opacity $opacity `
+                            -ProtocolVersion $nativeProtocolVersion
                     } catch {
                         Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                             -Code "NATIVE_FAILURE" -Message "The native overlay could not be updated."
@@ -4859,9 +5409,20 @@ try {
                 }
 
                 try {
+                    $deleteProperties = if ($isNativeOverlayV2) {
+                        @("overlayKind", "overlayId")
+                    } else {
+                        @("overlayId")
+                    }
                     Assert-JsonObjectShape -Value $requestObject `
-                        -AllowedProperties @("overlayId") -RequiredProperties @("overlayId")
+                        -AllowedProperties $deleteProperties -RequiredProperties $deleteProperties
+                    $overlayKind = if ($isNativeOverlayV2) {
+                        [string]$requestObject.overlayKind
+                    } else {
+                        "minimap"
+                    }
                     if (
+                        @("minimap", "quest-list") -cnotcontains $overlayKind -or
                         $requestObject.overlayId -isnot [string] -or
                         $requestObject.overlayId -notmatch "^[A-Za-z0-9_-]{40,64}$"
                     ) {
@@ -4873,7 +5434,8 @@ try {
                     continue
                 }
                 try {
-                    $removed = Remove-NativeOverlay -OverlayId $requestObject.overlayId
+                    $removed = Remove-NativeOverlay -OverlayKind $overlayKind `
+                        -OverlayId $requestObject.overlayId
                 } catch {
                     Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                         -Code "NATIVE_FAILURE" -Message "The native overlay could not be detached safely."
@@ -4889,7 +5451,10 @@ try {
                 continue
             }
 
-            if ($requestPath -eq "/api/v1/native-overlay/events") {
+            if ($requestPath -in @(
+                "/api/v1/native-overlay/events",
+                "/api/v2/native-overlay/events"
+            )) {
                 if ($method -ne "GET") {
                     Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" `
                         -Code "METHOD_NOT_ALLOWED" -Message "The HTTP method is not supported."
@@ -4909,7 +5474,9 @@ try {
                     continue
                 }
                 try {
-                    $eventPayload = Get-NativeOverlayEventsPayload -RequestTarget $requestTarget
+                    $eventsProtocolVersion = if ($requestPath -eq "/api/v2/native-overlay/events") { 2 } else { 1 }
+                    $eventPayload = Get-NativeOverlayEventsPayload `
+                        -RequestTarget $requestTarget -ProtocolVersion $eventsProtocolVersion
                     Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value $eventPayload
                 } catch [ArgumentException] {
                     Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" `
@@ -4981,6 +5548,24 @@ try {
                     capability = "WINDOWS_DOCUMENT_PIP"
                     token = $nativeOverlayToken
                     windowTitle = $nativeOverlayWindowTitle
+                    sizeLimits = [pscustomobject]@{
+                        minWidth = $nativeOverlayMinimumSize
+                        minHeight = $nativeOverlayMinimumSize
+                        maxWidth = $nativeOverlayMaximumSize
+                        maxHeight = $nativeOverlayMaximumSize
+                    }
+                })
+                continue
+            }
+            if ($requestPath -eq "/api/v2/native-overlay/session") {
+                Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -HeadOnly:$headOnly -Value ([pscustomobject]@{
+                    protocolVersion = $nativeOverlayV2ProtocolVersion
+                    capability = $nativeOverlayV2Capability
+                    token = $nativeOverlayToken
+                    windowTitles = [pscustomobject]@{
+                        minimap = $nativeOverlayWindowTitle
+                        questList = $nativeOverlayQuestListWindowTitle
+                    }
                     sizeLimits = [pscustomobject]@{
                         minWidth = $nativeOverlayMinimumSize
                         minHeight = $nativeOverlayMinimumSize
@@ -5083,9 +5668,9 @@ try {
     }
 } finally {
     try {
-        $null = Remove-NativeOverlay -IgnoreIdentifier
+        Remove-AllNativeOverlays
     } catch {
-        Write-PortableLog "Native overlay restoration failed during shutdown."
+        Write-PortableLog "One or more native overlay restorations failed during shutdown."
     }
     Stop-ScreenshotWatcher
     $listener.Stop()

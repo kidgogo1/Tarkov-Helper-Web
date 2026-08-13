@@ -355,6 +355,8 @@ public static class SyntheticBrowser {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern ushort RegisterClass(ref WindowClass value);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr CreateWindowEx(uint exStyle, string className, string title, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder title, int maximumCount);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool SetWindowText(IntPtr window, string title);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
@@ -460,8 +462,8 @@ public static class SyntheticBrowser {
         return window;
     }
 
-    private static IntPtr CreatePip(int offset) {
-        IntPtr window = Create("Tarkov Helper Web", 0x16CC0000u, 0x00200108u, offset);
+    private static IntPtr CreateOverlay(string title, uint style, uint exStyle, int offset) {
+        IntPtr window = Create(title, style, exStyle, offset);
         Rect client;
         GetClientRect(window, out client);
         IntPtr renderer = CreateWindowEx(0, "Chrome_RenderWidgetHostHWND", "", 0x50000000u, 7, 63, Math.Max(1, client.right - 14), Math.Max(1, client.bottom - 70), window, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
@@ -470,6 +472,14 @@ public static class SyntheticBrowser {
         if (SetWindowRgn(window, originalRegion, true) == 0) DeleteObject(originalRegion);
         RenderWindows[window] = renderer;
         return window;
+    }
+
+    private static IntPtr CreatePip(int offset) {
+        return CreateOverlay("Tarkov Helper Web", 0x16CC0000u, 0x00200108u, offset);
+    }
+
+    private static IntPtr CreateQuestPopup(string title, int offset) {
+        return CreateOverlay(title, 0x16CF0000u, 0x00200100u, offset);
     }
 
     private static void DuplicateRenderer() {
@@ -500,6 +510,8 @@ public static class SyntheticBrowser {
     }
 
     private static string WindowJson(IntPtr window) {
+        var title = new StringBuilder(512);
+        GetWindowText(window, title, title.Capacity);
         Rect rect;
         GetWindowRect(window, out rect);
         var monitor = new MonitorInfo { size = Marshal.SizeOf(typeof(MonitorInfo)) };
@@ -512,6 +524,7 @@ public static class SyntheticBrowser {
         GetRgnBox(region, out regionBox);
         DeleteObject(region);
         return "{\"handle\":" + window.ToInt64() +
+            ",\"title\":\"" + title.ToString() + "\"" +
             ",\"dpi\":" + GetDpiForWindow(window) +
             ",\"monitor\":{\"left\":" + monitor.monitor.left + ",\"top\":" + monitor.monitor.top +
             ",\"width\":" + (monitor.monitor.right - monitor.monitor.left) +
@@ -524,6 +537,17 @@ public static class SyntheticBrowser {
             ",\"width\":" + (rendererRect.right - rendererRect.left) + ",\"height\":" + (rendererRect.bottom - rendererRect.top) + "}" +
             ",\"region\":{\"type\":" + regionType + ",\"left\":" + regionBox.left + ",\"top\":" + regionBox.top +
             ",\"width\":" + (regionBox.right - regionBox.left) + ",\"height\":" + (regionBox.bottom - regionBox.top) + "}}";
+    }
+
+    private static void RenameWindow(string oldTitle, string newTitle) {
+        foreach (IntPtr window in PipWindows) {
+            var title = new StringBuilder(512);
+            GetWindowText(window, title, title.Capacity);
+            if (title.ToString() == oldTitle) {
+                SetWindowText(window, newTitle);
+                return;
+            }
+        }
     }
 
     private static void WriteStatus(string statusPath) {
@@ -579,6 +603,14 @@ public static class SyntheticBrowser {
                         for (int index = 0; index < count; index++) {
                             PipWindows.Add(CreatePip(100 + PipWindows.Count * 10));
                         }
+                    } else if (parts.Length >= 2 && parts[1] == "CREATE_QUEST") {
+                        int count = int.Parse(parts[2]);
+                        string title = parts.Length >= 4 ? parts[3] : "Tarkov Helper Quest List";
+                        for (int index = 0; index < count; index++) {
+                            PipWindows.Add(CreateQuestPopup(title, 100 + PipWindows.Count * 10));
+                        }
+                    } else if (parts.Length >= 4 && parts[1] == "RENAME_QUEST") {
+                        RenameWindow(parts[2], parts[3]);
                     } else if (parts.Length >= 2 && parts[1] == "CLOSE") {
                         foreach (IntPtr window in PipWindows) DestroyWindow(window);
                         PipWindows.Clear();
@@ -664,6 +696,76 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
     maxWidth: 1000,
     maxHeight: 1000,
   });
+
+  const v2SessionResponse = await fetch(new URL("api/v2/native-overlay/session", url));
+  assert.equal(v2SessionResponse.status, 200);
+  const v2Session = await v2SessionResponse.json();
+  assert.deepEqual(v2Session, {
+    protocolVersion: 2,
+    capability: "WINDOWS_MULTI_OVERLAY",
+    token: session.token,
+    windowTitles: {
+      minimap: "Tarkov Helper Web",
+      questList: "Tarkov Helper Quest List",
+    },
+    sizeLimits: session.sizeLimits,
+  });
+
+  const invalidOverlayKind = await fetchAndDiscard(
+    new URL("api/v2/native-overlay/claims", url),
+    {
+      method: "POST",
+      headers: mutationHeaders(url, session.token),
+      body: JSON.stringify({ overlayKind: "inventory" }),
+    },
+  );
+  assert.equal(invalidOverlayKind.status, 422);
+
+  const invalidQuestNonce = await fetchAndDiscard(
+    new URL("api/v2/native-overlay/claims", url),
+    {
+      method: "POST",
+      headers: mutationHeaders(url, session.token),
+      body: JSON.stringify({ overlayKind: "quest-list", windowNonce: "short" }),
+    },
+  );
+  assert.equal(invalidQuestNonce.status, 422);
+
+  const wrongCaseQuestNonce = await fetchAndDiscard(
+    new URL("api/v2/native-overlay/claims", url),
+    {
+      method: "POST",
+      headers: mutationHeaders(url, session.token),
+      body: JSON.stringify({
+        overlayKind: "quest-list",
+        WindowNonce: "N".repeat(43),
+      }),
+    },
+  );
+  assert.equal(wrongCaseQuestNonce.status, 422);
+
+  const missingQuestWindow = await fetch(
+    new URL("api/v2/native-overlay/claims", url),
+    {
+      method: "POST",
+      headers: mutationHeaders(url, session.token),
+      body: JSON.stringify({
+        overlayKind: "quest-list",
+        windowNonce: "N".repeat(43),
+      }),
+    },
+  );
+  assert.equal(missingQuestWindow.status, 409);
+  assert.deepEqual((await missingQuestWindow.json()).error, {
+    code: "WINDOW_NOT_FOUND",
+    message: "No eligible quest overlay window was found.",
+  });
+
+  const questEvents = await fetchAndDiscard(
+    new URL("api/v2/native-overlay/events?kind=quest-list&after=0", url),
+    { headers: nativeEventHeaders(session.token) },
+  );
+  assert.equal(questEvents.status, 400);
 
   const missingEventToken = await fetchAndDiscard(
     new URL("api/v1/native-overlay/events?after=0", url),
@@ -789,6 +891,323 @@ test("native overlay API is same-origin, token authenticated, and fail-closed", 
   assert.equal(fabricatedClaim.status, 404);
 });
 
+test("native v2 keeps minimap and nonce-bound quest overlays independent", { skip: process.platform !== "win32" }, async (t) => {
+  const { url, temporaryRoot } = await startServer(t);
+  const syntheticRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-synthetic-v2-"));
+  const executablePath = await compileSyntheticBrowser(syntheticRoot);
+  const controlPath = path.join(syntheticRoot, "synthetic-control.txt");
+  const statusPath = path.join(syntheticRoot, "synthetic-status.json");
+  const releaseSyntheticBrowserLock = await acquireSyntheticBrowserLock();
+  let syntheticBrowser;
+  try {
+    syntheticBrowser = spawn(executablePath, [controlPath, statusPath], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  } catch (error) {
+    await releaseSyntheticBrowserLock();
+    throw error;
+  }
+  t.after(async () => {
+    try {
+      if (syntheticBrowser.exitCode === null) {
+        syntheticBrowser.kill();
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 2_000);
+          syntheticBrowser.once("exit", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+      await rm(syntheticRoot, { recursive: true, force: true });
+    } finally {
+      await releaseSyntheticBrowserLock();
+    }
+  });
+
+  let sequence = 0;
+  async function command(action, ...values) {
+    sequence += 1;
+    await writeFile(controlPath, `${sequence}:${action}:${values.join(":")}`, "utf8");
+  }
+  async function statusWhere(predicate) {
+    return waitFor(async () => {
+      const status = await readSyntheticStatus(statusPath);
+      return status && predicate(status) ? status : null;
+    });
+  }
+  async function nativeRequest(method, pathname, token, body) {
+    const response = await fetch(new URL(pathname, url), {
+      method,
+      headers: mutationHeaders(url, token),
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  }
+
+  await statusWhere((status) => status.pips.length === 0);
+  const session = await (await fetch(new URL("api/v2/native-overlay/session", url))).json();
+  const miniMapClaim = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    session.token,
+    { overlayKind: "minimap" },
+  );
+  assert.equal(miniMapClaim.status, 201, JSON.stringify(miniMapClaim.body));
+  await command("CREATE", 1);
+  const miniMapOriginalStatus = await statusWhere((status) => status.pips.length === 1);
+  const miniMapOriginal = { ...miniMapOriginalStatus.pips[0] };
+  const miniMapAttached = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "minimap",
+      claimId: miniMapClaim.body.claimId,
+      windowTitle: session.windowTitles.minimap,
+    },
+  );
+  assert.equal(miniMapAttached.status, 201, JSON.stringify(miniMapAttached.body));
+
+  const questNonce = "V".repeat(43);
+  const questPendingTitle = `${session.windowTitles.questList} [${questNonce}]`;
+  await command("CREATE_QUEST", 1, questPendingTitle);
+  const bothOriginalStatus = await statusWhere((status) => status.pips.length === 2);
+  const questOriginal = bothOriginalStatus.pips.find(({ title }) => title === questPendingTitle);
+  assert(questOriginal);
+  const questClaim = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    session.token,
+    { overlayKind: "quest-list", windowNonce: questNonce },
+  );
+  assert.equal(questClaim.status, 201, JSON.stringify(questClaim.body));
+  await command("RENAME_QUEST", questPendingTitle, session.windowTitles.questList);
+  await statusWhere((status) => status.pips.some(
+    ({ title }) => title === session.windowTitles.questList,
+  ));
+  const attachBody = {
+    overlayKind: "quest-list",
+    claimId: questClaim.body.claimId,
+    windowTitle: session.windowTitles.questList,
+  };
+  const questAttached = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    session.token,
+    attachBody,
+  );
+  assert.equal(questAttached.status, 201, JSON.stringify(questAttached.body));
+  assert.equal(
+    questAttached.body.globalHotkeysAvailable,
+    false,
+    JSON.stringify(questAttached.body),
+  );
+  const caseChangedClaimId = `${questClaim.body.claimId[0] === "a" ? "A" : "a"}${questClaim.body.claimId.slice(1)}`;
+  const caseChangedClaimRetry = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    session.token,
+    { ...attachBody, claimId: caseChangedClaimId },
+  );
+  assert.equal(caseChangedClaimRetry.status, 404);
+  assert.equal(caseChangedClaimRetry.body.error.code, "CLAIM_NOT_FOUND");
+  const questAttachRetry = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    session.token,
+    attachBody,
+  );
+  assert.equal(questAttachRetry.status, 201, JSON.stringify(questAttachRetry.body));
+  assert.deepEqual(questAttachRetry.body, questAttached.body);
+  await statusWhere((status) => {
+    const quest = status.pips.find(({ title }) => title === session.windowTitles.questList);
+    return quest &&
+      (quest.style & 0x00cf0000) === (questOriginal.style & 0x00cf0000) &&
+      (quest.exStyle & 0x00000008) === 0x00000008;
+  });
+
+  const miniMapLocked = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "minimap",
+      overlayId: miniMapAttached.body.overlayId,
+      mode: "LOCKED",
+      width: 300,
+      height: 300,
+    },
+  );
+  assert.equal(miniMapLocked.status, 200, JSON.stringify(miniMapLocked.body));
+  const questLocked = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: questAttached.body.overlayId,
+      mode: "CLICK_THROUGH",
+      width: 420,
+      height: 600,
+    },
+  );
+  assert.equal(questLocked.status, 200, JSON.stringify(questLocked.body));
+  const caseChangedOverlayId = `${questAttached.body.overlayId[0] === "a" ? "A" : "a"}${questAttached.body.overlayId.slice(1)}`;
+  const caseChangedOverlayPatch = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: caseChangedOverlayId,
+      mode: "UNLOCKED",
+    },
+  );
+  assert.equal(caseChangedOverlayPatch.status, 404);
+  assert.equal(caseChangedOverlayPatch.body.error.code, "OVERLAY_NOT_FOUND");
+  await statusWhere((status) => status.pips.every(
+    ({ style }) => (style & 0x00cf0000) === 0,
+  ));
+
+  const questDetached = await nativeRequest(
+    "DELETE",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: questAttached.body.overlayId,
+    },
+  );
+  assert.equal(questDetached.status, 204, JSON.stringify(questDetached.body));
+  const questRestoredStatus = await statusWhere((status) => {
+    const minimap = status.pips.find(({ title }) => title === session.windowTitles.minimap);
+    const quest = status.pips.find(({ title }) => title === session.windowTitles.questList);
+    return minimap && quest &&
+      (minimap.style & 0x00cf0000) === 0 &&
+      quest.style === questOriginal.style &&
+      quest.exStyle === questOriginal.exStyle;
+  });
+  const questRestored = questRestoredStatus.pips.find(
+    ({ title }) => title === session.windowTitles.questList,
+  );
+  assert.deepEqual(questRestored.region, questOriginal.region);
+
+  const oldQuestTitle = "Detached Quest Window";
+  await command("RENAME_QUEST", session.windowTitles.questList, oldQuestTitle);
+  await statusWhere((status) => status.pips.some(({ title }) => title === oldQuestTitle));
+  const mismatchNonce = "W".repeat(43);
+  const mismatchPendingTitle = `${session.windowTitles.questList} [${mismatchNonce}]`;
+  await command("CREATE_QUEST", 1, mismatchPendingTitle);
+  const mismatchOriginalStatus = await statusWhere((status) => status.pips.some(
+    ({ title }) => title === mismatchPendingTitle,
+  ));
+  const mismatchOriginal = mismatchOriginalStatus.pips.find(
+    ({ title }) => title === mismatchPendingTitle,
+  );
+  const mismatchClaim = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    session.token,
+    { overlayKind: "quest-list", windowNonce: mismatchNonce },
+  );
+  assert.equal(mismatchClaim.status, 201, JSON.stringify(mismatchClaim.body));
+  await command("RENAME_QUEST", mismatchPendingTitle, session.windowTitles.questList);
+  await statusWhere((status) => status.pips.some(
+    ({ title }) => title === session.windowTitles.questList,
+  ));
+  const mismatchAttached = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "quest-list",
+      claimId: mismatchClaim.body.claimId,
+      windowTitle: session.windowTitles.questList,
+    },
+  );
+  assert.equal(mismatchAttached.status, 201, JSON.stringify(mismatchAttached.body));
+  const unexpectedTitle = "Unexpected Quest Navigation";
+  await command("RENAME_QUEST", session.windowTitles.questList, unexpectedTitle);
+  await statusWhere((status) => status.pips.some(({ title }) => title === unexpectedTitle));
+  const rejectedAfterNavigation = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: mismatchAttached.body.overlayId,
+      mode: "UNLOCKED",
+    },
+  );
+  assert.equal(rejectedAfterNavigation.status, 404);
+  assert.equal(rejectedAfterNavigation.body.error.code, "OVERLAY_NOT_FOUND");
+  await statusWhere((status) => {
+    const minimap = status.pips.find(({ title }) => title === session.windowTitles.minimap);
+    const quest = status.pips.find(({ title }) => title === unexpectedTitle);
+    return minimap && quest &&
+      (minimap.style & 0x00cf0000) === 0 &&
+      quest.style === mismatchOriginal.style &&
+      quest.exStyle === mismatchOriginal.exStyle;
+  });
+
+  const miniMapDetached = await nativeRequest(
+    "DELETE",
+    "api/v2/native-overlay/windows",
+    session.token,
+    {
+      overlayKind: "minimap",
+      overlayId: miniMapAttached.body.overlayId,
+    },
+  );
+  assert.equal(miniMapDetached.status, 204, JSON.stringify(miniMapDetached.body));
+  const miniMapRestoredStatus = await statusWhere((status) => {
+    const minimap = status.pips.find(({ title }) => title === session.windowTitles.minimap);
+    return minimap && minimap.style === miniMapOriginal.style &&
+      minimap.exStyle === miniMapOriginal.exStyle;
+  });
+  const miniMapRestored = miniMapRestoredStatus.pips.find(
+    ({ title }) => title === session.windowTitles.minimap,
+  );
+  assert.deepEqual(miniMapRestored.region, miniMapOriginal.region);
+
+  const ambiguousNonce = "B".repeat(43);
+  const ambiguousTitle = `${session.windowTitles.questList} [${ambiguousNonce}]`;
+  await command("CREATE_QUEST", 2, ambiguousTitle);
+  const ambiguousOriginalStatus = await statusWhere((status) =>
+    status.pips.filter(({ title }) => title === ambiguousTitle).length === 2,
+  );
+  const ambiguousOriginal = ambiguousOriginalStatus.pips
+    .filter(({ title }) => title === ambiguousTitle)
+    .map(({ style, exStyle }) => ({ style, exStyle }));
+  const ambiguousClaim = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    session.token,
+    { overlayKind: "quest-list", windowNonce: ambiguousNonce },
+  );
+  assert.equal(ambiguousClaim.status, 409);
+  assert.equal(ambiguousClaim.body.error.code, "AMBIGUOUS_WINDOW");
+  const ambiguousUnchangedStatus = await statusWhere((status) =>
+    status.pips.filter(({ title }) => title === ambiguousTitle).length === 2,
+  );
+  assert.deepEqual(
+    ambiguousUnchangedStatus.pips
+      .filter(({ title }) => title === ambiguousTitle)
+      .map(({ style, exStyle }) => ({ style, exStyle })),
+    ambiguousOriginal,
+  );
+
+  await command("CLOSE");
+  await statusWhere((status) => status.pips.length === 0);
+  assert.match(
+    await readFile(path.join(temporaryRoot, "state", "server.log"), "utf8"),
+    /Native quest-list overlay claim inspected .* found 1 eligible new windows\./,
+  );
+});
+
 test("native overlay claims only a unique new synthetic browser PiP and restores its Win32 state", { skip: process.platform !== "win32" }, async (t) => {
   const { child: serverChild, url, temporaryRoot } = await startServer(t);
   const syntheticRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-synthetic-browser-"));
@@ -876,7 +1295,7 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   const serverLog = await readFile(path.join(temporaryRoot, "state", "server.log"), "utf8");
   assert.equal(complete.status, 201, `${JSON.stringify(complete.body)}\n${serverLog}`);
   assert.equal(complete.body.mode, "UNLOCKED");
-  assert.equal(complete.body.globalHotkeysAvailable, true);
+  assert.equal(complete.body.globalHotkeysAvailable, true, serverLog);
   assert.deepEqual(complete.body.bounds, {
     left: screenPointToDips(original.left, original.monitor.left, original.dpi),
     top: screenPointToDips(original.top, original.monitor.top, original.dpi),
@@ -1325,6 +1744,321 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   await command("UNBLOCK_HOTKEY");
   await statusWhere((status) => status.hotKeyBlocked === false);
 
+  const v2Session = await (await fetch(new URL("api/v2/native-overlay/session", url))).json();
+  assert.equal(v2Session.protocolVersion, 2);
+  assert.equal(v2Session.capability, "WINDOWS_MULTI_OVERLAY");
+  const questWindowNonce = "Q".repeat(43);
+  const questPendingTitle = `${v2Session.windowTitles.questList} [${questWindowNonce}]`;
+  const questFinalTitle = v2Session.windowTitles.questList;
+
+  const v2MiniMapBegin = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "minimap" },
+  );
+  assert.equal(v2MiniMapBegin.status, 201, JSON.stringify(v2MiniMapBegin.body));
+  assert.equal(v2MiniMapBegin.body.overlayKind, "minimap");
+  await command("CREATE", 1);
+  const v2MiniMapOriginalStatus = await statusWhere((status) => status.pips.length === 1);
+  const v2MiniMapOriginal = { ...v2MiniMapOriginalStatus.pips[0] };
+  const v2MiniMapAttached = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "minimap",
+      claimId: v2MiniMapBegin.body.claimId,
+      windowTitle: v2Session.windowTitles.minimap,
+    },
+  );
+  assert.equal(v2MiniMapAttached.status, 201, JSON.stringify(v2MiniMapAttached.body));
+  assert.equal(v2MiniMapAttached.body.protocolVersion, 2);
+  assert.equal(v2MiniMapAttached.body.overlayKind, "minimap");
+  assert.equal(v2MiniMapAttached.body.globalHotkeysAvailable, true);
+
+  await command("CREATE_QUEST", 1, questPendingTitle);
+  const v2BothOriginalStatus = await statusWhere((status) => status.pips.length === 2);
+  const v2QuestOriginal = v2BothOriginalStatus.pips.find(
+    ({ title }) => title === questPendingTitle,
+  );
+  assert(v2QuestOriginal);
+  const v2QuestBegin = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "quest-list", windowNonce: questWindowNonce },
+  );
+  assert.equal(v2QuestBegin.status, 201, JSON.stringify(v2QuestBegin.body));
+  assert.equal(v2QuestBegin.body.overlayKind, "quest-list");
+  const v2ConcurrentQuestBegin = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "quest-list", windowNonce: questWindowNonce },
+  );
+  assert.equal(v2ConcurrentQuestBegin.status, 409);
+  assert.equal(v2ConcurrentQuestBegin.body.error.code, "OVERLAY_ALREADY_ATTACHED");
+  await command("RENAME_QUEST", questPendingTitle, questFinalTitle);
+  await statusWhere((status) => status.pips.some(({ title }) => title === questFinalTitle));
+  const v2QuestAttached = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      claimId: v2QuestBegin.body.claimId,
+      windowTitle: questFinalTitle,
+    },
+  );
+  assert.equal(v2QuestAttached.status, 201, JSON.stringify(v2QuestAttached.body));
+  assert.equal(v2QuestAttached.body.protocolVersion, 2);
+  assert.equal(v2QuestAttached.body.overlayKind, "quest-list");
+  assert.equal(v2QuestAttached.body.globalHotkeysAvailable, false);
+  const v2QuestAttachRetry = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      claimId: v2QuestBegin.body.claimId,
+      windowTitle: questFinalTitle,
+    },
+  );
+  assert.equal(v2QuestAttachRetry.status, 201, JSON.stringify(v2QuestAttachRetry.body));
+  assert.deepEqual(v2QuestAttachRetry.body, v2QuestAttached.body);
+  await statusWhere((status) => {
+    const questWindow = status.pips.find(({ title }) => title === questFinalTitle);
+    return questWindow &&
+      (questWindow.style & 0x00cf0000) === (v2QuestOriginal.style & 0x00cf0000) &&
+      (questWindow.exStyle & 0x00000008) === 0x00000008
+      ? true
+      : false;
+  });
+  const v2QuestUnlocked = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: v2QuestAttached.body.overlayId,
+      mode: "UNLOCKED",
+      opacity: 0.85,
+    },
+  );
+  assert.equal(v2QuestUnlocked.status, 200, JSON.stringify(v2QuestUnlocked.body));
+  await statusWhere((status) => {
+    const questWindow = status.pips.find(({ title }) => title === questFinalTitle);
+    return questWindow &&
+      (questWindow.style & 0x00cf0000) === (v2QuestOriginal.style & 0x00cf0000) &&
+      (questWindow.exStyle & 0x00000008) === 0x00000008
+      ? true
+      : false;
+  });
+
+  const v2MiniMapLocked = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "minimap",
+      overlayId: v2MiniMapAttached.body.overlayId,
+      mode: "LOCKED",
+      width: 300,
+      height: 300,
+      opacity: 0.8,
+    },
+  );
+  assert.equal(v2MiniMapLocked.status, 200, JSON.stringify(v2MiniMapLocked.body));
+  const v2QuestLocked = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: v2QuestAttached.body.overlayId,
+      mode: "CLICK_THROUGH",
+      width: 420,
+      height: 600,
+      opacity: 0.7,
+    },
+  );
+  assert.equal(v2QuestLocked.status, 200, JSON.stringify(v2QuestLocked.body));
+  await statusWhere((status) =>
+    status.pips.length === 2 &&
+    status.pips.every(({ style }) => (style & 0x00cf0000) === 0),
+  );
+
+  await command("HOTKEY", serverChild.pid, 0x54a2);
+  const v2FirstHotKey = await waitFor(async () => {
+    const response = await fetch(
+      new URL("api/v2/native-overlay/events?kind=minimap&after=0", url),
+      { headers: nativeEventHeaders(v2Session.token) },
+    );
+    if (response.status !== 200) return null;
+    const payload = await response.json();
+    return payload.events.length === 1 ? payload : null;
+  });
+  assert.equal(v2FirstHotKey.protocolVersion, 2);
+  assert.deepEqual(v2FirstHotKey.events, [{ cursor: 1, action: "ZOOM_IN" }]);
+
+  const unexpectedQuestTitle = "Unexpected Quest Navigation";
+  await command("RENAME_QUEST", questFinalTitle, unexpectedQuestTitle);
+  await statusWhere((status) => status.pips.some(
+    ({ title }) => title === unexpectedQuestTitle,
+  ));
+  const v2QuestTitleMismatch = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: v2QuestAttached.body.overlayId,
+      mode: "UNLOCKED",
+    },
+  );
+  assert.equal(v2QuestTitleMismatch.status, 404);
+  assert.equal(v2QuestTitleMismatch.body.error.code, "OVERLAY_NOT_FOUND");
+  await command("RENAME_QUEST", unexpectedQuestTitle, questFinalTitle);
+  await statusWhere((status) => status.pips.some(({ title }) => title === questFinalTitle));
+
+  const v2QuestDetached = await nativeRequest(
+    "DELETE",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: v2QuestAttached.body.overlayId,
+    },
+  );
+  assert.equal(v2QuestDetached.status, 204, JSON.stringify(v2QuestDetached.body));
+  const v2QuestRestoredStatus = await statusWhere((status) => {
+    const miniMapWindow = status.pips.find(({ title }) => title === "Tarkov Helper Web");
+    const questWindow = status.pips.find(({ title }) => title === questFinalTitle);
+    return miniMapWindow && questWindow &&
+      (miniMapWindow.style & 0x00cf0000) === 0 &&
+      questWindow.style === v2QuestOriginal.style &&
+      questWindow.exStyle === v2QuestOriginal.exStyle
+      ? true
+      : false;
+  });
+  const v2QuestRestored = v2QuestRestoredStatus.pips.find(
+    ({ title }) => title === questFinalTitle,
+  );
+  assert(v2QuestRestored);
+  assert.deepEqual(v2QuestRestored.region, v2QuestOriginal.region);
+  assert.equal(v2QuestRestored.left, v2QuestOriginal.left);
+  assert.equal(v2QuestRestored.top, v2QuestOriginal.top);
+
+  await command("HOTKEY", serverChild.pid, 0x54a3);
+  const v2SecondHotKey = await waitFor(async () => {
+    const response = await fetch(
+      new URL("api/v2/native-overlay/events?kind=minimap&after=1", url),
+      { headers: nativeEventHeaders(v2Session.token) },
+    );
+    if (response.status !== 200) return null;
+    const payload = await response.json();
+    return payload.events.length === 1 ? payload : null;
+  });
+  assert.deepEqual(v2SecondHotKey.events, [{ cursor: 2, action: "ZOOM_OUT" }]);
+
+  const v2MiniMapDetached = await nativeRequest(
+    "DELETE",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "minimap",
+      overlayId: v2MiniMapAttached.body.overlayId,
+    },
+  );
+  assert.equal(v2MiniMapDetached.status, 204, JSON.stringify(v2MiniMapDetached.body));
+  const v2MiniMapRestoredStatus = await statusWhere((status) => {
+    const miniMapWindow = status.pips.find(({ title }) => title === "Tarkov Helper Web");
+    return miniMapWindow &&
+      miniMapWindow.style === v2MiniMapOriginal.style &&
+      miniMapWindow.exStyle === v2MiniMapOriginal.exStyle
+      ? true
+      : false;
+  });
+  const v2MiniMapRestored = v2MiniMapRestoredStatus.pips.find(
+    ({ title }) => title === "Tarkov Helper Web",
+  );
+  assert(v2MiniMapRestored);
+  assert.deepEqual(v2MiniMapRestored.region, v2MiniMapOriginal.region);
+
+  const missingQuestNonce = "M".repeat(43);
+  const v2MissingQuest = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "quest-list", windowNonce: missingQuestNonce },
+  );
+  assert.equal(v2MissingQuest.status, 409);
+  assert.equal(v2MissingQuest.body.error.code, "WINDOW_NOT_FOUND");
+
+  const mismatchQuestNonce = "X".repeat(43);
+  const mismatchQuestPendingTitle = `${v2Session.windowTitles.questList} [${mismatchQuestNonce}]`;
+  await command("CREATE_QUEST", 1, mismatchQuestPendingTitle);
+  const mismatchQuestOriginalStatus = await statusWhere((status) => status.pips.length === 3);
+  const mismatchQuestOriginal = mismatchQuestOriginalStatus.pips.find(
+    ({ title }) => title === mismatchQuestPendingTitle,
+  );
+  assert(mismatchQuestOriginal);
+  const mismatchQuestBegin = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "quest-list", windowNonce: mismatchQuestNonce },
+  );
+  assert.equal(mismatchQuestBegin.status, 201, JSON.stringify(mismatchQuestBegin.body));
+  const mismatchQuestTitle = "Wrong Quest Window";
+  await command("RENAME_QUEST", mismatchQuestPendingTitle, mismatchQuestTitle);
+  await statusWhere((status) => status.pips.some(({ title }) => title === mismatchQuestTitle));
+  const mismatchQuestAttach = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      claimId: mismatchQuestBegin.body.claimId,
+      windowTitle: v2Session.windowTitles.questList,
+    },
+  );
+  assert.equal(mismatchQuestAttach.status, 409);
+  assert.equal(mismatchQuestAttach.body.error.code, "WINDOW_NOT_FOUND");
+  const mismatchQuestUnchanged = await statusWhere((status) => status.pips.find(
+    ({ title }) => title === mismatchQuestTitle,
+  ));
+  const mismatchQuestWindow = mismatchQuestUnchanged.pips.find(
+    ({ title }) => title === mismatchQuestTitle,
+  );
+  assert.equal(mismatchQuestWindow.style, mismatchQuestOriginal.style);
+  assert.equal(mismatchQuestWindow.exStyle, mismatchQuestOriginal.exStyle);
+
+  await command("CLOSE");
+  await statusWhere((status) => status.pips.length === 0);
+
+  const ambiguousQuestNonce = "A".repeat(43);
+  const ambiguousQuestWindowTitle = `${v2Session.windowTitles.questList} [${ambiguousQuestNonce}]`;
+  await command("CREATE_QUEST", 2, ambiguousQuestWindowTitle);
+  const ambiguousQuestOriginal = await statusWhere((status) => status.pips.length === 2);
+  const v2AmbiguousQuestBegin = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "quest-list", windowNonce: ambiguousQuestNonce },
+  );
+  assert.equal(v2AmbiguousQuestBegin.status, 409);
+  assert.equal(v2AmbiguousQuestBegin.body.error.code, "AMBIGUOUS_WINDOW");
+  const ambiguousQuestUnchanged = await statusWhere((status) => status.pips.length === 2);
+  assert.deepEqual(
+    ambiguousQuestUnchanged.pips.map(({ style, exStyle }) => ({ style, exStyle })),
+    ambiguousQuestOriginal.pips.map(({ style, exStyle }) => ({ style, exStyle })),
+  );
+
+  await command("CLOSE");
+  await statusWhere((status) => status.pips.length === 0);
+
   const shutdownBegin = await nativeRequest("POST", "api/v1/native-overlay/claims", session.token, {});
   await command("CREATE", 1);
   const shutdownOriginal = await statusWhere((status) => status.pips.length === 1);
@@ -1338,6 +2072,52 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
   });
   assert.equal(shutdownClickThrough.status, 200, JSON.stringify(shutdownClickThrough.body));
   await statusWhere((status) => (status.pips[0].exStyle & 0x00080020) === 0x00080020);
+
+  const shutdownQuestNonce = "S".repeat(43);
+  const shutdownQuestPendingTitle = `${v2Session.windowTitles.questList} [${shutdownQuestNonce}]`;
+  const shutdownQuestFinalTitle = v2Session.windowTitles.questList;
+  await command("CREATE_QUEST", 1, shutdownQuestPendingTitle);
+  const shutdownBothOriginal = await statusWhere((status) => status.pips.length === 2);
+  const shutdownQuestOriginal = shutdownBothOriginal.pips.find(
+    ({ title }) => title === shutdownQuestPendingTitle,
+  );
+  assert(shutdownQuestOriginal);
+  const shutdownQuestBegin = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/claims",
+    v2Session.token,
+    { overlayKind: "quest-list", windowNonce: shutdownQuestNonce },
+  );
+  assert.equal(shutdownQuestBegin.status, 201, JSON.stringify(shutdownQuestBegin.body));
+  await command("RENAME_QUEST", shutdownQuestPendingTitle, shutdownQuestFinalTitle);
+  await statusWhere((status) => status.pips.some(
+    ({ title }) => title === shutdownQuestFinalTitle,
+  ));
+  const shutdownQuestAttached = await nativeRequest(
+    "POST",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      claimId: shutdownQuestBegin.body.claimId,
+      windowTitle: shutdownQuestFinalTitle,
+    },
+  );
+  assert.equal(shutdownQuestAttached.status, 201, JSON.stringify(shutdownQuestAttached.body));
+  const shutdownQuestClickThrough = await nativeRequest(
+    "PATCH",
+    "api/v2/native-overlay/windows",
+    v2Session.token,
+    {
+      overlayKind: "quest-list",
+      overlayId: shutdownQuestAttached.body.overlayId,
+      mode: "CLICK_THROUGH",
+    },
+  );
+  assert.equal(shutdownQuestClickThrough.status, 200, JSON.stringify(shutdownQuestClickThrough.body));
+  await statusWhere((status) => status.pips.every(
+    ({ exStyle }) => (exStyle & 0x00080020) === 0x00080020,
+  ));
 
   const instance = JSON.parse(await readFile(path.join(temporaryRoot, "state", "instance.json"), "utf8"));
   const shutdownResponse = await fetch(new URL("api/v1/control/shutdown", url), {
@@ -1361,16 +2141,31 @@ test("native overlay claims only a unique new synthetic browser PiP and restores
       resolve();
     });
   });
-  const shutdownRestored = await statusWhere((status) =>
-    status.pips.length === 1 &&
-    status.pips[0].style === shutdownOriginal.pips[0].style &&
-    status.pips[0].exStyle === shutdownOriginal.pips[0].exStyle &&
-    status.pips[0].width === shutdownOriginal.pips[0].width &&
-    status.pips[0].height === shutdownOriginal.pips[0].height,
+  const shutdownRestored = await statusWhere((status) => {
+    const miniMapWindow = status.pips.find(({ title }) => title === "Tarkov Helper Web");
+    const questWindow = status.pips.find(({ title }) => title === shutdownQuestFinalTitle);
+    return miniMapWindow && questWindow &&
+      miniMapWindow.style === shutdownOriginal.pips[0].style &&
+      miniMapWindow.exStyle === shutdownOriginal.pips[0].exStyle &&
+      questWindow.style === shutdownQuestOriginal.style &&
+      questWindow.exStyle === shutdownQuestOriginal.exStyle
+      ? true
+      : false;
+  });
+  const shutdownMiniMapRestored = shutdownRestored.pips.find(
+    ({ title }) => title === "Tarkov Helper Web",
   );
-  assert.equal(shutdownRestored.pips[0].left, shutdownOriginal.pips[0].left);
-  assert.equal(shutdownRestored.pips[0].top, shutdownOriginal.pips[0].top);
-  assert.deepEqual(shutdownRestored.pips[0].region, shutdownOriginal.pips[0].region);
+  const shutdownQuestRestored = shutdownRestored.pips.find(
+    ({ title }) => title === shutdownQuestFinalTitle,
+  );
+  assert(shutdownMiniMapRestored);
+  assert(shutdownQuestRestored);
+  assert.equal(shutdownMiniMapRestored.left, shutdownOriginal.pips[0].left);
+  assert.equal(shutdownMiniMapRestored.top, shutdownOriginal.pips[0].top);
+  assert.deepEqual(shutdownMiniMapRestored.region, shutdownOriginal.pips[0].region);
+  assert.equal(shutdownQuestRestored.left, shutdownQuestOriginal.left);
+  assert.equal(shutdownQuestRestored.top, shutdownQuestOriginal.top);
+  assert.deepEqual(shutdownQuestRestored.region, shutdownQuestOriginal.region);
 
   await command("PROBE_HOTKEYS");
   await statusWhere((status) => status.hotKeyProbeAvailable === true);

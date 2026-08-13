@@ -39,6 +39,10 @@ export interface NativeOverlayV2Attachment {
   bounds: NativeOverlayBounds;
 }
 
+export interface NativeOverlayV2ClaimOptions {
+  windowNonce?: string;
+}
+
 type FetchRequest = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -48,6 +52,7 @@ const SESSION_PATH = "/api/v2/native-overlay/session";
 const CLAIM_PATH = "/api/v2/native-overlay/claims";
 const WINDOWS_PATH = "/api/v2/native-overlay/windows";
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
+const QUEST_WINDOW_NONCE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const UTC_ISO_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/;
 const ALLOWED_ERROR_CODES = new Set([
@@ -255,7 +260,9 @@ async function commandError(response: Response): Promise<NativeOverlayV2ApiError
     isRecord(payload.error) &&
     hasExactKeys(payload.error, ["code", "message"]) &&
     typeof payload.error.code === "string" &&
-    ALLOWED_ERROR_CODES.has(payload.error.code)
+    ALLOWED_ERROR_CODES.has(payload.error.code) &&
+    typeof payload.error.message === "string" &&
+    payload.error.message.length <= 256
   ) {
     return new NativeOverlayV2ApiError(payload.error.code, response.status);
   }
@@ -294,16 +301,29 @@ export async function fetchNativeOverlayV2Session(
 export async function beginNativeOverlayV2Claim(
   session: NativeOverlayV2Session,
   overlayKind: NativeOverlayKind,
+  options: NativeOverlayV2ClaimOptions = {},
   request: FetchRequest = globalThis.fetch,
 ): Promise<NativeOverlayV2Claim> {
-  if (!isOverlayKind(overlayKind)) {
+  const optionKeys = Object.keys(options);
+  const validQuestTitle = overlayKind === "quest-list" &&
+    typeof options.windowNonce === "string" &&
+    QUEST_WINDOW_NONCE_PATTERN.test(options.windowNonce);
+  const validMiniMapOptions = overlayKind === "minimap" &&
+    options.windowNonce === undefined;
+  if (
+    !isOverlayKind(overlayKind) ||
+    optionKeys.some((key) => key !== "windowNonce") ||
+    (!validQuestTitle && !validMiniMapOptions)
+  ) {
     throw new NativeOverlayV2ApiError("INVALID_REQUEST", 0);
   }
+  const body: Record<string, unknown> = { overlayKind };
+  if (validQuestTitle) body.windowNonce = options.windowNonce;
   const response = await command(CLAIM_PATH, {
     method: "POST",
     cache: "no-store",
     headers: headers(session),
-    body: JSON.stringify({ overlayKind }),
+    body: JSON.stringify(body),
   }, request);
   if (response.status !== 201) throw await commandError(response);
   const claim = parseClaim(await readJson(response), overlayKind);
@@ -323,18 +343,34 @@ export async function attachNativeOverlayWindow(
   const windowTitle = overlayKind === "minimap"
     ? session.windowTitles.minimap
     : session.windowTitles.questList;
-  const response = await command(WINDOWS_PATH, {
+  const requestInit: RequestInit = {
     method: "POST",
     cache: "no-store",
     headers: headers(session),
     body: JSON.stringify({ overlayKind, claimId, windowTitle }),
-  }, request);
-  if (response.status !== 201) throw await commandError(response);
-  const attachment = parseAttachment(await readJson(response), overlayKind);
-  if (!attachment || attachment.mode !== "UNLOCKED") {
-    throw new NativeOverlayV2ApiError("INVALID_RESPONSE", response.status);
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let response: Response;
+    try {
+      response = await command(WINDOWS_PATH, requestInit, request);
+    } catch (error) {
+      if (
+        attempt === 0 &&
+        error instanceof NativeOverlayV2ApiError &&
+        error.code === "NETWORK_ERROR"
+      ) {
+        continue;
+      }
+      throw error;
+    }
+    if (response.status !== 201) throw await commandError(response);
+    const attachment = parseAttachment(await readJson(response), overlayKind);
+    if (attachment?.mode === "UNLOCKED") return attachment;
+    if (attempt === 1) {
+      throw new NativeOverlayV2ApiError("INVALID_RESPONSE", response.status);
+    }
   }
-  return attachment;
+  throw new NativeOverlayV2ApiError("NETWORK_ERROR", 0);
 }
 
 export async function updateNativeOverlayWindow(
