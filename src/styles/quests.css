@@ -695,6 +695,12 @@
   min-width: 0;
 }
 
+.quest-required-items .quest-required-item-primary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .quest-item-link,
 .quest-related-link {
   border: 0;
@@ -708,6 +714,28 @@
 .quest-item-link {
   display: grid;
   min-width: 0;
+}
+
+.quest-item-wiki-link {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  padding: 4px 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.quest-item-wiki-link:hover,
+.quest-item-wiki-link:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  text-decoration: none;
 }
 
 .quest-item-link:hover:not(:disabled),

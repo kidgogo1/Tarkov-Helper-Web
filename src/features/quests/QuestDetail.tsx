@@ -321,27 +321,43 @@ export function QuestDetail({
                 const item = data.items.find(
                   (candidate) => candidate.id === requirement.itemId,
                 );
+                const itemDisplayName = language === "ko"
+                  ? item?.nameKo || requirement.itemName
+                  : item?.nameEn || item?.name || requirement.itemName;
                 const dogtagCondition = dogtagConditionLabel(
                   requirement.dogtagMinLevel,
                   requirement.dogtagFaction,
                 );
                 return (
                   <li className={fulfilled ? "fulfilled" : ""} key={requirement.id}>
-                    <button
-                      className="quest-item-link"
-                      onClick={() => onOpenItem(requirement.itemId)}
-                      type="button"
-                    >
-                      <strong>{language === "ko"
-                        ? item?.nameKo || requirement.itemName
-                        : item?.nameEn || item?.name || requirement.itemName}</strong>
-                      {item && language === "ko" && item.nameEn && item.nameEn !== item.nameKo ? (
-                        <small>{item.nameEn}</small>
+                    <div className="quest-required-item-primary">
+                      <button
+                        className="quest-item-link"
+                        onClick={() => onOpenItem(requirement.itemId)}
+                        type="button"
+                      >
+                        <strong>{itemDisplayName}</strong>
+                        {item && language === "ko" && item.nameEn && item.nameEn !== item.nameKo ? (
+                          <small>{item.nameEn}</small>
+                        ) : null}
+                        {dogtagCondition ? (
+                          <small className="quest-dogtag-meta">{dogtagCondition}</small>
+                        ) : null}
+                      </button>
+                      {item?.wikiPageLink ? (
+                        <a
+                          aria-label={`${itemDisplayName} 위키 열기`}
+                          className="quest-item-wiki-link"
+                          href={item.wikiPageLink}
+                          rel="noopener noreferrer"
+                          target="_blank"
+                          title="위키에서 아이템 정보 열기"
+                        >
+                          <ExternalLink aria-hidden="true" size={12} />
+                          <span>위키</span>
+                        </a>
                       ) : null}
-                      {dogtagCondition ? (
-                        <small className="quest-dogtag-meta">{dogtagCondition}</small>
-                      ) : null}
-                    </button>
+                    </div>
                     <span>보유 {owned} / 필요 {requirement.count}</span>
                     <span className="item-fulfillment">
                       {fulfilled ? "충족" : `${requirement.count - owned}개 부족`}

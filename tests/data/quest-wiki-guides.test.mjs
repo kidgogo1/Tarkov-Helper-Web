@@ -38,4 +38,21 @@ describe("Wiki quest guide index", () => {
     expect(locations.get("Stick to It")).toEqual(["Lighthouse"]);
     expect(data.meta.sources.wikiLocationCorrections).toBe(4);
   });
+
+  it("keeps every quest-required item connected to a current Wiki page", async () => {
+    const data = await readJson("public/data/tarkov-data.json");
+    const itemsById = new Map(data.items.map((item) => [item.id, item]));
+    const requiredItems = data.quests.flatMap((quest) => quest.requiredItems);
+
+    expect(requiredItems).not.toHaveLength(0);
+    for (const requirement of requiredItems) {
+      expect(itemsById.get(requirement.itemId)?.wikiPageLink).toMatch(
+        /^https:\/\/escapefromtarkov\.fandom\.com\/wiki\//,
+      );
+    }
+
+    expect(data.items.find((item) => item.name === "Arena poster 1")?.wikiPageLink).toBe(
+      "https://escapefromtarkov.fandom.com/wiki/Arena_advertisement_poster",
+    );
+  });
 });

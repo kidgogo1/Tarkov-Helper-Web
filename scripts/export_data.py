@@ -46,6 +46,13 @@ EXPECTED_REFERENCED_ITEM_ICONS = 475
 EXPECTED_MAP_ICON_FILES = 25
 EXPECTED_EXPORTED_QUEST_REQUIRED_ITEMS = 623
 
+# Keep legacy database identities while following current Wiki page titles.
+WIKI_ITEM_LINK_CORRECTIONS = {
+    "https://escapefromtarkov.fandom.com/wiki/Arena_poster_1": (
+        "https://escapefromtarkov.fandom.com/wiki/Arena_advertisement_poster"
+    ),
+}
+
 
 def parse_args() -> argparse.Namespace:
     project_root = Path(__file__).resolve().parents[1]
@@ -180,7 +187,9 @@ def export_items(
             "shortNameEn": row["ShortNameEN"],
             "shortNameKo": row["ShortNameKO"],
             "shortNameJa": row["ShortNameJA"],
-            "wikiPageLink": row["WikiPageLink"],
+            "wikiPageLink": WIKI_ITEM_LINK_CORRECTIONS.get(
+                row["WikiPageLink"], row["WikiPageLink"]
+            ),
             "category": row["Category"],
             "categories": split_values(row["Categories"], "|"),
             "isDogtagItem": bool(row["IsDogtagItem"]),

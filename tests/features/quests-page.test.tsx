@@ -140,6 +140,7 @@ const testData: TarkovData = {
       name: "Salewa first aid kit",
       nameEn: "Salewa first aid kit",
       nameKo: "살레와 구급낭",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Salewa_first_aid_kit",
       categories: ["Medical"],
       isDogtagItem: false,
     },
@@ -629,6 +630,55 @@ describe("QuestsPage", () => {
     expect(onOpenQuest).toHaveBeenLastCalledWith("q-follow");
 
     fireEvent.click(within(detail).getByRole("button", { name: /살레와 구급낭/ }));
+    expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
+  });
+
+  it("opens a required item's exact Wiki page in a separate safe tab", () => {
+    renderPage(vi.fn(), "q-main");
+
+    const detail = screen.getByRole("article", { name: "퀘스트 상세" });
+    const requiredItems = within(detail)
+      .getByRole("heading", { name: "필수 아이템" })
+      .closest("section")!;
+    const wikiLink = within(requiredItems).getByRole("link", {
+      name: "살레와 구급낭 위키 열기",
+    });
+
+    expect(wikiLink).toHaveAttribute(
+      "href",
+      "https://escapefromtarkov.fandom.com/wiki/Salewa_first_aid_kit",
+    );
+    expect(wikiLink).toHaveAttribute("target", "_blank");
+    expect(wikiLink.getAttribute("rel")?.split(/\s+/)).toEqual(
+      expect.arrayContaining(["noopener", "noreferrer"]),
+    );
+  });
+
+  it("keeps required-item navigation without showing a made-up Wiki link", () => {
+    const onOpenItem = vi.fn();
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={{
+            ...testData,
+            items: [{ ...testData.items[0], wikiPageLink: undefined }],
+          }}
+          focusQuestId="q-main"
+          onOpenItem={onOpenItem}
+          onOpenMap={vi.fn()}
+        />
+      </AppStoreProvider>,
+    );
+
+    const detail = screen.getByRole("article", { name: "퀘스트 상세" });
+    const requiredItems = within(detail)
+      .getByRole("heading", { name: "필수 아이템" })
+      .closest("section")!;
+
+    expect(
+      within(requiredItems).queryByRole("link", { name: /살레와 구급낭 위키 열기/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(requiredItems).getByRole("button", { name: /살레와 구급낭/ }));
     expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
   });
 
