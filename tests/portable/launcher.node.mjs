@@ -19,6 +19,70 @@ test("portable Start allows slow machines to finish authenticated readiness", as
   );
 });
 
+test("portable logs use a bounded mutex and never persist raw child output", async () => {
+  const launcher = await readFile(launcherPath, "utf8");
+  assert.match(launcher, /function Protect-PortableLogMessage/);
+  assert.match(launcher, /WaitOne\(200\)/);
+  assert.match(launcher, /Threading\.AbandonedMutexException/);
+  assert.match(launcher, /function Rotate-PortableLogFile/);
+  assert.match(launcher, /protectedPortableLogPaths = \[Collections\.Generic\.HashSet\[string\]\]/);
+  assert.match(launcher, /if \(-not \$script:protectedPortableLogPaths\.Contains\(\$candidateLogPath\)\)/);
+  assert.match(launcher, /1048576/);
+  assert.match(launcher, /\.previous/);
+  assert.doesNotMatch(launcher, /RedirectStandard(?:Output|Error)/);
+  assert.doesNotMatch(launcher, /(?:server|worker)\.(?:stdout|stderr)\.log/);
+});
+
+test("every native overlay internal failure is recorded before returning the generic error", async () => {
+  const launcher = await readFile(launcherPath, "utf8");
+  const lines = launcher.split(/\r?\n/);
+  const nativeFailureLines = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /-Code "NATIVE_FAILURE"/.test(line));
+  assert.ok(nativeFailureLines.length > 0);
+  for (const { index } of nativeFailureLines) {
+    assert.match(
+      lines.slice(Math.max(0, index - 5), index).join("\n"),
+      /Write-PortableLog/,
+      `NATIVE_FAILURE at launcher.ps1:${index + 1} must have a nearby durable diagnostic event`,
+    );
+  }
+});
+
+test("portable background failures and fatal serve exits record causes distinct from a normal stop", async () => {
+  const launcher = await readFile(launcherPath, "utf8");
+  assert.match(launcher, /Screenshot watcher startup failed: \$\(\$_\.Exception\.GetType\(\)\.Name\): \$\(\$_\.Exception\.Message\)/);
+  assert.match(launcher, /Screenshot watcher reconciliation failed: \$\(\$_\.Exception\.GetType\(\)\.Name\): \$\(\$_\.Exception\.Message\)/);
+  assert.match(launcher, /Native overlay periodic reconciliation failed: \$\(\$_\.Exception\.GetType\(\)\.Name\): \$\(\$_\.Exception\.Message\)/);
+  assert.match(launcher, /Server terminated unexpectedly: \$\(\$_\.Exception\.GetType\(\)\.Name\): \$\(\$_\.Exception\.Message\)/);
+  assert.match(launcher, /Server preflight failed: \$\(\$_\.Exception\.GetType\(\)\.Name\): \$\(\$_\.Exception\.Message\)/);
+  assert.match(launcher, /Screenshot watcher cleanup failed:/);
+  assert.match(launcher, /Listener cleanup failed:/);
+  assert.match(launcher, /Instance state cleanup failed:/);
+  assert.match(launcher, /Server stopped normally\./);
+});
+
+test("portable logger sanitizes legacy server current and previous logs before appending", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-legacy-server-log-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  await mkdir(appRoot, { recursive: true });
+  await mkdir(stateDirectory, { recursive: true });
+  await writeFile(path.join(stateDirectory, "server.log"), `Authorization: Bearer ${"D".repeat(100)} legacy-server-current`, "utf8");
+  await writeFile(path.join(stateDirectory, "server.previous.log"), "C:/Users/O'Brien/legacy-server-previous/file.ps1", "utf8");
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+
+  const result = spawnSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcherPath,
+    "-Action", "Serve", "-Root", appRoot, "-NoBrowser", "-StateDirectory", stateDirectory,
+  ], { encoding: "utf8", windowsHide: true });
+  assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+  const current = await readFile(path.join(stateDirectory, "server.log"), "utf8");
+  const previous = await readFile(path.join(stateDirectory, "server.previous.log"), "utf8");
+  assert.doesNotMatch(`${current}\n${previous}`, /legacy-server-current|legacy-server-previous|O'Brien|D{20}/i);
+  assert.match(current, /index\.html is missing/);
+});
+
 test("portable Start archives a stale staged update from another completed installation", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-stale-update-"));
   const packageRoot = path.join(temporaryParent, "Tarkov Helper 바로 실행 v1.0.20");

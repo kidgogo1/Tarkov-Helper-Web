@@ -35,6 +35,182 @@ test("the PowerShell updater is UTF-8 BOM encoded for Windows PowerShell", async
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
 });
 
+test("worker and broker logs share the bounded redacted logging contract", async () => {
+  for (const scriptPath of [workerPath, brokerPath]) {
+    const source = await readFile(scriptPath, "utf8");
+    assert.match(source, /function Protect-UpdateLogMessage/);
+    assert.match(source, /function Rotate-UpdateLogFile/);
+    assert.match(source, /protectedUpdateLogPaths = \[Collections\.Generic\.HashSet\[string\]\]/);
+    assert.match(source, /if \(-not \$script:protectedUpdateLogPaths\.Contains\(\$candidateLogPath\)\)/);
+    assert.match(source, /WaitOne\(200\)/);
+    assert.match(source, /1048576/);
+    assert.match(source, /\.previous/);
+  }
+  const launcher = await readFile(launcherPath, "utf8");
+  const broker = await readFile(brokerPath, "utf8");
+  for (const source of [launcher, broker]) {
+    assert.doesNotMatch(source, /RedirectStandard(?:Output|Error)/);
+    assert.doesNotMatch(source, /(?:server|worker|update-new|update-rollback)\.(?:stdout|stderr)\.log/);
+  }
+});
+
+test("the runtime sanitizer removes short named secrets and multiline injection", { skip: process.platform !== "win32" }, () => {
+  const canaries = [
+    "apiKey=short-api", "claimId=short-claim", "overlayId=short-overlay",
+    "candidateId=short-candidate", "healthNonce=short-health", "updateNonce=short-update",
+    "controlToken=short-control", "leaseToken=short-lease",
+  ];
+  const opaqueCredential = `--${"A".repeat(39)}--`;
+  const longOpaqueCredential = `--${"C".repeat(100)}--`;
+  const boundaryCredential = `--${"B".repeat(39)}--`;
+  const boundaryQuotedSecret = "\u0085".repeat(16_184) + `password="FIRSTPART ${"S".repeat(500)}"`;
+  for (const [scriptPath, functionName] of [
+    [launcherPath, "Protect-PortableLogMessage"],
+    [workerPath, "Protect-UpdateLogMessage"],
+    [brokerPath, "Protect-UpdateLogMessage"],
+  ]) {
+    const result = spawnSync(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", [
+      "$tokens = $null; $errors = $null",
+      "$ast = [Management.Automation.Language.Parser]::ParseFile($env:TARKOV_HELPER_LOG_SCRIPT, [ref]$tokens, [ref]$errors)",
+      "if ($errors.Count -ne 0) { exit 2 }",
+      "$function = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $env:TARKOV_HELPER_LOG_FUNCTION }, $true) | Select-Object -First 1",
+      "if ($null -eq $function) { exit 3 }",
+      "Invoke-Expression $function.Extent.Text",
+      "$caseNames = @('API_KEY','CLAIM_ID','OVERLAY_ID','CANDIDATE_ID','HEALTH_NONCE','UPDATE_NONCE','CONTROL_TOKEN','LEASE_TOKEN','QUOTED','URL','FILE_URI','PATH','APOSTROPHE_PATH','COOKIE','HEADER','JSON_PASSWORD','JSON_API_KEY','OPAQUE','LONG_OPAQUE','BOUNDARY_OPAQUE','UNTERMINATED','BOUNDARY_QUOTED','CONTROLS')",
+      "foreach ($caseName in $caseNames) { & $env:TARKOV_HELPER_LOG_FUNCTION ([Environment]::GetEnvironmentVariable(('TARKOV_HELPER_LOG_CASE_' + $caseName))) }",
+    ].join("; ")], {
+      encoding: "utf8",
+      windowsHide: true,
+      env: {
+        ...process.env,
+        TARKOV_HELPER_LOG_SCRIPT: scriptPath,
+        TARKOV_HELPER_LOG_FUNCTION: functionName,
+        TARKOV_HELPER_LOG_CASE_API_KEY: canaries[0],
+        TARKOV_HELPER_LOG_CASE_CLAIM_ID: canaries[1],
+        TARKOV_HELPER_LOG_CASE_OVERLAY_ID: canaries[2],
+        TARKOV_HELPER_LOG_CASE_CANDIDATE_ID: canaries[3],
+        TARKOV_HELPER_LOG_CASE_HEALTH_NONCE: canaries[4],
+        TARKOV_HELPER_LOG_CASE_UPDATE_NONCE: canaries[5],
+        TARKOV_HELPER_LOG_CASE_CONTROL_TOKEN: canaries[6],
+        TARKOV_HELPER_LOG_CASE_LEASE_TOKEN: canaries[7],
+        TARKOV_HELPER_LOG_CASE_QUOTED: 'token="quoted secret canary"',
+        TARKOV_HELPER_LOG_CASE_URL: "https://canary-user:canary-pass@example.test/path?apiKey=query-canary#fragment-canary",
+        TARKOV_HELPER_LOG_CASE_FILE_URI: "file:///C:/Users/file-uri-canary/OneDrive - Company/file.ps1",
+        TARKOV_HELPER_LOG_CASE_PATH: "C:/Users/path-canary/OneDrive - Company/file.ps1",
+        TARKOV_HELPER_LOG_CASE_APOSTROPHE_PATH: "C:/Users/O'Brien/apostrophe-path-canary/file.ps1",
+        TARKOV_HELPER_LOG_CASE_COOKIE: "Cookie: sid=cookie-one; refresh=cookie-two",
+        TARKOV_HELPER_LOG_CASE_HEADER: "Authorization: Bearer abc; refreshCredential=LEAKME Proxy-Authorization: Basic xyz, signature=LEAK2 X-Tarkov-Update: tok; extra=LEAK3",
+        TARKOV_HELPER_LOG_CASE_JSON_PASSWORD: '{"password":"hunter2"}',
+        TARKOV_HELPER_LOG_CASE_JSON_API_KEY: '{"apiKey":"abc123"}',
+        TARKOV_HELPER_LOG_CASE_OPAQUE: opaqueCredential,
+        TARKOV_HELPER_LOG_CASE_LONG_OPAQUE: longOpaqueCredential,
+        TARKOV_HELPER_LOG_CASE_BOUNDARY_OPAQUE: "\u0085".repeat(16_370) + boundaryCredential,
+        TARKOV_HELPER_LOG_CASE_UNTERMINATED: 'password="hunter2 secret-suffix',
+        TARKOV_HELPER_LOG_CASE_BOUNDARY_QUOTED: boundaryQuotedSecret,
+        TARKOV_HELPER_LOG_CASE_CONTROLS: "safe\r\nforged-event\u0085forged-nel-event\u2028forged-line-event\u2029forged-paragraph-event",
+      },
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    for (const canary of canaries) assert.doesNotMatch(result.stdout, new RegExp(canary.split("=")[1], "i"));
+    assert.doesNotMatch(result.stdout, /canary-user|canary-pass|query-canary|fragment-canary|cookie-one|cookie-two|secret canary|file-uri-canary|path-canary|apostrophe-path-canary|LEAKME|LEAK2|LEAK3|hunter2|secret-suffix|abc123|AAAAAAAA|BBBBBBBB|CCCCCCCC|FIRSTPART|SSSSSSSSSS/i);
+    assert.doesNotMatch(result.stdout, /file:\/*/i);
+    assert.doesNotMatch(result.stdout, /[\r\n]forged-event/);
+    assert.doesNotMatch(result.stdout, /\u0085/);
+    assert.doesNotMatch(result.stdout, /[\u2028\u2029]/);
+    assert.match(result.stdout, /\[REDACTED\]/);
+    assert.match(result.stdout, /\[TRUNCATED\]/);
+  }
+});
+
+test("worker diagnostics sanitize legacy current and previous logs before appending", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-worker-log-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const opaque = "A".repeat(100);
+  const missingPackage = path.join(temporaryRoot, `Authorization=Bearer ${opaque}`);
+  await mkdir(updateDirectory, { recursive: true });
+  const legacyCanary = `Authorization: Bearer ${opaque}; legacy-current-canary C:/Users/O'Brien/private/file.ps1`;
+  const legacyPreviousCanary = `token=${"B".repeat(100)} legacy-previous-canary`;
+  await writeFile(path.join(updateDirectory, "worker.log"), Buffer.concat([
+    Buffer.alloc(1_100_000, 0x78), Buffer.from(`\n${legacyCanary}`, "utf8"),
+  ]));
+  await writeFile(path.join(updateDirectory, "worker.previous.log"), legacyPreviousCanary, "utf8");
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+
+  const result = runPowerShell(workerPath, [
+    "-Action", "Check", "-PackageRoot", missingPackage, "-StateDirectory", stateDirectory, "-Port", "41753",
+  ]);
+  assert.equal(result.status, 8, `${result.stdout}\n${result.stderr}`);
+  const previous = await readFile(path.join(updateDirectory, "worker.previous.log"), "utf8");
+  const current = await readFile(path.join(updateDirectory, "worker.log"), "utf8");
+  assert.ok(Buffer.byteLength(current, "utf8") <= 1_048_576);
+  assert.ok(Buffer.byteLength(previous, "utf8") <= 1_048_576);
+  assert.doesNotMatch(`${current}\n${previous}`, /legacy-current-canary|legacy-previous-canary|O'Brien|A{20}|B{20}/i);
+  assert.match(current, /\[REDACTED\]/);
+});
+
+test("a logging failure does not replace the worker's terminal status or exit code", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-worker-log-failure-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  await mkdir(path.join(updateDirectory, "worker.log"), { recursive: true });
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+
+  const result = runPowerShell(workerPath, [
+    "-Action", "Check", "-PackageRoot", path.join(temporaryRoot, "missing"), "-StateDirectory", stateDirectory, "-Port", "41753",
+  ]);
+  assert.equal(result.status, 8, `${result.stdout}\n${result.stderr}`);
+  const status = JSON.parse(await readFile(path.join(updateDirectory, "status.json"), "utf8"));
+  assert.deepEqual({ state: status.state, operation: status.operation, code: status.code }, {
+    state: "ERROR", operation: "CHECK", code: "INVALID_RELEASE",
+  });
+});
+
+test("broker terminal failure sanitizes legacy current and previous logs", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-broker-log-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const planPath = path.join(updateDirectory, "pending.json");
+  await mkdir(updateDirectory, { recursive: true });
+  await writeFile(planPath, "{}", "utf8");
+  await writeFile(path.join(updateDirectory, "broker.log"), `Authorization: Bearer ${"C".repeat(100)} legacy-broker-current`, "utf8");
+  await writeFile(path.join(updateDirectory, "broker.previous.log"), "C:/Users/O'Brien/legacy-broker-previous/file.ps1", "utf8");
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+
+  const result = runPowerShell(brokerPath, [
+    "-PlanPath", planPath, "-ExpectedPackageRoot", path.join(temporaryRoot, "package"),
+    "-StateDirectory", stateDirectory, "-Port", "41753", "-SkipRunOnce",
+  ]);
+  assert.equal(result.status, 20, `${result.stdout}\n${result.stderr}`);
+  const previous = await readFile(path.join(updateDirectory, "broker.previous.log"), "utf8");
+  const current = await readFile(path.join(updateDirectory, "broker.log"), "utf8");
+  assert.ok(Buffer.byteLength(current, "utf8") <= 1_048_576);
+  assert.doesNotMatch(`${current}\n${previous}`, /legacy-broker-current|legacy-broker-previous|O'Brien|C{20}/i);
+  assert.match(current, /Apply failed/);
+});
+
+test("broker Add-Type initialization failure is logged before update state functions load", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-broker-init-log-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const injectedBroker = path.join(temporaryRoot, "app-update-broker.ps1");
+  const source = await readFile(brokerPath, "utf8");
+  const injected = source.replace(
+    "try { Add-Type -TypeDefinition $treeVerifierSource -Language CSharp }",
+    'try { throw [InvalidOperationException]::new("injected Add-Type failure") }',
+  );
+  assert.notEqual(injected, source, "the broker Add-Type site must remain covered by the injected failure test");
+  await writeFile(injectedBroker, injected, "utf8");
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+
+  const result = runPowerShell(injectedBroker, [
+    "-PlanPath", path.join(stateDirectory, "app-update", "pending.json"),
+    "-ExpectedPackageRoot", path.join(temporaryRoot, "package"),
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(result.status, 20, `${result.stdout}\n${result.stderr}`);
+  assert.match(await readFile(path.join(stateDirectory, "app-update", "broker.log"), "utf8"), /Broker initialization failed: InvalidOperationException: injected Add-Type failure/);
+});
+
 function digest(contents) {
   return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }

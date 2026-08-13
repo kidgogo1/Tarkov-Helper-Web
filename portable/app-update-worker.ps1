@@ -25,12 +25,172 @@ $maximumReleaseBytes = 2MB
 $maximumArchiveBytes = 512MB
 $candidateLifetimeHours = 24
 $utf8 = New-Object Text.UTF8Encoding($false, $true)
+$protectedUpdateLogPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
+function Protect-UpdateLogMessage {
+    param([string]$Message)
+    $text = if ($null -eq $Message) { "" } else { [string]$Message }
+    $wasTruncated = $text.Length -gt 16384
+    if ($wasTruncated) { $text = $text.Substring(0, [Math]::Min($text.Length, 16512)) }
+    $text = $text -replace '[\u0000-\u001f\u007f-\u009f\u2028\u2029]+', ' '
+    $text = $text -replace '(?i)\b(cookie|set-cookie)\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)\b(authorization|proxy-authorization|x-tarkov-[a-z0-9-]+)\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])["'']?(token|nonce|secret|password|api[-_]?key|claimid|overlayid|candidateid|healthnonce|updatenonce|controltoken|leasetoken)["'']?\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)\b(https?://)[^/@\s]+@', '$1[REDACTED]@'
+    $text = $text -replace '(?i)(https?://[^\s?#]+)[?#][^\s]+', '$1?[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])file:/+(?:localhost/)?(?:[A-Z]:/)?[^"<>\u0000-\u001f\u007f-\u009f\u2028\u2029]+', '[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])(?:[A-Z]:[\\/]|\\\\)[^"<>|\r\n\u2028\u2029]+', '[REDACTED]'
+    $text = $text -replace '(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{40,}(?![A-Za-z0-9_-])', '[REDACTED]'
+    $text = $text.Trim()
+    if ($wasTruncated) {
+        if ($text.Length -gt 128) { $text = $text.Substring(0, $text.Length - 128).TrimEnd() } else { $text = "" }
+        $text = ($text + " [TRUNCATED]").Trim()
+    }
+    $encoding = New-Object Text.UTF8Encoding($false)
+    if ($encoding.GetByteCount($text) -gt 3800) {
+        $low = 0; $high = $text.Length
+        while ($low -lt $high) {
+            $middle = [int][Math]::Ceiling(($low + $high) / 2.0)
+            if ($encoding.GetByteCount($text.Substring(0, $middle) + "...") -le 3800) { $low = $middle } else { $high = $middle - 1 }
+        }
+        $text = $text.Substring(0, $low) + "..."
+    }
+    return $text
+}
+
+function Get-UpdateLogDirectory {
+    $directory = Join-Path ([IO.Path]::GetFullPath($StateDirectory)) "app-update"
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update log directory is unsafe.") }
+    return $directory
+}
+
+function Get-UpdateLogMutexName {
+    $normalized = [IO.Path]::GetFullPath($StateDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).ToUpperInvariant()
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalized)) } finally { $hash.Dispose() }
+    return "Local\TarkovHelperWebLog" + ([BitConverter]::ToString($bytes, 0, 12)).Replace("-", "")
+}
+
+function Protect-UpdateLogFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not [IO.File]::Exists($Path)) { return $true }
+    $temporary = $null
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        $directory = [IO.Path]::GetDirectoryName($fullPath)
+        if (([IO.DirectoryInfo]::new($directory).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The diagnostic log directory is unsafe.") }
+        $info = [IO.FileInfo]::new($fullPath)
+        if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The diagnostic log file is unsafe.") }
+        $maximumBytes = 1048576
+        $tailOnly = $info.Length -gt $maximumBytes
+        $count = [int][Math]::Min([long]$maximumBytes, $info.Length)
+        $bytes = New-Object byte[] $count
+        $source = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            if ($tailOnly) { $null = $source.Seek(-[long]$count, [IO.SeekOrigin]::End) }
+            $offset = 0
+            while ($offset -lt $count) { $read = $source.Read($bytes, $offset, $count - $offset); if ($read -le 0) { break }; $offset += $read }
+            if ($offset -ne $count) { throw [IO.EndOfStreamException]::new("The diagnostic log could not be read safely.") }
+        } finally { $source.Dispose() }
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $text = $strictUtf8.GetString($bytes)
+        if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+        if ($tailOnly) {
+            $boundary = [regex]::Match($text, '\r\n|[\r\n\u0085\u2028\u2029]')
+            $text = if ($boundary.Success) { $text.Substring($boundary.Index + $boundary.Length) } else { "" }
+        }
+        $segments = [regex]::Split($text, '\r\n|[\r\n\u0085\u2028\u2029]')
+        $protectedLines = New-Object 'Collections.Generic.List[string]'
+        $first = [int][Math]::Max(0, $segments.Length - 4096)
+        for ($index = $first; $index -lt $segments.Length; $index++) {
+            $protected = Protect-UpdateLogMessage ([string]$segments[$index])
+            if (-not [string]::IsNullOrWhiteSpace($protected)) { $protectedLines.Add($protected) }
+        }
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $keptReverse = New-Object 'Collections.Generic.List[string]'
+        $keptBytes = 0
+        for ($index = $protectedLines.Count - 1; $index -ge 0; $index--) {
+            $line = $protectedLines[$index] + [Environment]::NewLine
+            $lineBytes = $encoding.GetByteCount($line)
+            if (($keptBytes + $lineBytes) -gt $maximumBytes) { break }
+            $keptReverse.Add($line); $keptBytes += $lineBytes
+        }
+        $builder = New-Object Text.StringBuilder
+        for ($index = $keptReverse.Count - 1; $index -ge 0; $index--) { $null = $builder.Append($keptReverse[$index]) }
+        $sanitizedBytes = $encoding.GetBytes($builder.ToString())
+        $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".sanitize.tmp")
+        [IO.File]::WriteAllBytes($temporary, $sanitizedBytes)
+        [IO.File]::Delete($fullPath); [IO.File]::Move($temporary, $fullPath)
+        return $true
+    } catch {
+        try { if ([IO.File]::Exists($Path)) { [IO.File]::Delete($Path) }; return -not [IO.File]::Exists($Path) } catch { return $false }
+    } finally {
+        if ($null -ne $temporary -and [IO.File]::Exists($temporary)) { try { [IO.File]::Delete($temporary) } catch { } }
+    }
+}
+
+function Rotate-UpdateLogFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(0, 4096)][int]$AdditionalBytes = 0
+    )
+    $temporary = $null
+    try {
+        if (-not [IO.File]::Exists($Path) -or (([IO.FileInfo]::new($Path)).Length + $AdditionalBytes) -le 1048576) { return }
+        $directory = [IO.Path]::GetDirectoryName($Path)
+        $previous = Join-Path $directory ([IO.Path]::GetFileNameWithoutExtension($Path) + ".previous" + [IO.Path]::GetExtension($Path))
+        $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($previous) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
+        $source = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $count = [int][Math]::Min([long]1048576, $source.Length)
+            $null = $source.Seek(-[long]$count, [IO.SeekOrigin]::End)
+            $bytes = New-Object byte[] $count; $offset = 0
+            while ($offset -lt $count) { $read = $source.Read($bytes, $offset, $count - $offset); if ($read -le 0) { break }; $offset += $read }
+            if ($offset -ne $count) { throw [IO.EndOfStreamException]::new("The diagnostic log tail could not be read.") }
+            [IO.File]::WriteAllBytes($temporary, $bytes)
+        } finally { $source.Dispose() }
+        if ([IO.File]::Exists($previous)) { [IO.File]::Delete($previous) }
+        [IO.File]::Move($temporary, $previous); [IO.File]::Delete($Path)
+    } catch { } finally {
+        if ($null -ne $temporary -and [IO.File]::Exists($temporary)) { try { [IO.File]::Delete($temporary) } catch { } }
+    }
+}
+
+function Write-WorkerLog {
+    param([string]$Message)
+    $mutex = $null; $hasMutex = $false
+    try {
+        $directory = Get-UpdateLogDirectory
+        $mutex = [Threading.Mutex]::new($false, (Get-UpdateLogMutexName))
+        try { $hasMutex = $mutex.WaitOne(200) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
+        if (-not $hasMutex) { return }
+        $path = Join-Path $directory "worker.log"
+        $previousPath = Join-Path $directory "worker.previous.log"
+        foreach ($candidateLogPath in @($previousPath, $path)) {
+            if (-not $script:protectedUpdateLogPaths.Contains($candidateLogPath)) {
+                if (-not (Protect-UpdateLogFile -Path $candidateLogPath)) { return }
+                $null = $script:protectedUpdateLogPaths.Add($candidateLogPath)
+            }
+        }
+        $line = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) + " " + (Protect-UpdateLogMessage $Message) + [Environment]::NewLine
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $lineBytes = $encoding.GetByteCount($line)
+        Rotate-UpdateLogFile -Path $path -AdditionalBytes $lineBytes
+        if ([IO.File]::Exists($path) -and (([IO.FileInfo]::new($path)).Length + $lineBytes) -gt 1048576) { return }
+        [IO.File]::AppendAllText($path, $line, $encoding)
+    } catch { } finally {
+        if ($hasMutex) { try { $mutex.ReleaseMutex() } catch { } }
+        if ($null -ne $mutex) { try { $mutex.Dispose() } catch { } }
+    }
+}
 
 if (
     -not [string]::IsNullOrWhiteSpace($StartedAt) -and
     $StartedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$'
 ) {
-    throw [ArgumentException]::new("The update operation start time is invalid.")
+    Write-WorkerLog "Worker initialization failed because the operation start time is invalid."
+    exit 8
 }
 
 $supportSource = @'
@@ -615,7 +775,8 @@ namespace TarkovHelperUpdateSupport
 }
 '@
 
-Add-Type -TypeDefinition $supportSource -Language CSharp -ReferencedAssemblies @("System.IO.Compression.dll")
+try { Add-Type -TypeDefinition $supportSource -Language CSharp -ReferencedAssemblies @("System.IO.Compression.dll") }
+catch { Write-WorkerLog "Worker initialization failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"; exit 8 }
 
 function Get-UpdateDirectory {
     $directory = Join-Path ([IO.Path]::GetFullPath($StateDirectory)) "app-update"
@@ -674,14 +835,6 @@ function Write-ErrorStatus {
         code = $Code
         message = $Message
     })
-}
-
-function Write-WorkerLog {
-    param([string]$Message)
-    try {
-        $line = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) + " " + $Message + [Environment]::NewLine
-        [IO.File]::AppendAllText((Join-Path (Get-UpdateDirectory) "worker.log"), $line, (New-Object Text.UTF8Encoding($false)))
-    } catch { }
 }
 
 function Invoke-TestStageCrash {
@@ -1447,22 +1600,23 @@ try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     $packagePath = [IO.Path]::GetFullPath($PackageRoot)
     $statePath = [IO.Path]::GetFullPath($StateDirectory)
+    Write-WorkerLog "$operation worker started for package '$packagePath'."
     if ($statePath.Equals($packagePath, [StringComparison]::OrdinalIgnoreCase) -or $statePath.StartsWith($packagePath.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         throw [IO.IOException]::new("The runtime state must be outside the replaceable package root.")
     }
     $lockPath = Join-Path (Get-UpdateDirectory) "worker.lock"
     try { $lock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
-    catch [IO.IOException] { exit 3 }
+    catch [IO.IOException] { Write-WorkerLog "$operation exited with code 3 because another worker owns the update lock."; exit 3 }
     $updateDirectory = Get-UpdateDirectory
     foreach ($transactionName in @("pending.json", "apply-journal.json")) {
         $transactionPath = Join-Path $updateDirectory $transactionName
         try { $transactionExists = Test-Path -LiteralPath $transactionPath -ErrorAction Stop }
         catch {
-            Write-WorkerLog "$operation refused because the prior apply transaction state could not be inspected."
+            Write-WorkerLog "$operation exited with code 3 because the prior apply transaction state could not be inspected."
             exit 3
         }
         if ($transactionExists) {
-            Write-WorkerLog "$operation refused while a prior apply transaction still requires cleanup."
+            Write-WorkerLog "$operation exited with code 3 while a prior apply transaction still requires cleanup."
             exit 3
         }
     }
@@ -1472,11 +1626,13 @@ try {
     $configuration = Get-UpdateConfiguration
     if ($Action -eq "Check") { Invoke-Check -Configuration $configuration -CurrentVersion $version }
     else { Invoke-Stage -Configuration $configuration -CurrentVersion $version }
+    Write-WorkerLog "$operation completed with exit code 0."
     exit 0
 } catch [Security.Cryptography.CryptographicException] {
     Write-WorkerLog "$operation cryptographic rejection: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     $code = if ($_.Exception.Message -match '(?i)digest|hash|checksum') { "HASH_MISMATCH" } else { "SIGNATURE_INVALID" }
     Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code $code -Message "The downloaded update could not be authenticated."
+    Write-WorkerLog "$operation completed with exit code 4."
     exit 4
 } catch [Net.WebException] {
     $message = [string]$_.Exception.Message
@@ -1492,20 +1648,24 @@ try {
     } else {
         Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "NETWORK_ERROR" -Message "The public GitHub release could not be reached."
     }
+    Write-WorkerLog "$operation completed with exit code 5."
     exit 5
 } catch [InvalidOperationException] {
     Write-WorkerLog "$operation configuration rejection: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "NOT_CONFIGURED" -Message "Public updates are not configured for this package."
+    Write-WorkerLog "$operation completed with exit code 6."
     exit 6
 } catch [ArgumentException] {
     Write-WorkerLog "$operation candidate rejection: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code "CANDIDATE_MISMATCH" -Message "The reviewed update candidate is no longer valid."
+    Write-WorkerLog "$operation completed with exit code 7."
     exit 7
 } catch {
     Write-WorkerLog "$operation trust-policy rejection: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     $code = if ($Action -eq "Check") { "INVALID_RELEASE" } else { "INVALID_PACKAGE" }
     $message = if ($Action -eq "Check") { "The public release did not satisfy the update trust policy." } else { "The downloaded package did not satisfy the update trust policy." }
     try { Write-ErrorStatus -Operation $operation -CurrentVersion $currentVersion -Code $code -Message $message } catch { }
+    Write-WorkerLog "$operation completed with exit code 8."
     exit 8
 } finally {
     if ($null -ne $lock) { $lock.Dispose() }

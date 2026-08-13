@@ -21,6 +21,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
 $utf8 = New-Object Text.UTF8Encoding($false, $true)
+$protectedUpdateLogPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $healthPath = "/.tarkov-helper-portable"
 $script:testMoveFailuresRemaining = 0
 if ([int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_MOVE_FAILURES, [ref]$script:testMoveFailuresRemaining) -and $script:testMoveFailuresRemaining -lt 0) {
@@ -45,6 +46,170 @@ if ($script:testCommitCleanupCrash -notin @("BACKUP", "CANDIDATE", "JOURNAL", "R
 $script:testCommittedRecoveryCrashAfterStart = $env:TARKOV_HELPER_UPDATE_TEST_COMMITTED_RECOVERY_CRASH_AFTER_START -ceq "1"
 $script:testServerNeverPublishesInstance = $env:TARKOV_HELPER_UPDATE_TEST_SERVER_NEVER_PUBLISHES_INSTANCE -ceq "1"
 $script:commitWriteAttemptedAfterHealth = $false
+
+function Protect-UpdateLogMessage {
+    param([string]$Message)
+    $text = if ($null -eq $Message) { "" } else { [string]$Message }
+    $wasTruncated = $text.Length -gt 16384
+    if ($wasTruncated) { $text = $text.Substring(0, [Math]::Min($text.Length, 16512)) }
+    $text = $text -replace '[\u0000-\u001f\u007f-\u009f\u2028\u2029]+', ' '
+    $text = $text -replace '(?i)\b(cookie|set-cookie)\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)\b(authorization|proxy-authorization|x-tarkov-[a-z0-9-]+)\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])["'']?(token|nonce|secret|password|api[-_]?key|claimid|overlayid|candidateid|healthnonce|updatenonce|controltoken|leasetoken)["'']?\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)\b(https?://)[^/@\s]+@', '$1[REDACTED]@'
+    $text = $text -replace '(?i)(https?://[^\s?#]+)[?#][^\s]+', '$1?[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])file:/+(?:localhost/)?(?:[A-Z]:/)?[^"<>\u0000-\u001f\u007f-\u009f\u2028\u2029]+', '[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])(?:[A-Z]:[\\/]|\\\\)[^"<>|\r\n\u2028\u2029]+', '[REDACTED]'
+    $text = $text -replace '(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{40,}(?![A-Za-z0-9_-])', '[REDACTED]'
+    $text = $text.Trim()
+    if ($wasTruncated) {
+        if ($text.Length -gt 128) { $text = $text.Substring(0, $text.Length - 128).TrimEnd() } else { $text = "" }
+        $text = ($text + " [TRUNCATED]").Trim()
+    }
+    $encoding = New-Object Text.UTF8Encoding($false)
+    if ($encoding.GetByteCount($text) -gt 3800) {
+        $low = 0; $high = $text.Length
+        while ($low -lt $high) {
+            $middle = [int][Math]::Ceiling(($low + $high) / 2.0)
+            if ($encoding.GetByteCount($text.Substring(0, $middle) + "...") -le 3800) { $low = $middle } else { $high = $middle - 1 }
+        }
+        $text = $text.Substring(0, $low) + "..."
+    }
+    return $text
+}
+
+function Get-UpdateLogDirectory {
+    $directory = Join-Path ([IO.Path]::GetFullPath($StateDirectory)) "app-update"
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update log directory is unsafe.") }
+    return $directory
+}
+
+function Get-UpdateLogMutexName {
+    $normalized = [IO.Path]::GetFullPath($StateDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).ToUpperInvariant()
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalized)) } finally { $hash.Dispose() }
+    return "Local\TarkovHelperWebLog" + ([BitConverter]::ToString($bytes, 0, 12)).Replace("-", "")
+}
+
+function Protect-UpdateLogFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not [IO.File]::Exists($Path)) { return $true }
+    $temporary = $null
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        $directory = [IO.Path]::GetDirectoryName($fullPath)
+        if (([IO.DirectoryInfo]::new($directory).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The diagnostic log directory is unsafe.") }
+        $info = [IO.FileInfo]::new($fullPath)
+        if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The diagnostic log file is unsafe.") }
+        $maximumBytes = 1048576
+        $tailOnly = $info.Length -gt $maximumBytes
+        $count = [int][Math]::Min([long]$maximumBytes, $info.Length)
+        $bytes = New-Object byte[] $count
+        $source = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            if ($tailOnly) { $null = $source.Seek(-[long]$count, [IO.SeekOrigin]::End) }
+            $offset = 0
+            while ($offset -lt $count) { $read = $source.Read($bytes, $offset, $count - $offset); if ($read -le 0) { break }; $offset += $read }
+            if ($offset -ne $count) { throw [IO.EndOfStreamException]::new("The diagnostic log could not be read safely.") }
+        } finally { $source.Dispose() }
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $text = $strictUtf8.GetString($bytes)
+        if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+        if ($tailOnly) {
+            $boundary = [regex]::Match($text, '\r\n|[\r\n\u0085\u2028\u2029]')
+            $text = if ($boundary.Success) { $text.Substring($boundary.Index + $boundary.Length) } else { "" }
+        }
+        $segments = [regex]::Split($text, '\r\n|[\r\n\u0085\u2028\u2029]')
+        $protectedLines = New-Object 'Collections.Generic.List[string]'
+        $first = [int][Math]::Max(0, $segments.Length - 4096)
+        for ($index = $first; $index -lt $segments.Length; $index++) {
+            $protected = Protect-UpdateLogMessage ([string]$segments[$index])
+            if (-not [string]::IsNullOrWhiteSpace($protected)) { $protectedLines.Add($protected) }
+        }
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $keptReverse = New-Object 'Collections.Generic.List[string]'
+        $keptBytes = 0
+        for ($index = $protectedLines.Count - 1; $index -ge 0; $index--) {
+            $line = $protectedLines[$index] + [Environment]::NewLine
+            $lineBytes = $encoding.GetByteCount($line)
+            if (($keptBytes + $lineBytes) -gt $maximumBytes) { break }
+            $keptReverse.Add($line); $keptBytes += $lineBytes
+        }
+        $builder = New-Object Text.StringBuilder
+        for ($index = $keptReverse.Count - 1; $index -ge 0; $index--) { $null = $builder.Append($keptReverse[$index]) }
+        $sanitizedBytes = $encoding.GetBytes($builder.ToString())
+        $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".sanitize.tmp")
+        [IO.File]::WriteAllBytes($temporary, $sanitizedBytes)
+        [IO.File]::Delete($fullPath); [IO.File]::Move($temporary, $fullPath)
+        return $true
+    } catch {
+        try { if ([IO.File]::Exists($Path)) { [IO.File]::Delete($Path) }; return -not [IO.File]::Exists($Path) } catch { return $false }
+    } finally {
+        if ($null -ne $temporary -and [IO.File]::Exists($temporary)) { try { [IO.File]::Delete($temporary) } catch { } }
+    }
+}
+
+function Rotate-UpdateLogFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(0, 4096)][int]$AdditionalBytes = 0
+    )
+    $temporary = $null
+    try {
+        if (-not [IO.File]::Exists($Path) -or (([IO.FileInfo]::new($Path)).Length + $AdditionalBytes) -le 1048576) { return }
+        $directory = [IO.Path]::GetDirectoryName($Path)
+        $previous = Join-Path $directory ([IO.Path]::GetFileNameWithoutExtension($Path) + ".previous" + [IO.Path]::GetExtension($Path))
+        $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($previous) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
+        $source = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $count = [int][Math]::Min([long]1048576, $source.Length)
+            $null = $source.Seek(-[long]$count, [IO.SeekOrigin]::End)
+            $bytes = New-Object byte[] $count; $offset = 0
+            while ($offset -lt $count) { $read = $source.Read($bytes, $offset, $count - $offset); if ($read -le 0) { break }; $offset += $read }
+            if ($offset -ne $count) { throw [IO.EndOfStreamException]::new("The diagnostic log tail could not be read.") }
+            [IO.File]::WriteAllBytes($temporary, $bytes)
+        } finally { $source.Dispose() }
+        if ([IO.File]::Exists($previous)) { [IO.File]::Delete($previous) }
+        [IO.File]::Move($temporary, $previous); [IO.File]::Delete($Path)
+    } catch { } finally {
+        if ($null -ne $temporary -and [IO.File]::Exists($temporary)) { try { [IO.File]::Delete($temporary) } catch { } }
+    }
+}
+
+function Write-BrokerLog {
+    param([string]$Message)
+    $mutex = $null; $hasMutex = $false
+    try {
+        $directory = Get-UpdateLogDirectory
+        $mutex = [Threading.Mutex]::new($false, (Get-UpdateLogMutexName))
+        try { $hasMutex = $mutex.WaitOne(200) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
+        if (-not $hasMutex) { return }
+        $path = Join-Path $directory "broker.log"
+        $previousPath = Join-Path $directory "broker.previous.log"
+        foreach ($candidateLogPath in @($previousPath, $path)) {
+            if (-not $script:protectedUpdateLogPaths.Contains($candidateLogPath)) {
+                if (-not (Protect-UpdateLogFile -Path $candidateLogPath)) { return }
+                $null = $script:protectedUpdateLogPaths.Add($candidateLogPath)
+            }
+        }
+        $line = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) + " " + (Protect-UpdateLogMessage $Message) + [Environment]::NewLine
+        $lineBytes = $utf8.GetByteCount($line)
+        Rotate-UpdateLogFile -Path $path -AdditionalBytes $lineBytes
+        if ([IO.File]::Exists($path) -and (([IO.FileInfo]::new($path)).Length + $lineBytes) -gt 1048576) { return }
+        [IO.File]::AppendAllText($path, $line, $utf8)
+    } catch { } finally {
+        if ($hasMutex) { try { $mutex.ReleaseMutex() } catch { } }
+        if ($null -ne $mutex) { try { $mutex.Dispose() } catch { } }
+    }
+}
+
+function Get-UpdateDirectory {
+    $directory = Join-Path ([IO.Path]::GetFullPath($StateDirectory)) "app-update"
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update state directory is unsafe.") }
+    return $directory
+}
 
 $treeVerifierSource = @'
 using System;
@@ -125,14 +290,8 @@ namespace TarkovHelperUpdateBrokerSupport
 }
 '@
 
-Add-Type -TypeDefinition $treeVerifierSource -Language CSharp
-
-function Get-UpdateDirectory {
-    $directory = Join-Path ([IO.Path]::GetFullPath($StateDirectory)) "app-update"
-    [IO.Directory]::CreateDirectory($directory) | Out-Null
-    if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update state directory is unsafe.") }
-    return $directory
-}
+try { Add-Type -TypeDefinition $treeVerifierSource -Language CSharp }
+catch { Write-BrokerLog "Broker initialization failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"; exit 20 }
 
 function Write-AtomicJson {
     param([string]$Path, [object]$Value)
@@ -264,14 +423,6 @@ function Read-ApplyJournal {
 function Write-Status {
     param([object]$Value)
     Write-AtomicJson -Path (Get-StatusPath) -Value $Value
-}
-
-function Write-BrokerLog {
-    param([string]$Message)
-    try {
-        $line = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture) + " " + $Message + [Environment]::NewLine
-        [IO.File]::AppendAllText((Join-Path (Get-UpdateDirectory) "broker.log"), $line, $utf8)
-    } catch { }
 }
 
 function Test-SafeSibling {
@@ -542,9 +693,7 @@ function Start-Server {
         )
     }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
-    $directory = Get-UpdateDirectory
-    $out = Join-Path $directory ("$Label.stdout.log"); $error = Join-Path $directory ("$Label.stderr.log")
-    return Start-Process -FilePath $powershell -ArgumentList $argumentLine -WorkingDirectory $StateDirectory -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $error
+    return Start-Process -FilePath $powershell -ArgumentList $argumentLine -WorkingDirectory $StateDirectory -WindowStyle Hidden -PassThru
 }
 
 function Wait-Healthy {
@@ -917,7 +1066,7 @@ $canReconcile = $false
 $commitIsIrreversible = $false
 try {
     try { $hasMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
-    if (-not $hasMutex) { exit 12 }
+    if (-not $hasMutex) { Write-BrokerLog "Broker exited with code 12 because another apply process owns the update mutex."; exit 12 }
     $plan = Read-BoundedJson -Path $PlanPath -MaximumBytes 65536
     Assert-ExactObject -Value $plan -Properties @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt") -Label "pending update"
     if (
@@ -1075,11 +1224,13 @@ try {
             }
             $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
             Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase "COMMITTED" -ServerPid ([int]$instance.pid) -ServerProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
+            Write-BrokerLog "Broker completed committed recovery with exit code 0."
             exit 0
         } catch {
             # COMMITTED is terminal. Server bootstrap or metadata cleanup can be
             # retried, but the installed tree must never re-enter rollback.
             Write-BrokerLog "Committed update recovery was deferred: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+            Write-BrokerLog "Broker completed committed recovery with exit code 20."
             exit 20
         }
     }
@@ -1093,6 +1244,7 @@ try {
         } elseif ($journal.phase -in @("ROLLING_BACK", "ROLLED_BACK")) {
             if ($rootIsOld) {
                 Complete-Rollback -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -BackupRoot $backupRoot -FailedRoot $failedRoot -Parent $parent -EscapedLeaf $escapedLeaf -HealthyOldInstance $instance
+                Write-BrokerLog "Broker completed rollback recovery with exit code 10."
                 exit 10
             }
             if ($rootIsNew -and $backupIsOld) {
@@ -1104,6 +1256,7 @@ try {
         } elseif ($rootIsNew -and $backupIsOld) {
             $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
             Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase ([string]$journal.phase) -ServerPid ([int]$instance.pid) -ServerProcessStartTimeUtc ([string]$instance.processStartTimeUtc)
+            Write-BrokerLog "Broker completed update recovery with exit code 0."
             exit 0
         } elseif ($rootIsOld) {
             Stop-RecordedServer -Instance $instance -Root $packageRoot -Nonce ([string]$plan.healthNonce)
@@ -1146,25 +1299,29 @@ try {
     Write-Journal -Plan $plan -Phase "NEW_STARTED" -BackupRoot $backupRoot -FailedRoot $failedRoot -ServerPid $newServer.Id -ServerProcessStartTimeUtc $newServerStart
     if (-not (Wait-Healthy -Process $newServer -Root $packageRoot -Nonce ([string]$plan.healthNonce))) { throw [InvalidOperationException]::new("The updated server failed its authenticated health check.") }
     Complete-Commit -Plan $plan -BackupRoot $backupRoot -FailedRoot $failedRoot -ExistingPhase "NEW_STARTED" -ServerPid $newServer.Id -ServerProcessStartTimeUtc $newServerStart
+    Write-BrokerLog "Broker completed update apply with exit code 0."
     exit 0
 } catch {
     Write-BrokerLog "Apply failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     if ($commitIsIrreversible -or $script:commitWriteAttemptedAfterHealth) {
         Write-BrokerLog "The authenticated commit boundary was reached; rollback is permanently disabled for this transaction."
+        Write-BrokerLog "Broker exited with code 20 after the irreversible commit boundary."
         exit 20
     }
-    if ($null -eq $plan -or -not $canReconcile) { exit 20 }
+    if ($null -eq $plan -or -not $canReconcile) { Write-BrokerLog "Broker exited with code 20 before rollback reconciliation was safe."; exit 20 }
     try {
         $rollbackRootIdentity = Get-IdentityIfPresent $packageRoot
         if (Test-Identity -Identity $rollbackRootIdentity -Version ([string]$plan.latestVersion) -Commit ([string]$plan.latestCommit)) {
             $rollbackBackupIdentity = Get-IdentityIfPresent $backupRoot
             if (-not (Test-Identity -Identity $rollbackBackupIdentity -Version ([string]$plan.currentVersion) -Commit ([string]$plan.currentCommit))) {
                 Write-BrokerLog "Rollback was refused because the installed new tree has no authenticated old backup."
+                Write-BrokerLog "Broker exited with code 20 because rollback authentication failed."
                 exit 20
             }
         }
     } catch {
         Write-BrokerLog "Rollback pair validation failed closed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        Write-BrokerLog "Broker exited with code 20 because rollback pair validation failed."
         exit 20
     }
     try {
@@ -1216,10 +1373,12 @@ try {
         $restored = Get-VersionDocument $packageRoot
         if ($restored.version -cne $plan.currentVersion -or $restored.commit -cne $plan.currentCommit) { throw [IO.InvalidDataException]::new("The rollback tree is not the previous package.") }
         Complete-Rollback -Plan $plan -PackageRoot $packageRoot -StageRoot $stageRoot -BackupRoot $backupRoot -FailedRoot $failedRoot -Parent $parent -EscapedLeaf $escapedLeaf -HealthyOldInstance $null
+        Write-BrokerLog "Broker completed rollback with exit code 10."
         exit 10
     } catch {
         Write-BrokerLog "Rollback failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
         try { Write-Status ([ordered]@{ state = "ERROR"; currentVersion = [string]$plan.currentVersion; operation = "ROLLBACK"; code = "ROLLBACK_FAILED"; message = "The update could not restore the previous version automatically." }) } catch { }
+        Write-BrokerLog "Broker completed rollback with exit code 11."
         exit 11
     }
 } finally {

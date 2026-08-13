@@ -58,6 +58,7 @@ $nativeOverlayClaims = [Collections.Generic.Dictionary[string, object]]::new([St
 $nativeOverlayCompletedClaims = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
 $nativeOverlayRecords = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
 $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
+$protectedPortableLogPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $appUpdateProtocolVersion = 1
 $appUpdateToken = $null
 $legacyAppUpdateCleanupFinished = $false
@@ -280,6 +281,7 @@ function Start-ScreenshotWatcher {
         Reconcile-ScreenshotWatcher
         Write-PortableConfig -ScreenshotFolderPath $selectedFolder
     } catch {
+        Write-PortableLog "Screenshot watcher startup failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
         Stop-ScreenshotWatcher
         $script:screenshotWatcherState = [pscustomobject]@{
             state = "ERROR"
@@ -332,6 +334,7 @@ function Update-ScreenshotWatcher {
         }
     }
     if ($watcherError) {
+        Write-PortableLog "Screenshot watcher reported a background error and will be restarted."
         Stop-ScreenshotWatcher
         $script:screenshotWatcherState = [pscustomobject]@{
             state = "ERROR"
@@ -365,6 +368,7 @@ function Update-ScreenshotWatcher {
         try {
             Reconcile-ScreenshotWatcher
         } catch {
+            Write-PortableLog "Screenshot watcher reconciliation failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
             Stop-ScreenshotWatcher
             $script:screenshotWatcherState = [pscustomobject]@{
                 state = "ERROR"
@@ -1084,21 +1088,188 @@ function Initialize-StateDirectory {
     }
 }
 
+function Protect-PortableLogMessage {
+    param([string]$Message)
+
+    $text = if ($null -eq $Message) { "" } else { [string]$Message }
+    $wasTruncated = $text.Length -gt 16384
+    if ($wasTruncated) { $text = $text.Substring(0, [Math]::Min($text.Length, 16512)) }
+    $text = $text -replace '[\u0000-\u001f\u007f-\u009f\u2028\u2029]+', ' '
+    $text = $text -replace '(?i)\b(cookie|set-cookie)\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)\b(authorization|proxy-authorization|x-tarkov-[a-z0-9-]+)\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])["'']?(token|nonce|secret|password|api[-_]?key|claimid|overlayid|candidateid|healthnonce|updatenonce|controltoken|leasetoken)["'']?\s*[:=].*$', '${1}=[REDACTED]'
+    $text = $text -replace '(?i)\b(https?://)[^/@\s]+@', '$1[REDACTED]@'
+    $text = $text -replace '(?i)(https?://[^\s?#]+)[?#][^\s]+', '$1?[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])file:/+(?:localhost/)?(?:[A-Z]:/)?[^"<>\u0000-\u001f\u007f-\u009f\u2028\u2029]+', '[REDACTED]'
+    $text = $text -replace '(?i)(?<![A-Za-z0-9_])(?:[A-Z]:[\\/]|\\\\)[^"<>|\r\n\u2028\u2029]+', '[REDACTED]'
+    $text = $text -replace '(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{40,}(?![A-Za-z0-9_-])', '[REDACTED]'
+    $text = $text.Trim()
+    if ($wasTruncated) {
+        if ($text.Length -gt 128) { $text = $text.Substring(0, $text.Length - 128).TrimEnd() } else { $text = "" }
+        $text = ($text + " [TRUNCATED]").Trim()
+    }
+    $encoding = New-Object Text.UTF8Encoding($false)
+    if ($encoding.GetByteCount($text) -gt 3800) {
+        $low = 0; $high = $text.Length
+        while ($low -lt $high) {
+            $middle = [int][Math]::Ceiling(($low + $high) / 2.0)
+            if ($encoding.GetByteCount($text.Substring(0, $middle) + "...") -le 3800) { $low = $middle } else { $high = $middle - 1 }
+        }
+        $text = $text.Substring(0, $low) + "..."
+    }
+    return $text
+}
+
+function Get-PortableLogMutexName {
+    $normalized = [IO.Path]::GetFullPath($StateDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).ToUpperInvariant()
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalized)) } finally { $hash.Dispose() }
+    return "Local\TarkovHelperWebLog" + ([BitConverter]::ToString($bytes, 0, 12)).Replace("-", "")
+}
+
+function Protect-PortableLogFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not [IO.File]::Exists($Path)) { return $true }
+    $temporary = $null
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        $directory = [IO.Path]::GetDirectoryName($fullPath)
+        $directoryInfo = [IO.DirectoryInfo]::new($directory)
+        if (($directoryInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The diagnostic log directory is unsafe.") }
+        $info = [IO.FileInfo]::new($fullPath)
+        if (($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw [IO.IOException]::new("The diagnostic log file is unsafe.")
+        }
+        $maximumBytes = 1048576
+        $tailOnly = $info.Length -gt $maximumBytes
+        $count = [int][Math]::Min([long]$maximumBytes, $info.Length)
+        $bytes = New-Object byte[] $count
+        $source = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            if ($tailOnly) { $null = $source.Seek(-[long]$count, [IO.SeekOrigin]::End) }
+            $offset = 0
+            while ($offset -lt $count) {
+                $read = $source.Read($bytes, $offset, $count - $offset)
+                if ($read -le 0) { break }
+                $offset += $read
+            }
+            if ($offset -ne $count) { throw [IO.EndOfStreamException]::new("The diagnostic log could not be read safely.") }
+        } finally {
+            $source.Dispose()
+        }
+
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $text = $strictUtf8.GetString($bytes)
+        if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+        if ($tailOnly) {
+            $boundary = [regex]::Match($text, '\r\n|[\r\n\u0085\u2028\u2029]')
+            $text = if ($boundary.Success) { $text.Substring($boundary.Index + $boundary.Length) } else { "" }
+        }
+
+        $segments = [regex]::Split($text, '\r\n|[\r\n\u0085\u2028\u2029]')
+        $protectedLines = New-Object 'Collections.Generic.List[string]'
+        $first = [int][Math]::Max(0, $segments.Length - 4096)
+        for ($index = $first; $index -lt $segments.Length; $index++) {
+            $protected = Protect-PortableLogMessage ([string]$segments[$index])
+            if (-not [string]::IsNullOrWhiteSpace($protected)) { $protectedLines.Add($protected) }
+        }
+
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $keptReverse = New-Object 'Collections.Generic.List[string]'
+        $keptBytes = 0
+        for ($index = $protectedLines.Count - 1; $index -ge 0; $index--) {
+            $line = $protectedLines[$index] + [Environment]::NewLine
+            $lineBytes = $encoding.GetByteCount($line)
+            if (($keptBytes + $lineBytes) -gt $maximumBytes) { break }
+            $keptReverse.Add($line)
+            $keptBytes += $lineBytes
+        }
+        $builder = New-Object Text.StringBuilder
+        for ($index = $keptReverse.Count - 1; $index -ge 0; $index--) { $null = $builder.Append($keptReverse[$index]) }
+        $sanitizedBytes = $encoding.GetBytes($builder.ToString())
+        $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($fullPath) + "." + [Guid]::NewGuid().ToString("N") + ".sanitize.tmp")
+        [IO.File]::WriteAllBytes($temporary, $sanitizedBytes)
+        [IO.File]::Delete($fullPath)
+        [IO.File]::Move($temporary, $fullPath)
+        return $true
+    } catch {
+        try {
+            if ([IO.File]::Exists($Path)) { [IO.File]::Delete($Path) }
+            return -not [IO.File]::Exists($Path)
+        } catch {
+            return $false
+        }
+    } finally {
+        if ($null -ne $temporary -and [IO.File]::Exists($temporary)) { try { [IO.File]::Delete($temporary) } catch { } }
+    }
+}
+
+function Rotate-PortableLogFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(0, 4096)][int]$AdditionalBytes = 0
+    )
+
+    $temporary = $null
+    try {
+        if (-not [IO.File]::Exists($Path) -or (([IO.FileInfo]::new($Path)).Length + $AdditionalBytes) -le 1048576) { return }
+        $directory = [IO.Path]::GetDirectoryName($Path)
+        $previous = Join-Path $directory ([IO.Path]::GetFileNameWithoutExtension($Path) + ".previous" + [IO.Path]::GetExtension($Path))
+        $temporary = Join-Path $directory ("." + [IO.Path]::GetFileName($previous) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
+        $source = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $count = [int][Math]::Min([long]1048576, $source.Length)
+            $null = $source.Seek(-[long]$count, [IO.SeekOrigin]::End)
+            $bytes = New-Object byte[] $count
+            $offset = 0
+            while ($offset -lt $count) {
+                $read = $source.Read($bytes, $offset, $count - $offset)
+                if ($read -le 0) { break }
+                $offset += $read
+            }
+            if ($offset -ne $count) { throw [IO.EndOfStreamException]::new("The diagnostic log tail could not be read.") }
+            [IO.File]::WriteAllBytes($temporary, $bytes)
+        } finally { $source.Dispose() }
+        if ([IO.File]::Exists($previous)) { [IO.File]::Delete($previous) }
+        [IO.File]::Move($temporary, $previous)
+        [IO.File]::Delete($Path)
+    } catch {
+        # Diagnostics are best effort and must never change launcher behavior.
+    } finally {
+        if ($null -ne $temporary -and [IO.File]::Exists($temporary)) { try { [IO.File]::Delete($temporary) } catch { } }
+    }
+}
+
 function Write-PortableLog {
     param([string]$Message)
 
+    $mutex = $null
+    $hasMutex = $false
     try {
         $directory = Initialize-StateDirectory
+        $mutex = [Threading.Mutex]::new($false, (Get-PortableLogMutexName))
+        try { $hasMutex = $mutex.WaitOne(200) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
+        if (-not $hasMutex) { return }
         $logPath = Join-Path $directory "server.log"
-        if ([IO.File]::Exists($logPath) -and (Get-Item -LiteralPath $logPath).Length -gt 1048576) {
-            $previousLog = Join-Path $directory "server.previous.log"
-            if ([IO.File]::Exists($previousLog)) { Remove-Item -LiteralPath $previousLog -Force }
-            Move-Item -LiteralPath $logPath -Destination $previousLog
+        $previousLogPath = Join-Path $directory "server.previous.log"
+        foreach ($candidateLogPath in @($previousLogPath, $logPath)) {
+            if (-not $script:protectedPortableLogPaths.Contains($candidateLogPath)) {
+                if (-not (Protect-PortableLogFile -Path $candidateLogPath)) { return }
+                $null = $script:protectedPortableLogPaths.Add($candidateLogPath)
+            }
         }
-        $line = "{0} {1}{2}" -f [DateTime]::UtcNow.ToString("o"), $Message, [Environment]::NewLine
-        [IO.File]::AppendAllText($logPath, $line, [Text.Encoding]::UTF8)
+        $line = "{0} {1}{2}" -f [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture), (Protect-PortableLogMessage $Message), [Environment]::NewLine
+        $encoding = New-Object Text.UTF8Encoding($false)
+        $lineBytes = $encoding.GetByteCount($line)
+        Rotate-PortableLogFile -Path $logPath -AdditionalBytes $lineBytes
+        if ([IO.File]::Exists($logPath) -and (([IO.FileInfo]::new($logPath)).Length + $lineBytes) -gt 1048576) { return }
+        [IO.File]::AppendAllText($logPath, $line, $encoding)
     } catch {
         # Logging must not prevent startup or shutdown.
+    } finally {
+        if ($hasMutex) { try { $mutex.ReleaseMutex() } catch { } }
+        if ($null -ne $mutex) { try { $mutex.Dispose() } catch { } }
     }
 }
 
@@ -2205,6 +2376,7 @@ function Update-NativeOverlayBridge {
         } catch {
             # A failed reconciliation must not stop the local server. Mutating API
             # calls will continue to fail closed until identity can be proven again.
+            Write-PortableLog "Native overlay periodic reconciliation failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
         }
     }
 }
@@ -3194,9 +3366,7 @@ function Start-AppUpdateWorker {
     $arguments = @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $worker, "-Action", $WorkerAction, "-PackageRoot", $Context.PackageRoot, "-StateDirectory", $StateDirectory, "-Port", [string]$BoundPort, "-StartedAt", $now)
     if ($WorkerAction -eq "Stage") { $arguments += @("-CandidateId", $ReviewedCandidate) }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
-    $directory = Get-AppUpdateDirectory
-    $child = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput (Join-Path $directory "worker.stdout.log") -RedirectStandardError (Join-Path $directory "worker.stderr.log")
+    $child = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
     $startedAt = $child.StartTime.ToUniversalTime().ToString("o", [Globalization.CultureInfo]::InvariantCulture)
     Write-AppUpdateJson -Path (Get-AppUpdateWorkerPath) -Value ([pscustomobject]@{ protocolVersion = 1; pid = $child.Id; processStartTimeUtc = $startedAt; operation = $WorkerAction.ToUpperInvariant() })
     return $initial
@@ -3999,6 +4169,7 @@ function Invoke-PendingAppUpdate {
     if (-not [IO.File]::Exists($pendingPath)) { return $null }
     if ($Port -eq 0) {
         [Console]::Error.WriteLine("A staged update requires a fixed local port.")
+        Write-PortableLog "Staged update apply was refused because the local port is not fixed."
         return 2
     }
     $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
@@ -4018,11 +4189,13 @@ function Invoke-PendingAppUpdate {
         $pending.brokerSha256 -isnot [string] -or $pending.brokerSha256 -notmatch '^[0-9a-f]{64}$'
     ) {
         [Console]::Error.WriteLine("The staged update state is invalid and was preserved.")
+        Write-PortableLog "Staged update apply was refused because pending state validation failed."
         return 2
     }
     $source = Join-Path $expectedPackageRoot "app-update-broker.ps1"
     if (-not [IO.File]::Exists($source) -or (Get-FileSha256Hex -Path $source) -cne [string]$pending.brokerSha256) {
         [Console]::Error.WriteLine("The trusted app update broker does not match the staged update state.")
+        Write-PortableLog "Staged update apply was refused because the trusted broker digest did not match."
         return 2
     }
     $directory = Get-AppUpdateDirectory
@@ -4071,6 +4244,7 @@ function Invoke-PendingAppUpdate {
     if (-not $process.HasExited) {
         try { $process.Kill(); $null = $process.WaitForExit(5000) } catch { }
         [Console]::Error.WriteLine("The staged update broker did not finish within the safety timeout.")
+        Write-PortableLog "App update broker exceeded its 60 second safety timeout."
         return 2
     }
     $process.WaitForExit()
@@ -4393,6 +4567,7 @@ function Start-PortableBroker {
         }
         if (-not $hasMutex) {
             [Console]::Error.WriteLine("Tarkov Helper startup is already in progress.")
+            Write-PortableLog "Startup was refused because another startup owns the control mutex."
             return 2
         }
 
@@ -4408,6 +4583,7 @@ function Start-PortableBroker {
         $existing = Read-PortableInstance
         if ($stateExists -and $null -eq $existing) {
             [Console]::Error.WriteLine("The Tarkov Helper instance state is invalid and was preserved; startup cannot continue safely.")
+            Write-PortableLog "Startup was refused because instance state is invalid."
             return 2
         }
         if ($null -ne $existing -and (Test-RecordedProcessIdentity -Instance $existing)) {
@@ -4421,6 +4597,7 @@ function Start-PortableBroker {
             }
             if (-not $isAuthenticated) {
                 [Console]::Error.WriteLine("The running Tarkov Helper instance could not be authenticated. Its state was preserved; try again or use Tarkov Helper Stop before restarting.")
+                Write-PortableLog "Startup was refused because the recorded running instance could not be authenticated."
                 return 2
             }
 
@@ -4440,6 +4617,7 @@ function Start-PortableBroker {
                 -not $existingRootPath.Equals($expectedRootPath, [StringComparison]::OrdinalIgnoreCase)
             ) {
                 [Console]::Error.WriteLine("A different Tarkov Helper build is already running. Use Tarkov Helper Stop, then restart this build.")
+                Write-PortableLog "Startup was refused because a different authenticated build is already running."
                 return 2
             }
             $existingUrl = "http://127.0.0.1:$($existing.port)/"
@@ -4472,12 +4650,8 @@ function Start-PortableBroker {
             $serveArguments += @("-ScreenshotFolder", $expectedScreenshotFolder)
         }
         $argumentLine = ($serveArguments | ForEach-Object { ConvertTo-ProcessArgument -Value ([string]$_) }) -join " "
-        $directory = $expectedStateDirectory
-        $serveOut = Join-Path $directory "server.stdout.log"
-        $serveError = Join-Path $directory "server.stderr.log"
         $child = Start-Process -FilePath $powershellPath -ArgumentList $argumentLine `
-            -WorkingDirectory $directory -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $serveOut -RedirectStandardError $serveError
+            -WorkingDirectory $expectedStateDirectory -WindowStyle Hidden -PassThru
 
         # Antivirus scans and first-run PowerShell/JIT startup can make a cold
         # launch exceed ten seconds even though the child is healthy. Keep the
@@ -4505,11 +4679,12 @@ function Start-PortableBroker {
         }
 
         [Console]::Error.WriteLine("Tarkov Helper could not start. See server.log in the local runtime directory.")
-        Write-PortableLog "Background server startup failed."
+        $childResult = if ($child.HasExited) { " Child exit code: $($child.ExitCode)." } else { " Readiness timed out." }
+        Write-PortableLog "Background server startup failed.$childResult"
         return 2
     } catch {
         [Console]::Error.WriteLine("Tarkov Helper could not start.")
-        Write-PortableLog "Background server startup failed: $($_.Exception.GetType().Name)"
+        Write-PortableLog "Background server startup failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
         return 2
     } finally {
         if ($null -ne $child -and -not $keepChild) {
@@ -4531,6 +4706,7 @@ function Stop-PortableBroker {
         }
         if (-not $hasMutex) {
             [Console]::Error.WriteLine("Tarkov Helper startup or shutdown is already in progress.")
+            Write-PortableLog "Shutdown was refused because another control operation is in progress."
             return 2
         }
 
@@ -4540,6 +4716,7 @@ function Stop-PortableBroker {
         if ($null -eq $instance) {
             if ($stateExists) {
                 [Console]::Error.WriteLine("The Tarkov Helper instance state is invalid and was preserved; it cannot be authenticated safely.")
+                Write-PortableLog "Shutdown was refused because instance state is invalid."
                 return 2
             }
             return 0
@@ -4560,6 +4737,7 @@ function Stop-PortableBroker {
                 Start-Sleep -Milliseconds 100
             }
             [Console]::Error.WriteLine("Tarkov Helper did not stop in time.")
+            Write-PortableLog "Authenticated shutdown timed out."
             return 2
         } catch {
             if (-not (Test-RecordedProcessIdentity -Instance $instance)) {
@@ -4567,6 +4745,7 @@ function Stop-PortableBroker {
                 return 0
             }
             [Console]::Error.WriteLine("The recorded Tarkov Helper instance could not be authenticated and was not terminated: $($_.Exception.Message)")
+            Write-PortableLog "Authenticated shutdown failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
             return 2
         }
     } finally {
@@ -4582,6 +4761,7 @@ if ($Action -eq "Stop") {
     exit (Stop-PortableBroker)
 }
 
+$serverCompletedNormally = $false
 try {
     $rootPath = [IO.Path]::GetFullPath($Root)
     $Root = $rootPath
@@ -4590,12 +4770,14 @@ try {
     }
 } catch {
     [Console]::Error.WriteLine("Invalid app or screenshot directory.")
+    Write-PortableLog "Server startup rejected an invalid app or screenshot directory: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     exit 2
 }
 
 $indexPath = Join-Path $rootPath "index.html"
 if (-not [IO.File]::Exists($indexPath)) {
     [Console]::Error.WriteLine("The app directory must contain index.html: $rootPath")
+    Write-PortableLog "Server startup failed because app/index.html is missing from '$rootPath'."
     exit 2
 }
 
@@ -4608,19 +4790,20 @@ try {
     [IO.Directory]::SetCurrentDirectory([IO.Path]::GetFullPath($serveWorkingDirectory))
 } catch {
     [Console]::Error.WriteLine("The local runtime directory could not be used as the server working directory.")
+    Write-PortableLog "Server startup could not use the runtime working directory: $($_.Exception.GetType().Name): $($_.Exception.Message)"
     exit 2
 }
 
-$buildIdentity = Get-AppBuildIdentity -AppRoot $rootPath
-$healthResponse = "tarkov-helper-web-portable-v1:$buildIdentity"
-$controlToken = Get-RandomToken
-$nativeOverlayToken = Get-RandomToken
-$appUpdateToken = Get-RandomToken
-$appUpdateContext = Get-AppUpdateContext -AppRoot $rootPath
-
-$serveMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Serve"))
+$serveMutex = $null
 $hasServeMutex = $false
 try {
+    $buildIdentity = Get-AppBuildIdentity -AppRoot $rootPath
+    $healthResponse = "tarkov-helper-web-portable-v1:$buildIdentity"
+    $controlToken = Get-RandomToken
+    $nativeOverlayToken = Get-RandomToken
+    $appUpdateToken = Get-RandomToken
+    $appUpdateContext = Get-AppUpdateContext -AppRoot $rootPath
+    $serveMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Serve"))
     try {
         $hasServeMutex = $serveMutex.WaitOne(0)
     } catch [Threading.AbandonedMutexException] {
@@ -4644,16 +4827,18 @@ try {
             exit 0
         }
         [Console]::Error.WriteLine("Another Tarkov Helper server already owns this local runtime state.")
+        Write-PortableLog "Server startup was refused because another server owns the runtime mutex."
         exit 2
     }
+    $rootPrefix = $rootPath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
 } catch {
-    if ($hasServeMutex) { $serveMutex.ReleaseMutex() }
-    $serveMutex.Dispose()
+    Write-PortableLog "Server preflight failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    if ($hasServeMutex) { try { $serveMutex.ReleaseMutex() } catch { } }
+    if ($null -ne $serveMutex) { try { $serveMutex.Dispose() } catch { } }
     throw
 }
 
-$rootPrefix = $rootPath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
 $handledRequests = 0
 $shutdownRequested = $false
 $ownsInstanceState = $false
@@ -4687,6 +4872,7 @@ try {
             [Console]::Error.WriteLine("Local port $Port is already used by another program.")
             [Console]::Error.WriteLine("Close that program and run Tarkov Helper again.")
             [Console]::Error.WriteLine("Details: $reuseFailure")
+            Write-PortableLog "Loopback listener startup failed: $reuseFailure"
             exit 2
         }
         [Console]::Out.WriteLine("TARKOV_HELPER_URL=$existingUrl")
@@ -4715,7 +4901,7 @@ try {
         Write-PortableLog "Server started on loopback port $boundPort."
     } catch {
         [Console]::Error.WriteLine("The local runtime state could not be written.")
-        Write-PortableLog "Runtime state initialization failed."
+        Write-PortableLog "Runtime state initialization failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
         exit 2
     }
 
@@ -5243,6 +5429,7 @@ try {
                         Send-JsonError -Stream $stream -StatusCode 422 -Reason "Unprocessable Content" `
                             -Code "INVALID_REQUEST" -Message $_.Exception.Message
                     } catch {
+                        Write-PortableLog "Native overlay claim failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
                         Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                             -Code "NATIVE_FAILURE" -Message "The native overlay bridge could not be initialized."
                     }
@@ -5288,6 +5475,7 @@ try {
                             -ProtocolVersion $nativeProtocolVersion `
                             -WindowTitle $requestObject.windowTitle
                     } catch {
+                        Write-PortableLog "Native overlay attachment failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
                         Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                             -Code "NATIVE_FAILURE" -Message "The native overlay window could not be inspected."
                         continue
@@ -5395,6 +5583,7 @@ try {
                             -Width $width -Height $height -Opacity $opacity `
                             -ProtocolVersion $nativeProtocolVersion
                     } catch {
+                        Write-PortableLog "Native overlay update failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
                         Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                             -Code "NATIVE_FAILURE" -Message "The native overlay could not be updated."
                         continue
@@ -5437,6 +5626,7 @@ try {
                     $removed = Remove-NativeOverlay -OverlayKind $overlayKind `
                         -OverlayId $requestObject.overlayId
                 } catch {
+                    Write-PortableLog "Native overlay detach failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
                     Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                         -Code "NATIVE_FAILURE" -Message "The native overlay could not be detached safely."
                     continue
@@ -5482,6 +5672,7 @@ try {
                     Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" `
                         -Code "INVALID_QUERY" -Message $_.Exception.Message
                 } catch {
+                    Write-PortableLog "Native overlay event read failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
                     Send-JsonError -Stream $stream -StatusCode 500 -Reason "Internal Server Error" `
                         -Code "NATIVE_FAILURE" -Message "The native overlay hotkey bridge could not be read."
                 }
@@ -5652,6 +5843,7 @@ try {
             Send-Response -Stream $stream -StatusCode 200 -Reason "OK" `
                 -ContentType (Get-ContentType -Path $candidatePath) -Body $body -HeadOnly:$headOnly
         } catch {
+            Write-PortableLog "Unhandled local request failure: $($_.Exception.GetType().Name): $($_.Exception.Message)"
             try {
                 if ($null -ne $stream -and $stream.CanWrite) {
                     Send-TextResponse -Stream $stream -StatusCode 500 -Reason "Internal Server Error" -Message "Internal Server Error"
@@ -5666,18 +5858,29 @@ try {
             Update-NativeOverlayBridge
         }
     }
+    $serverCompletedNormally = $true
+} catch {
+    Write-PortableLog "Server terminated unexpectedly: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    throw
 } finally {
+    $cleanupFailed = $false
     try {
         Remove-AllNativeOverlays
     } catch {
+        $cleanupFailed = $true
         Write-PortableLog "One or more native overlay restorations failed during shutdown."
     }
-    Stop-ScreenshotWatcher
-    $listener.Stop()
+    try { Stop-ScreenshotWatcher } catch { $cleanupFailed = $true; Write-PortableLog "Screenshot watcher cleanup failed: $($_.Exception.GetType().Name): $($_.Exception.Message)" }
+    try { $listener.Stop() } catch { $cleanupFailed = $true; Write-PortableLog "Listener cleanup failed: $($_.Exception.GetType().Name): $($_.Exception.Message)" }
     if ($ownsInstanceState) {
-        Remove-OwnedInstance -ProcessId $PID -ControlToken $controlToken
-        Write-PortableLog "Server stopped."
+        try {
+            Remove-OwnedInstance -ProcessId $PID -ControlToken $controlToken
+        } catch {
+            $cleanupFailed = $true
+            Write-PortableLog "Instance state cleanup failed: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        }
     }
-    if ($hasServeMutex) { $serveMutex.ReleaseMutex() }
-    $serveMutex.Dispose()
+    if ($hasServeMutex) { try { $serveMutex.ReleaseMutex() } catch { $cleanupFailed = $true; Write-PortableLog "Serve mutex release failed: $($_.Exception.GetType().Name): $($_.Exception.Message)" } }
+    if ($null -ne $serveMutex) { try { $serveMutex.Dispose() } catch { $cleanupFailed = $true; Write-PortableLog "Serve mutex disposal failed: $($_.Exception.GetType().Name): $($_.Exception.Message)" } }
+    if ($serverCompletedNormally -and -not $cleanupFailed) { Write-PortableLog "Server stopped normally." }
 }
