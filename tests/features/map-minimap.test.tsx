@@ -10,6 +10,10 @@ import {
   type MapMiniMapPlayer,
   type MapMiniMapRoute,
 } from "../../src/features/map/MapMiniMap";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 import type { MapConfig } from "../../src/types/data";
 import type { MapDisplaySettings } from "../../src/types/state";
 
@@ -235,6 +239,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("MapMiniMap", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    clearClientDiagnostics();
     setPictureInPictureController(undefined);
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("static host")));
   });
@@ -859,6 +864,30 @@ describe("MapMiniMap", () => {
     expect(api.eventSignals.every((signal) => signal.aborted)).toBe(true);
   });
 
+  it("records one diagnostic when an attached native hotkey poll terminates", async () => {
+    const api = createNativeOverlayApi({ eventBatches: [{ malformed: true }] });
+    vi.stubGlobal("fetch", api.request);
+    const pipWindow = createPictureInPictureWindow();
+    setPictureInPictureController({
+      requestWindow: vi.fn().mockResolvedValue(pipWindow as unknown as Window),
+    });
+
+    renderMiniMap();
+    await screen.findByRole("button", { name: "오버레이 위치 고정" });
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    await screen.findByText("오버레이 고정됨 · 클릭 통과 꺼짐");
+
+    await waitFor(() => expect(getClientDiagnosticSnapshot().entries).toEqual([
+      expect.objectContaining({
+        code: "NATIVE_OVERLAY_INVALID_RESPONSE",
+        count: 1,
+        operation: "EVENT_POLL",
+        source: "optional-resource",
+      }),
+    ]));
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 닫기" }));
+  });
+
   it("keeps focused PiP Alt zoom when global native hotkeys are unavailable", async () => {
     const api = createNativeOverlayApi({ globalHotkeysAvailable: false });
     vi.stubGlobal("fetch", api.request);
@@ -930,6 +959,27 @@ describe("MapMiniMap", () => {
     expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
     expect(screen.getByText("브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.")).toBeInTheDocument();
     expect(request.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
+    expect(getClientDiagnosticSnapshot().entries).toHaveLength(0);
+  });
+
+  it("records an actionable native bridge session failure without a response body", async () => {
+    const secret = "s".repeat(43);
+    const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: secret }, 503));
+    vi.stubGlobal("fetch", request);
+
+    renderMiniMap();
+    await waitFor(() => expect(request).toHaveBeenCalled());
+
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries).toEqual([
+      expect.objectContaining({
+        code: "NATIVE_OVERLAY_REQUEST_FAILED",
+        count: 1,
+        operation: "SESSION",
+        source: "optional-resource",
+      }),
+    ]);
+    expect(JSON.stringify(snapshot)).not.toContain(secret);
   });
 
   it("falls back to the chrome-free page minimap when native attachment fails", async () => {
@@ -946,6 +996,18 @@ describe("MapMiniMap", () => {
 
     expect(await screen.findByTestId("map-minimap-fallback")).toBeInTheDocument();
     expect(pipWindow.close).toHaveBeenCalledOnce();
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries).toEqual([
+      expect.objectContaining({
+        source: "optional-resource",
+        code: "NATIVE_OVERLAY_WINDOW_NOT_FOUND",
+        operation: "ATTACH",
+        count: 1,
+      }),
+    ]);
+    expect(JSON.stringify(snapshot)).not.toContain(nativeSessionPayload.token);
+    expect(JSON.stringify(snapshot)).not.toContain(nativeClaimId);
+    expect(JSON.stringify(snapshot)).not.toContain(nativeOverlayId);
     expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
     expect(screen.getByText("브라우저 상단 탭을 숨긴 페이지 안 미니맵으로 열었습니다.")).toBeInTheDocument();
   });
@@ -966,6 +1028,7 @@ describe("MapMiniMap", () => {
     expect(screen.queryByRole("group", { name: "미니맵 오버레이 제어" })).not.toBeInTheDocument();
     expect(api.order).toContain("CLAIM");
     expect(api.order).not.toContain("ATTACH");
+    expect(getClientDiagnosticSnapshot().entries).toHaveLength(0);
   });
 
   it("does not leave unusable native controls when Document PiP is unsupported", async () => {

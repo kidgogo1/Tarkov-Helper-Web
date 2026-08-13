@@ -48,6 +48,8 @@ type FetchRequest = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type NativeOverlayV2FailureHandler = (error: NativeOverlayV2ApiError) => void;
+
 const SESSION_PATH = "/api/v2/native-overlay/session";
 const CLAIM_PATH = "/api/v2/native-overlay/claims";
 const WINDOWS_PATH = "/api/v2/native-overlay/windows";
@@ -77,6 +79,26 @@ export class NativeOverlayV2ApiError extends Error {
     this.name = "NativeOverlayV2ApiError";
     this.code = code;
     this.status = status;
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  try {
+    return typeof error === "object" && error !== null &&
+      "name" in error && error.name === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
+function notifyFailure(
+  onFailure: NativeOverlayV2FailureHandler | undefined,
+  error: NativeOverlayV2ApiError,
+): void {
+  try {
+    onFailure?.(error);
+  } catch {
+    // Optional diagnostics must not affect the native bridge boundary.
   }
 }
 
@@ -284,6 +306,7 @@ async function command(
 export async function fetchNativeOverlayV2Session(
   signal?: AbortSignal,
   request: FetchRequest = globalThis.fetch,
+  onFailure?: NativeOverlayV2FailureHandler,
 ): Promise<NativeOverlayV2Session | null> {
   try {
     const response = await request(SESSION_PATH, {
@@ -291,9 +314,21 @@ export async function fetchNativeOverlayV2Session(
       headers: { Accept: "application/json" },
       signal,
     });
-    if (response.status !== 200) return null;
-    return parseSession(await readJson(response));
-  } catch {
+    if (response.status !== 200) {
+      if (response.status !== 404) {
+        notifyFailure(onFailure, new NativeOverlayV2ApiError("REQUEST_FAILED", response.status));
+      }
+      return null;
+    }
+    const session = parseSession(await readJson(response));
+    if (!session) {
+      notifyFailure(onFailure, new NativeOverlayV2ApiError("INVALID_RESPONSE", response.status));
+    }
+    return session;
+  } catch (error) {
+    if (!isAbortError(error)) {
+      notifyFailure(onFailure, new NativeOverlayV2ApiError("NETWORK_ERROR", 0));
+    }
     return null;
   }
 }

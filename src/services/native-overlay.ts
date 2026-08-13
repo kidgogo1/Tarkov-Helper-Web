@@ -72,6 +72,8 @@ type FetchRequest = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type NativeOverlayFailureHandler = (error: NativeOverlayApiError) => void;
+
 const SESSION_PATH = "/api/v1/native-overlay/session";
 const CLAIM_PATH = "/api/v1/native-overlay/claims";
 const MINIMAP_PATH = "/api/v1/native-overlay/minimap";
@@ -104,6 +106,26 @@ export class NativeOverlayApiError extends Error {
     this.name = "NativeOverlayApiError";
     this.code = code;
     this.status = status;
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  try {
+    return typeof error === "object" && error !== null &&
+      "name" in error && error.name === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
+function notifyFailure(
+  onFailure: NativeOverlayFailureHandler | undefined,
+  error: NativeOverlayApiError,
+): void {
+  try {
+    onFailure?.(error);
+  } catch {
+    // Optional diagnostics must not affect the native bridge boundary.
   }
 }
 
@@ -363,6 +385,7 @@ async function fetchCommand(
 export async function fetchNativeOverlaySession(
   signal?: AbortSignal,
   request: FetchRequest = globalThis.fetch,
+  onFailure?: NativeOverlayFailureHandler,
 ): Promise<NativeOverlaySession | null> {
   try {
     const response = await request(SESSION_PATH, {
@@ -370,9 +393,21 @@ export async function fetchNativeOverlaySession(
       headers: { Accept: "application/json" },
       signal,
     });
-    if (response.status !== 200) return null;
-    return parseSession(await readJson(response));
-  } catch {
+    if (response.status !== 200) {
+      if (response.status !== 404) {
+        notifyFailure(onFailure, new NativeOverlayApiError("REQUEST_FAILED", response.status));
+      }
+      return null;
+    }
+    const session = parseSession(await readJson(response));
+    if (!session) {
+      notifyFailure(onFailure, new NativeOverlayApiError("INVALID_RESPONSE", response.status));
+    }
+    return session;
+  } catch (error) {
+    if (!isAbortError(error)) {
+      notifyFailure(onFailure, new NativeOverlayApiError("NETWORK_ERROR", 0));
+    }
     return null;
   }
 }
@@ -436,6 +471,7 @@ export async function pollNativeOverlayEvents(
   signal: AbortSignal,
   target: EventTarget,
   request: FetchRequest = globalThis.fetch,
+  onFailure?: NativeOverlayFailureHandler,
 ): Promise<void> {
   let cursor = 0;
   let consecutiveFailures = 0;
@@ -464,7 +500,15 @@ export async function pollNativeOverlayEvents(
       const retryable = error instanceof NativeOverlayApiError &&
         (error.code === "NETWORK_ERROR" || error.status >= 500);
       consecutiveFailures += 1;
-      if (!retryable || consecutiveFailures > EVENT_POLL_RETRY_LIMIT) return;
+      if (!retryable || consecutiveFailures > EVENT_POLL_RETRY_LIMIT) {
+        notifyFailure(
+          onFailure,
+          error instanceof NativeOverlayApiError
+            ? error
+            : new NativeOverlayApiError("REQUEST_FAILED", 0),
+        );
+        return;
+      }
       nextDelayMs = Math.min(
         EVENT_POLL_INTERVAL_MS * 2 ** (consecutiveFailures - 1),
         EVENT_POLL_MAX_RETRY_DELAY_MS,

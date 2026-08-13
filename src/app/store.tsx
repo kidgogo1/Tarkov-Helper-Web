@@ -11,6 +11,7 @@ import {
 
 import type { ProfileType } from "../types/data";
 import { MAX_MAP_ROUTE_QUESTS } from "../domain/quest-map-routes";
+import { recordClientDiagnostic } from "../services/client-diagnostics";
 import {
   DEFAULT_MINI_MAP_ZOOM_IN_KEY,
   DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
@@ -548,6 +549,11 @@ function readPersistedState(): PersistedAppState {
       settings: sanitizeSettings(parsed.settings),
     };
   } catch {
+    recordClientDiagnostic({
+      source: "storage",
+      code: "STATE_READ_FAILED",
+      message: "저장된 진행 상태를 불러오지 못했습니다.",
+    });
     return createDefaultState();
   }
 }
@@ -583,6 +589,11 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       }
       return true;
     } catch {
+      recordClientDiagnostic({
+        source: "storage",
+        code: "STATE_WRITE_FAILED",
+        message: "진행 상태를 브라우저 저장 공간에 저장하지 못했습니다.",
+      });
       // The app remains usable when storage is blocked or full, but expose the
       // condition so a user does not mistake an in-memory-only session for a
       // durable save.

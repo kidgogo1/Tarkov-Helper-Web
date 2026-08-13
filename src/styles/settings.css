@@ -313,6 +313,89 @@
   color: var(--danger);
 }
 
+.client-diagnostics-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.client-diagnostics-heading,
+.diagnostic-actions,
+.diagnostic-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-diagnostics-heading {
+  justify-content: space-between;
+}
+
+.client-diagnostics-heading h4,
+.client-diagnostics-heading p,
+.diagnostic-privacy-note,
+.diagnostic-empty {
+  margin: 0;
+}
+
+.diagnostic-count {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.diagnostic-privacy-note {
+  align-items: flex-start;
+  color: var(--warning);
+  font-size: 12px;
+}
+
+.diagnostic-privacy-note svg {
+  flex: 0 0 auto;
+}
+
+.diagnostic-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.diagnostic-facts > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.diagnostic-facts > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.diagnostic-facts dt {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.diagnostic-facts dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.diagnostic-empty {
+  padding: 12px;
+  border: 1px dashed var(--line);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.diagnostic-actions {
+  flex-wrap: wrap;
+}
+
 .in-progress-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.35fr);
@@ -427,8 +510,18 @@
 
   .public-update-heading,
   .update-available-card,
-  .update-actions {
+  .update-actions,
+  .client-diagnostics-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .diagnostic-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostic-facts > div + div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 }

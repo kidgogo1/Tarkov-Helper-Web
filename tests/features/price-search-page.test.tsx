@@ -1,9 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PriceSearchPage } from "../../src/features/prices/PriceSearchPage";
 import type { ProfileType } from "../../src/types/data";
 import type { ItemPriceCatalog, LiveItemPriceQuote } from "../../src/types/prices";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 
 const catalog: ItemPriceCatalog = {
   meta: {
@@ -37,6 +41,27 @@ const catalog: ItemPriceCatalog = {
 };
 
 describe("PriceSearchPage", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("records a deduplicated optional price catalog failure", async () => {
+    clearClientDiagnostics();
+    const loadCatalog = vi.fn().mockRejectedValue(new Error("catalog unavailable"));
+    const first = render(<PriceSearchPage activeProfile="pvp" loadCatalog={loadCatalog} />);
+    expect(await screen.findByText("catalog unavailable")).toBeInTheDocument();
+    first.unmount();
+    render(<PriceSearchPage activeProfile="pvp" loadCatalog={loadCatalog} />);
+    expect(await screen.findByText("catalog unavailable")).toBeInTheDocument();
+
+    expect(getClientDiagnosticSnapshot().entries).toEqual([
+      expect.objectContaining({
+        source: "optional-resource",
+        code: "PRICE_CATALOG_LOAD_FAILED",
+        level: "warning",
+        count: 2,
+      }),
+    ]);
+  });
+
   it("searches both Korean and English and shows the active-mode snapshot", async () => {
     render(<PriceSearchPage activeProfile="pvp" loadCatalog={() => Promise.resolve(catalog)} />);
     const search = await screen.findByRole("searchbox", { name: "아이템 시세 검색" });
@@ -67,6 +92,38 @@ describe("PriceSearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Colt M4A1/ }));
     await waitFor(() => expect(screen.getByText("₽35,000")).toBeInTheDocument());
     expect(screen.getByText("실시간")).toBeInTheDocument();
+  });
+
+  it("records a live quote failure without retaining the item id or raw error", async () => {
+    clearClientDiagnostics();
+    const request = vi.fn<typeof fetch>().mockRejectedValue(new Error(
+      `${catalog.items[0].id} C:\\Users\\private-user\\quote token=${"q".repeat(43)}`,
+    ));
+    vi.stubGlobal("fetch", request);
+    render(
+      <PriceSearchPage
+        activeProfile="pvp"
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+    const search = await screen.findByRole("searchbox", { name: "아이템 시세 검색" });
+    fireEvent.change(search, { target: { value: "M4A1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Colt M4A1/ }));
+    await waitFor(() => expect(request).toHaveBeenCalledOnce());
+    await waitFor(() => expect(getClientDiagnosticSnapshot().entries).toHaveLength(1));
+
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries[0]).toMatchObject({
+      source: "optional-resource",
+      code: "PRICE_QUOTE_FETCH_FAILED",
+      level: "warning",
+      operation: "FETCH_LIVE_QUOTE",
+      count: 1,
+    });
+    const serialized = JSON.stringify(snapshot);
+    expect(serialized).not.toContain(catalog.items[0].id);
+    expect(serialized).not.toContain("private-user");
+    expect(serialized).not.toContain("q".repeat(43));
   });
 
   it("keeps a late PVP response from replacing the active PVE quote", async () => {

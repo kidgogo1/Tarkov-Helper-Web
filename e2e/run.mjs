@@ -163,6 +163,8 @@ try {
   await settingsDialog.getByText(`${dataCounts.quests.toLocaleString()}개`, { exact: true }).waitFor();
   await settingsDialog.getByText(`${dataCounts.items.toLocaleString()}개`, { exact: true }).waitFor();
   await settingsDialog.getByText(`${dataCounts.mapMarkers.toLocaleString()}개`, { exact: true }).waitFor();
+  await settingsDialog.getByRole("heading", { name: "진단 기록" }).waitFor();
+  await settingsDialog.getByText("저장된 진단 기록이 없습니다.", { exact: true }).waitFor();
   await settingsDialog.getByRole("button", { name: "닫기" }).click();
 
   await page.getByRole("tab", { name: /은신처/ }).click();

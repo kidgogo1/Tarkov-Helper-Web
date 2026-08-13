@@ -1,3 +1,5 @@
+import { recordClientDiagnostic } from "./client-diagnostics";
+
 const CLIENT_PROTOCOL_VERSION = 1 as const;
 const SESSION_PATH = "/api/v1/client/session";
 const HEARTBEAT_PATH = "/api/v1/client/heartbeat";
@@ -39,6 +41,19 @@ async function readJson(response: Response): Promise<unknown | null> {
 interface SessionAttempt {
   session: ClientLifecycleSession | null;
   retryable: boolean;
+  failure?: {
+    kind: "aborted" | "http" | "malformed" | "transport";
+    error?: unknown;
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  try {
+    return typeof error === "object" && error !== null &&
+      "name" in error && error.name === "AbortError";
+  } catch {
+    return false;
+  }
 }
 
 async function requestSession(
@@ -53,18 +68,58 @@ async function requestSession(
     });
     if (response.status === 404) return { session: null, retryable: false };
     if (response.status !== 200) {
-      return { session: null, retryable: response.status >= 500 || response.status === 429 };
+      return {
+        session: null,
+        retryable: response.status >= 500 || response.status === 429,
+        failure: { kind: "http" },
+      };
     }
     const session = parseSession(await readJson(response));
     // A malformed successful response is a bad build/configuration, not a
     // transient startup race; stop rather than polling a broken server.
-    return { session, retryable: false };
+    return {
+      session,
+      retryable: false,
+      ...(session ? {} : { failure: { kind: "malformed" as const } }),
+    };
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return { session: null, retryable: false };
+    if (isAbortError(error)) {
+      return {
+        session: null,
+        retryable: false,
+        failure: { kind: "aborted" },
+      };
     }
-    return { session: null, retryable: true };
+    return {
+      session: null,
+      retryable: true,
+      failure: { kind: "transport", error },
+    };
   }
+}
+
+function recordSessionFailure(attempt: SessionAttempt): void {
+  const failure = attempt.failure;
+  if (!failure || failure.kind === "aborted") return;
+  if (failure.kind === "malformed") {
+    recordClientDiagnostic({
+      source: "global",
+      code: "CLIENT_LIFECYCLE_SESSION_MALFORMED",
+      level: "warning",
+      message: "The Direct client lifecycle session response was malformed.",
+      operation: "client-session",
+    });
+    return;
+  }
+  recordClientDiagnostic({
+    source: "global",
+    code: "CLIENT_LIFECYCLE_SESSION_FAILED",
+    level: "warning",
+    ...(failure.kind === "transport"
+      ? { error: failure.error, message: "The Direct client lifecycle session request failed." }
+      : { message: "The Direct client lifecycle session request returned a non-success status." }),
+    operation: "client-session",
+  });
 }
 
 function waitForRetry(signal: AbortSignal, delayMs: number): Promise<boolean> {
@@ -124,23 +179,36 @@ export async function fetchClientLifecycleSession(
   return (await requestSession(signal, request)).session;
 }
 
-function sendLeaseCommand(
+interface LeaseCommandAttempt {
+  response?: Response;
+  error?: unknown;
+  aborted: boolean;
+}
+
+async function sendLeaseCommand(
   path: string,
   leaseToken: string,
   request: LifecycleRequest,
   signal?: AbortSignal,
-): Promise<Response | undefined> {
-  return request(path, {
-    method: "POST",
-    cache: "no-store",
-    keepalive: path === CLOSE_PATH,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ leaseToken }),
-    signal,
-  }).catch(() => undefined);
+): Promise<LeaseCommandAttempt> {
+  try {
+    return {
+      response: await request(path, {
+        method: "POST",
+        cache: "no-store",
+        keepalive: path === CLOSE_PATH,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ leaseToken }),
+        signal,
+      }),
+      aborted: false,
+    };
+  } catch (error) {
+    return { error, aborted: isAbortError(error) };
+  }
 }
 
 /**
@@ -155,6 +223,8 @@ export function startClientLifecycle(
   let closeSent = false;
   let leaseToken: string | null = null;
   let heartbeatTimer: number | null = null;
+  let heartbeatInFlight = false;
+  let heartbeatFailureActive = false;
 
   const clearHeartbeat = () => {
     if (heartbeatTimer !== null) {
@@ -184,20 +254,45 @@ export function startClientLifecycle(
     // failures; a static host's 404 and malformed contracts remain one-shot.
     const retryDelays = [100, 250, 500, 1_000, 2_000] as const;
     let session: ClientLifecycleSession | null = null;
+    let finalAttempt: SessionAttempt | null = null;
     for (let attempt = 0; attempt <= retryDelays.length && !stopped; attempt += 1) {
       const result = await requestSession(controller.signal, request);
+      finalAttempt = result;
       session = result.session;
       if (session || !result.retryable || stopped || attempt === retryDelays.length) break;
       if (!await waitForRetry(controller.signal, retryDelays[attempt])) return;
     }
     if (!session || stopped) {
       window.removeEventListener("pagehide", closeLease);
+      if (!stopped && finalAttempt) recordSessionFailure(finalAttempt);
       return;
     }
     leaseToken = session.leaseToken;
     heartbeatTimer = window.setInterval(() => {
-      if (stopped || !leaseToken) return;
-      void sendLeaseCommand(HEARTBEAT_PATH, leaseToken, request, controller.signal);
+      if (stopped || !leaseToken || heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      void sendLeaseCommand(HEARTBEAT_PATH, leaseToken, request, controller.signal)
+        .then((result) => {
+          if (stopped || result.aborted) return;
+          if (result.response?.ok) {
+            heartbeatFailureActive = false;
+            return;
+          }
+          if (heartbeatFailureActive) return;
+          heartbeatFailureActive = true;
+          recordClientDiagnostic({
+            source: "global",
+            code: "CLIENT_LIFECYCLE_HEARTBEAT_FAILED",
+            level: "warning",
+            ...(result.error
+              ? { error: result.error, message: "The Direct client lifecycle heartbeat failed." }
+              : { message: "The Direct client lifecycle heartbeat returned a non-success status." }),
+            operation: "client-heartbeat",
+          });
+        })
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
     }, session.heartbeatIntervalMs);
   })();
 

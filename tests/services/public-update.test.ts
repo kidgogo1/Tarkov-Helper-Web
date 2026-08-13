@@ -114,6 +114,39 @@ describe("public GitHub update API boundary", () => {
     await expect(fetchPublicUpdateSession(undefined, aborted)).resolves.toBeNull();
   });
 
+  it("reports broken launcher session responses without changing the nullable reconnect contract", async () => {
+    const onFailure = vi.fn();
+    const missing = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 404));
+    const unavailable = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      error: { message: `private response ${"s".repeat(43)}` },
+    }, 503));
+    const html = vi.fn<typeof fetch>().mockResolvedValue(new Response("<!doctype html>"));
+    const failed = vi.fn<typeof fetch>().mockRejectedValue(
+      new TypeError(`C:\\Users\\private-user\\launcher token=${"t".repeat(43)}`),
+    );
+    const aborted = vi.fn<typeof fetch>().mockRejectedValue(
+      new DOMException("Aborted", "AbortError"),
+    );
+
+    await expect(fetchPublicUpdateSession(undefined, missing, onFailure)).resolves.toBeNull();
+    expect(onFailure).not.toHaveBeenCalled();
+
+    await expect(fetchPublicUpdateSession(undefined, unavailable, onFailure)).resolves.toBeNull();
+    await expect(fetchPublicUpdateSession(undefined, html, onFailure)).resolves.toBeNull();
+    await expect(fetchPublicUpdateSession(undefined, failed, onFailure)).resolves.toBeNull();
+    await expect(fetchPublicUpdateSession(undefined, aborted, onFailure)).resolves.toBeNull();
+
+    expect(onFailure.mock.calls.map(([error]) => error)).toEqual([
+      expect.objectContaining({ code: "REQUEST_FAILED" }),
+      expect.objectContaining({ code: "INVALID_RESPONSE" }),
+      expect.objectContaining({ code: "REQUEST_FAILED" }),
+    ]);
+    expect(onFailure.mock.calls.every(([error]) => error instanceof PublicUpdateApiError)).toBe(true);
+    expect(JSON.stringify(onFailure.mock.calls)).not.toContain("private-user");
+    expect(JSON.stringify(onFailure.mock.calls)).not.toContain("s".repeat(43));
+    expect(JSON.stringify(onFailure.mock.calls)).not.toContain("t".repeat(43));
+  });
+
   it("checks for an update with the exact authenticated empty request", async () => {
     const checking = { state: "CHECKING", currentVersion: "1.0.0", startedAt: "2026-08-09T03:04:04.000Z" };
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({

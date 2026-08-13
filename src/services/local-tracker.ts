@@ -39,6 +39,46 @@ type FetchRequest = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type LocalTrackerFailureCode =
+  | "INVALID_RESPONSE"
+  | "NETWORK_ERROR"
+  | "NOT_FOUND"
+  | "REQUEST_FAILED";
+
+export class LocalTrackerApiError extends Error {
+  readonly code: LocalTrackerFailureCode;
+  readonly status: number;
+
+  constructor(code: LocalTrackerFailureCode, status: number) {
+    super("Local tracker request failed.");
+    this.name = "LocalTrackerApiError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export type LocalTrackerFailureHandler = (error: LocalTrackerApiError) => void;
+
+function isAbortError(error: unknown): boolean {
+  try {
+    return typeof error === "object" && error !== null &&
+      "name" in error && error.name === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
+function notifyFailure(
+  onFailure: LocalTrackerFailureHandler | undefined,
+  error: LocalTrackerApiError,
+): void {
+  try {
+    onFailure?.(error);
+  } catch {
+    // Optional diagnostics must not change tracker availability behavior.
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -162,46 +202,82 @@ function parseEventPage(value: unknown, requestedCursor: number): LocalTrackerEv
   };
 }
 
+type JsonRequestResult =
+  | { ok: true; payload: unknown }
+  | { ok: false };
+
 async function requestJson(
   path: string,
   signal: AbortSignal | undefined,
   request: FetchRequest,
-): Promise<unknown | null> {
+  onFailure?: LocalTrackerFailureHandler,
+): Promise<JsonRequestResult> {
   try {
     const response = await request(path, {
       cache: "no-store",
       headers: { Accept: "application/json" },
       signal,
     });
-    if (!response.ok) return null;
-    return await response.json() as unknown;
-  } catch {
-    return null;
+    if (!response.ok) {
+      notifyFailure(
+        onFailure,
+        new LocalTrackerApiError(
+          response.status === 404 ? "NOT_FOUND" : "REQUEST_FAILED",
+          response.status,
+        ),
+      );
+      return { ok: false };
+    }
+    try {
+      return { ok: true, payload: await response.json() as unknown };
+    } catch {
+      notifyFailure(onFailure, new LocalTrackerApiError("INVALID_RESPONSE", response.status));
+      return { ok: false };
+    }
+  } catch (error) {
+    if (!isAbortError(error)) {
+      notifyFailure(onFailure, new LocalTrackerApiError("NETWORK_ERROR", 0));
+    }
+    return { ok: false };
   }
 }
 
 export async function fetchLocalTrackerStatus(
   signal?: AbortSignal,
   request: FetchRequest = globalThis.fetch,
+  onFailure?: LocalTrackerFailureHandler,
 ): Promise<LocalTrackerStatus | null> {
-  const payload = await requestJson("/api/v1/local-tracker/status", signal, request);
-  return parseStatus(payload);
+  const result = await requestJson(
+    "/api/v1/local-tracker/status",
+    signal,
+    request,
+    onFailure,
+  );
+  if (!result.ok) return null;
+  const status = parseStatus(result.payload);
+  if (!status) notifyFailure(onFailure, new LocalTrackerApiError("INVALID_RESPONSE", 200));
+  return status;
 }
 
 export async function fetchLocalTrackerEvents(
   afterCursor: number,
   signal?: AbortSignal,
   request: FetchRequest = globalThis.fetch,
+  onFailure?: LocalTrackerFailureHandler,
 ): Promise<LocalTrackerEventPage | null> {
   if (!isNonNegativeInteger(afterCursor)) return null;
   const query = new URLSearchParams({
     afterCursor: String(afterCursor),
     pageSize: String(LOCAL_TRACKER_PAGE_SIZE),
   });
-  const payload = await requestJson(
+  const result = await requestJson(
     `/api/v1/local-tracker/events?${query}`,
     signal,
     request,
+    onFailure,
   );
-  return parseEventPage(payload, afterCursor);
+  if (!result.ok) return null;
+  const page = parseEventPage(result.payload, afterCursor);
+  if (!page) notifyFailure(onFailure, new LocalTrackerApiError("INVALID_RESPONSE", 200));
+  return page;
 }

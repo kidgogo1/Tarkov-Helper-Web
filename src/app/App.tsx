@@ -28,6 +28,8 @@ import { PriceSearchPage } from "../features/prices/PriceSearchPage";
 import { InProgressQuestDialog } from "../features/settings/InProgressQuestDialog";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
 import { usePublicUpdate } from "../features/settings/usePublicUpdate";
+import { downloadClientDiagnostics } from "../services/client-diagnostic-download";
+import { getClientDiagnosticSnapshot, recordClientDiagnostic } from "../services/client-diagnostics";
 import type { ProfileType, TarkovData } from "../types/data";
 import type { SavedQuestStatus } from "../types/state";
 import { AppShell, type AppTab } from "./AppShell";
@@ -120,6 +122,7 @@ export function App() {
   const [logPreview, setLogPreview] = useState<LogImportPreview | null>(null);
   const [readingLogs, setReadingLogs] = useState(false);
   const [logImportError, setLogImportError] = useState<string | null>(null);
+  const [diagnosticDownloadError, setDiagnosticDownloadError] = useState(false);
   const questOverlayRef = useRef<QuestOverlayHandle>(null);
 
   useEffect(() => {
@@ -128,6 +131,12 @@ export function App() {
       .then(setData)
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        recordClientDiagnostic({
+          source: "data",
+          code: "CORE_DATA_LOAD_FAILED",
+          error,
+          message: "포함된 Tarkov 데이터를 불러오지 못했습니다.",
+        });
         setLoadError(error instanceof Error ? error.message : "데이터를 불러오지 못했습니다.");
       });
     return () => controller.abort();
@@ -294,6 +303,12 @@ export function App() {
       });
       setSettingsOpen(false);
     } catch (error: unknown) {
+      recordClientDiagnostic({
+        source: "data",
+        code: "LOG_IMPORT_FAILED",
+        message: "A local game log import failed.",
+        operation: "IMPORT_LOGS",
+      });
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
       setLogImportError(`로그 파일을 읽지 못했습니다${detail}. 파일 권한과 상태를 확인해 주세요.`);
       setLogPreview(null);
@@ -387,7 +402,20 @@ export function App() {
         <AlertTriangle aria-hidden="true" size={34} />
         <h1>번들 데이터 오류</h1>
         <p>{loadError}</p>
-        <button onClick={() => window.location.reload()} type="button">다시 시도</button>
+        {getClientDiagnosticSnapshot().persistence === "memory" ? (
+          <p>현재 진단 기록은 앱을 닫으면 사라질 수 있으므로 먼저 다운로드해 주세요.</p>
+        ) : null}
+        {diagnosticDownloadError ? <p role="alert">진단 기록 파일을 만들지 못했습니다.</p> : null}
+        <div className="startup-actions">
+          <button onClick={() => window.location.reload()} type="button">다시 시도</button>
+          <button
+            className="ghost"
+            onClick={() => setDiagnosticDownloadError(!downloadClientDiagnostics())}
+            type="button"
+          >
+            진단 기록 다운로드
+          </button>
+        </div>
       </div>
     );
   }

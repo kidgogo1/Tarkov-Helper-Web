@@ -23,6 +23,7 @@ import {
   type NativeOverlayV2Attachment,
   type NativeOverlayV2Session,
 } from "../../services/native-overlay-v2";
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
 import { QuestOverlaySurface } from "./QuestOverlaySurface";
 import "../../styles/quest-overlay.css";
 
@@ -39,6 +40,22 @@ interface QuestOverlayPortal {
 interface QuestNativeNotice {
   kind: "status" | "warning";
   text: string;
+}
+
+type QuestOverlayDiagnosticOperation = "ATTACH" | "CLAIM" | "POPUP" | "SESSION";
+
+function recordQuestOverlayFailure(
+  operation: QuestOverlayDiagnosticOperation,
+  error: unknown,
+): void {
+  recordClientDiagnostic({
+    source: "optional-resource",
+    code: `QUEST_OVERLAY_${operation}_FAILED`,
+    level: "warning",
+    error,
+    message: "A quest overlay operation failed.",
+    operation: `quest-${operation === "POPUP" ? "popup" : `native-${operation.toLowerCase()}`}`,
+  });
 }
 
 export interface QuestOverlayHandle {
@@ -195,7 +212,11 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
       if (nativeSessionPromiseRef.current) return nativeSessionPromiseRef.current;
       if (nativeSessionCheckedRef.current) return null;
 
-      const detection = fetchNativeOverlayV2Session(undefined, nativeRequest);
+      const detection = fetchNativeOverlayV2Session(
+        undefined,
+        nativeRequest,
+        (error) => recordQuestOverlayFailure("SESSION", error),
+      );
       nativeSessionPromiseRef.current = detection;
       try {
         const session = await detection;
@@ -341,6 +362,7 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
         }
 
         setNativeNotice({ kind: "status", text: "화면 위 퀘스트 창 준비 중…" });
+        let nativeOperation: Exclude<QuestOverlayDiagnosticOperation, "POPUP"> = "CLAIM";
         try {
           const claim = await beginNativeOverlayV2Claim(
             session,
@@ -350,6 +372,7 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
           );
           if (!isCurrentAttempt() || popupRef.current !== popup || popup.closed) return;
           popup.document.title = QUEST_WINDOW_TITLE;
+          nativeOperation = "ATTACH";
           const attachment = await attachNativeOverlayWindow(
             session,
             "quest-list",
@@ -369,17 +392,19 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
           }
           nativeAttachmentRef.current = attachment;
           setNativeNotice({ kind: "status", text: "화면 위에 표시됨 · 이동 가능" });
-        } catch {
+        } catch (error) {
           popup.document.title = QUEST_WINDOW_TITLE;
           await detachNativeOverlay(false);
           if (isCurrentAttempt()) {
+            recordQuestOverlayFailure(nativeOperation, error);
             setNativeNotice({
               kind: "warning",
               text: "화면 위 연결을 사용할 수 없어 일반 퀘스트 창으로 열었습니다.",
             });
           }
         }
-      } catch {
+      } catch (error) {
+        if (isCurrentAttempt()) recordQuestOverlayFailure("POPUP", error);
         if (popup && !popup.closed) popup.close();
         popupRef.current = null;
         clearLifecycle();

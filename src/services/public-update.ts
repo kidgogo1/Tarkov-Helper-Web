@@ -99,6 +99,8 @@ type UpdateRequest = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type PublicUpdateSessionFailureHandler = (error: PublicUpdateApiError) => void;
+
 export class PublicUpdateApiError extends Error {
   readonly code: string;
 
@@ -398,6 +400,7 @@ async function parseMutationResponse(
 export async function fetchPublicUpdateSession(
   signal?: AbortSignal,
   request: UpdateRequest = globalThis.fetch,
+  onFailure?: PublicUpdateSessionFailureHandler,
 ): Promise<PublicUpdateSession | null> {
   try {
     const response = await request(SESSION_PATH, {
@@ -405,10 +408,49 @@ export async function fetchPublicUpdateSession(
       headers: { Accept: "application/json" },
       signal,
     });
-    if (response.status !== 200) return null;
-    return parseSession(await readJson(response));
-  } catch {
+    if (response.status === 404) return null;
+    if (response.status !== 200) {
+      reportSessionFailure(
+        onFailure,
+        new PublicUpdateApiError(
+          "REQUEST_FAILED",
+          `The local update service returned HTTP ${response.status}.`,
+        ),
+      );
+      return null;
+    }
+    const session = parseSession(await readJson(response));
+    if (!session) {
+      reportSessionFailure(
+        onFailure,
+        new PublicUpdateApiError(
+          "INVALID_RESPONSE",
+          "The launcher returned an invalid update session.",
+        ),
+      );
+    }
+    return session;
+  } catch (error) {
+    if (isAbortError(error) || signal?.aborted) return null;
+    reportSessionFailure(
+      onFailure,
+      new PublicUpdateApiError(
+        "REQUEST_FAILED",
+        "The local update service could not be reached.",
+      ),
+    );
     return null;
+  }
+}
+
+function reportSessionFailure(
+  onFailure: PublicUpdateSessionFailureHandler | undefined,
+  error: PublicUpdateApiError,
+): void {
+  try {
+    onFailure?.(error);
+  } catch {
+    // Failure reporting must not change the nullable session/reconnect contract.
   }
 }
 

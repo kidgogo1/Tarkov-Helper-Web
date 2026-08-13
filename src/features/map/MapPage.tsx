@@ -63,8 +63,10 @@ import {
 import {
   fetchLocalTrackerEvents,
   fetchLocalTrackerStatus,
+  type LocalTrackerApiError,
   type ScreenshotWatcherStatus,
 } from "../../services/local-tracker";
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
 import type {
   MapConfig,
   MapMarker,
@@ -1864,6 +1866,43 @@ export function MapPage({
     let needsTrackerResync = false;
     let cursorInitialized = false;
     let nextStatusRefreshAt = 0;
+    let trackerConnected = false;
+    let trackerFailureActive = false;
+
+    const handleTrackerFailure = (error: LocalTrackerApiError) => {
+      if (stopped || controller.signal.aborted || !trackerConnected || trackerFailureActive) return;
+      trackerFailureActive = true;
+      recordClientDiagnostic({
+        source: "optional-resource",
+        code: `LOCAL_TRACKER_${error.code}`,
+        level: "warning",
+        message: "The connected local screenshot tracker became unavailable.",
+        operation: "local-tracker-poll",
+      });
+    };
+
+    const markTrackerConnected = () => {
+      trackerConnected = true;
+      trackerFailureActive = false;
+    };
+
+    const observeWatcherState = (state: string) => {
+      trackerConnected = true;
+      if (state === "WATCHING") {
+        trackerFailureActive = false;
+        return;
+      }
+      if (state === "ERROR" && !trackerFailureActive) {
+        trackerFailureActive = true;
+        recordClientDiagnostic({
+          source: "optional-resource",
+          code: "LOCAL_TRACKER_WATCHER_ERROR",
+          level: "warning",
+          message: "The local screenshot watcher entered an error state.",
+          operation: "local-tracker-watcher",
+        });
+      }
+    };
 
     const schedule = (callback: () => void, delay: number) => {
       if (stopped) return;
@@ -1885,7 +1924,12 @@ export function MapPage({
     };
 
     const pollEvents = async () => {
-      const page = await fetchLocalTrackerEvents(cursor, controller.signal);
+      const page = await fetchLocalTrackerEvents(
+        cursor,
+        controller.signal,
+        globalThis.fetch,
+        handleTrackerFailure,
+      );
       if (stopped) return;
       if (!page) {
         setLocalTracker({ state: "UNAVAILABLE" });
@@ -1893,6 +1937,7 @@ export function MapPage({
         scheduleReconnect();
         return;
       }
+      markTrackerConnected();
       reconnectDelay = LOCAL_TRACKER_POLL_INTERVAL_MS;
 
       if (page.pagination.isResetRequired) {
@@ -1916,7 +1961,11 @@ export function MapPage({
       cursor = Math.max(cursor, page.pagination.nextCursor);
 
       if (Date.now() >= nextStatusRefreshAt) {
-        const status = await fetchLocalTrackerStatus(controller.signal);
+        const status = await fetchLocalTrackerStatus(
+          controller.signal,
+          globalThis.fetch,
+          handleTrackerFailure,
+        );
         if (stopped) return;
         if (!status) {
           setLocalTracker({ state: "UNAVAILABLE" });
@@ -1925,6 +1974,7 @@ export function MapPage({
           return;
         }
 
+        observeWatcherState(status.screenshotWatcher.state);
         setLocalTracker(status.screenshotWatcher);
         nextStatusRefreshAt = Date.now() + LOCAL_TRACKER_STATUS_REFRESH_INTERVAL_MS;
         if (status.screenshotWatcher.state !== "WATCHING") {
@@ -1936,7 +1986,11 @@ export function MapPage({
     };
 
     const connect = async () => {
-      const status = await fetchLocalTrackerStatus(controller.signal);
+      const status = await fetchLocalTrackerStatus(
+        controller.signal,
+        globalThis.fetch,
+        handleTrackerFailure,
+      );
       if (stopped) return;
       if (!status) {
         setLocalTracker({ state: "UNAVAILABLE" });
@@ -1944,6 +1998,7 @@ export function MapPage({
         return;
       }
 
+      observeWatcherState(status.screenshotWatcher.state);
       setLocalTracker(status.screenshotWatcher);
       if (!cursorInitialized || needsTrackerResync) {
         cursor = Math.max(0, status.latestCursor - 1);

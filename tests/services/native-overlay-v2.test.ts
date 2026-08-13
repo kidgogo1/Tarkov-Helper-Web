@@ -70,6 +70,35 @@ describe("native multi-overlay v2 API boundary", () => {
     await expect(fetchNativeOverlayV2Session(undefined, request)).resolves.toBeNull();
   });
 
+  it("reports malformed and non-404 session failures but excludes unsupported and abort", async () => {
+    const onFailure = vi.fn();
+    await fetchNativeOverlayV2Session(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 404)),
+      onFailure,
+    );
+    await fetchNativeOverlayV2Session(
+      undefined,
+      vi.fn<typeof fetch>().mockRejectedValue(new DOMException("cancelled", "AbortError")),
+      onFailure,
+    );
+    await fetchNativeOverlayV2Session(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ...session, token: "bad" })),
+      onFailure,
+    );
+    await fetchNativeOverlayV2Session(
+      undefined,
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError("offline")),
+      onFailure,
+    );
+
+    expect(onFailure.mock.calls.map(([error]) => error)).toEqual([
+      expect.objectContaining({ code: "INVALID_RESPONSE", status: 200 }),
+      expect.objectContaining({ code: "NETWORK_ERROR", status: 0 }),
+    ]);
+  });
+
   it("binds a quest claim to one cryptographically named popup without exposing a handle", async () => {
     const claim = {
       protocolVersion: 2,

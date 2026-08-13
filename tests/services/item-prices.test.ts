@@ -59,6 +59,34 @@ describe("item price API boundary", () => {
     });
   });
 
+  it("reports missing or broken bundled catalogs but not cancellation", async () => {
+    const onFailure = vi.fn();
+    const missing = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: {} }, 404));
+    const unavailable = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      error: `private ${"s".repeat(43)}`,
+    }, 503));
+    const malformed = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ unexpected: true }));
+    const failed = vi.fn<typeof fetch>().mockRejectedValue(
+      new TypeError(`C:\\Users\\private-user\\catalog token=${"t".repeat(43)}`),
+    );
+    const aborted = vi.fn<typeof fetch>().mockRejectedValue(new DOMException("Aborted", "AbortError"));
+
+    await expect(loadItemPriceCatalog(undefined, missing, onFailure)).rejects.toThrow();
+    await expect(loadItemPriceCatalog(undefined, unavailable, onFailure)).rejects.toThrow();
+    await expect(loadItemPriceCatalog(undefined, malformed, onFailure)).rejects.toThrow();
+    await expect(loadItemPriceCatalog(undefined, failed, onFailure)).rejects.toThrow();
+    await expect(loadItemPriceCatalog(undefined, aborted, onFailure)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    expect(onFailure.mock.calls).toEqual([
+      ["REQUEST_FAILED"],
+      ["REQUEST_FAILED"],
+      ["INVALID_RESPONSE"],
+      ["REQUEST_FAILED"],
+    ]);
+  });
+
   it("accepts only an exact requested item/mode quote", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(quote));
     await expect(fetchItemPriceQuote(quote.itemId, "pvp", undefined, request)).resolves.toEqual(quote);
@@ -83,5 +111,30 @@ describe("item price API boundary", () => {
     await expect(fetchItemPriceQuote(quote.itemId, "pvp", undefined, failed)).resolves.toBeNull();
     await expect(fetchItemPriceQuote(quote.itemId, "pvp", undefined, malformed)).resolves.toBeNull();
     await expect(fetchItemPriceQuote(quote.itemId, "pvp", undefined, aborted)).resolves.toBeNull();
+  });
+
+  it("reports only actionable live quote failures through a safe code", async () => {
+    const onFailure = vi.fn();
+    const missing = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: {} }, 404));
+    const unavailable = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      error: `private ${"s".repeat(43)}`,
+    }, 503));
+    const malformed = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ...quote, source: "OTHER" }));
+    const failed = vi.fn<typeof fetch>().mockRejectedValue(
+      new TypeError(`C:\\Users\\private-user\\quote token=${"t".repeat(43)}`),
+    );
+    const aborted = vi.fn<typeof fetch>().mockRejectedValue(new DOMException("Aborted", "AbortError"));
+
+    await fetchItemPriceQuote(quote.itemId, "pvp", undefined, missing, onFailure);
+    await fetchItemPriceQuote(quote.itemId, "pvp", undefined, unavailable, onFailure);
+    await fetchItemPriceQuote(quote.itemId, "pvp", undefined, malformed, onFailure);
+    await fetchItemPriceQuote(quote.itemId, "pvp", undefined, failed, onFailure);
+    await fetchItemPriceQuote(quote.itemId, "pvp", undefined, aborted, onFailure);
+
+    expect(onFailure.mock.calls).toEqual([
+      ["REQUEST_FAILED"],
+      ["INVALID_RESPONSE"],
+      ["REQUEST_FAILED"],
+    ]);
   });
 });

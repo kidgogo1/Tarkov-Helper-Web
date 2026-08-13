@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PublicUpdatePanel } from "../../src/features/settings/PublicUpdatePanel";
 import { usePublicUpdate } from "../../src/features/settings/usePublicUpdate";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -157,6 +161,43 @@ describe("public update settings", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("records a broken launcher session initialization but ignores a static 404 and cancellation", async () => {
+    clearClientDiagnostics();
+    const brokenRequest = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      error: { message: `do not retain ${"s".repeat(43)}` },
+    }, 503));
+    const broken = renderHook(() => usePublicUpdate(brokenRequest));
+    await waitFor(() => expect(broken.result.current.initializing).toBe(false));
+
+    const brokenSnapshot = getClientDiagnosticSnapshot();
+    expect(brokenSnapshot.entries).toEqual([
+      expect.objectContaining({
+        source: "update",
+        code: "REQUEST_FAILED",
+        operation: "INITIALIZE",
+        count: 1,
+      }),
+    ]);
+    expect(JSON.stringify(brokenSnapshot)).not.toContain("s".repeat(43));
+    broken.unmount();
+
+    clearClientDiagnostics();
+    const staticHost = renderHook(() => usePublicUpdate(
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 404)),
+    ));
+    await waitFor(() => expect(staticHost.result.current.initializing).toBe(false));
+    expect(getClientDiagnosticSnapshot().entries).toHaveLength(0);
+    staticHost.unmount();
+
+    clearClientDiagnostics();
+    const cancelled = renderHook(() => usePublicUpdate(
+      vi.fn<typeof fetch>().mockRejectedValue(new DOMException("Aborted", "AbortError")),
+    ));
+    await waitFor(() => expect(cancelled.result.current.initializing).toBe(false));
+    expect(getClientDiagnosticSnapshot().entries).toHaveLength(0);
+    cancelled.unmount();
   });
 
   it("preserves a fresh updated terminal state until a manual check", async () => {
@@ -1271,5 +1312,65 @@ describe("public update settings", () => {
     );
     expect(screen.getByRole("button", { name: "지금 적용하고 계속 사용" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "업데이트 확인" })).toBeDisabled();
+  });
+
+  it("records a sanitized client update failure with operation and version context", async () => {
+    clearClientDiagnostics();
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(idleSession))
+      .mockRejectedValueOnce(new Error(`C:\\Users\\private-user\\update.zip token=${"s".repeat(43)}`));
+    const { result } = renderHook(() => usePublicUpdate(request));
+    await waitFor(() => expect(result.current.initializing).toBe(false));
+
+    await act(async () => result.current.check());
+
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries).toHaveLength(1);
+    expect(snapshot.entries[0]).toMatchObject({
+      source: "update",
+      code: "REQUEST_FAILED",
+      operation: "CHECK",
+      currentVersion: "1.0.0",
+      count: 1,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("private-user");
+    expect(JSON.stringify(snapshot)).not.toContain("s".repeat(43));
+    expect(JSON.stringify(snapshot)).not.toContain(idleSession.token);
+  });
+
+  it("counts the same terminal update error again on a separate manual attempt", async () => {
+    clearClientDiagnostics();
+    const terminalError = {
+      state: "ERROR",
+      currentVersion: "1.0.0",
+      operation: "CHECK",
+      code: "GITHUB_RATE_LIMIT",
+      message: "GitHub API rate limit exceeded.",
+    } as const;
+    const checkingStatus = {
+      state: "CHECKING",
+      currentVersion: "1.0.0",
+      startedAt: "2026-08-13T01:00:00.000Z",
+    } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(idleSession))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: checkingStatus }, 202))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: terminalError }))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: terminalError }));
+    const { result } = renderHook(() => usePublicUpdate(request));
+    await waitFor(() => expect(result.current.initializing).toBe(false));
+
+    await act(async () => result.current.check());
+    await act(async () => result.current.check());
+
+    expect(getClientDiagnosticSnapshot().entries).toEqual([
+      expect.objectContaining({
+        source: "update",
+        code: "GITHUB_RATE_LIMIT",
+        operation: "CHECK",
+        currentVersion: "1.0.0",
+        count: 2,
+      }),
+    ]);
   });
 });

@@ -81,6 +81,38 @@ describe("native overlay API boundary", () => {
     await expect(fetchNativeOverlaySession(undefined, aborted)).resolves.toBeNull();
   });
 
+  it("reports only actionable session detection failures without response bodies", async () => {
+    const onFailure = vi.fn();
+    const secret = "s".repeat(43);
+    await fetchNativeOverlaySession(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: secret }, 404)),
+      onFailure,
+    );
+    await fetchNativeOverlaySession(
+      undefined,
+      vi.fn<typeof fetch>().mockRejectedValue(new DOMException("cancelled", "AbortError")),
+      onFailure,
+    );
+    await fetchNativeOverlaySession(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ token: secret })),
+      onFailure,
+    );
+    await fetchNativeOverlaySession(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: secret }, 503)),
+      onFailure,
+    );
+
+    expect(onFailure).toHaveBeenCalledTimes(2);
+    expect(onFailure.mock.calls.map(([error]) => error)).toEqual([
+      expect.objectContaining({ code: "INVALID_RESPONSE", status: 200 }),
+      expect.objectContaining({ code: "REQUEST_FAILED", status: 503 }),
+    ]);
+    expect(JSON.stringify(onFailure.mock.calls)).not.toContain(secret);
+  });
+
   it("begins a short-lived claim with the exact authenticated empty request", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,
@@ -538,16 +570,51 @@ describe("native overlay API boundary", () => {
     try {
       const request = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("temporary"));
       const controller = new AbortController();
+      const onFailure = vi.fn();
       const polling = pollNativeOverlayEvents(
         session,
         controller.signal,
         new EventTarget(),
         request,
+        onFailure,
       );
 
       await vi.runAllTimersAsync();
       await polling;
       expect(request).toHaveBeenCalledTimes(4);
+      expect(onFailure).toHaveBeenCalledOnce();
+      expect(onFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "NETWORK_ERROR", status: 0 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a non-retryable event poll failure exactly once", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+        error: { code: "FORBIDDEN", message: "private response detail" },
+      }, 403));
+      const controller = new AbortController();
+      const onFailure = vi.fn();
+      const polling = pollNativeOverlayEvents(
+        session,
+        controller.signal,
+        new EventTarget(),
+        request,
+        onFailure,
+      );
+
+      await vi.runAllTimersAsync();
+      await polling;
+      expect(request).toHaveBeenCalledOnce();
+      expect(onFailure).toHaveBeenCalledOnce();
+      expect(onFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "FORBIDDEN", status: 403 }),
+      );
+      expect(JSON.stringify(onFailure.mock.calls)).not.toContain("private response detail");
     } finally {
       vi.useRealTimers();
     }
@@ -565,8 +632,15 @@ describe("native overlay API boundary", () => {
       const listener = vi.fn();
       target.addEventListener(NATIVE_OVERLAY_HOTKEY_EVENT, listener);
       const controller = new AbortController();
+      const onFailure = vi.fn();
 
-      const polling = pollNativeOverlayEvents(session, controller.signal, target, request);
+      const polling = pollNativeOverlayEvents(
+        session,
+        controller.signal,
+        target,
+        request,
+        onFailure,
+      );
       await vi.advanceTimersByTimeAsync(200);
       expect(request).toHaveBeenCalledOnce();
       expect(request.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
@@ -579,6 +653,7 @@ describe("native overlay API boundary", () => {
       await polling;
 
       expect(listener).not.toHaveBeenCalled();
+      expect(onFailure).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

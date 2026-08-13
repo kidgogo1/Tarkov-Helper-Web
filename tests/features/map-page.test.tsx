@@ -8,6 +8,10 @@ import {
   useAppStore,
 } from "../../src/app/store";
 import { MapPage } from "../../src/features/map/MapPage";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 import type { MapConfig, QuestData, TarkovData } from "../../src/types/data";
 
 const mapNames = [
@@ -839,6 +843,7 @@ describe("MapPage", () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    clearClientDiagnostics();
   });
 
   afterEach(() => {
@@ -1492,6 +1497,9 @@ describe("MapPage", () => {
     expect(await screen.findByText("브라우저 수동 모드")).toBeInTheDocument();
     expect(screen.getByText(/브라우저는 게임 로그나 스크린샷 폴더를 백그라운드에서 감시할 수 없습니다/))
       .toBeInTheDocument();
+    expect(getClientDiagnosticSnapshot().entries.filter(
+      (entry) => entry.operation === "local-tracker-poll",
+    )).toHaveLength(0);
   });
 
   it("resets an expired cursor without dropping the newest retained position and aborts on unmount", async () => {
@@ -1574,6 +1582,7 @@ describe("MapPage", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/local-tracker/status")) {
         statusCalls += 1;
+        if (statusCalls === 2) throw new TypeError("server still restarting");
         return trackerResponse({
           protocolVersion: 1,
           screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
@@ -1612,7 +1621,17 @@ describe("MapPage", () => {
         { timeout: 5_000 },
       ),
     ).toBeInTheDocument();
-    expect(statusCalls).toBeGreaterThanOrEqual(2);
+    expect(statusCalls).toBeGreaterThanOrEqual(3);
+    expect(getClientDiagnosticSnapshot().entries.filter(
+      (entry) => entry.operation === "local-tracker-poll",
+    )).toEqual([
+      expect.objectContaining({
+        code: "LOCAL_TRACKER_INVALID_RESPONSE",
+        count: 1,
+        operation: "local-tracker-poll",
+        source: "optional-resource",
+      }),
+    ]);
   });
 
   it("refreshes watcher status within five seconds and resumes from the existing cursor", async () => {

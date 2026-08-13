@@ -1,14 +1,19 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   loadCatalog: vi.fn(),
   fetchQuote: vi.fn(),
+  recordDiagnostic: vi.fn(),
 }));
 
 vi.mock("../../src/services/item-prices", () => ({
   loadItemPriceCatalog: mocks.loadCatalog,
   fetchItemPriceQuote: mocks.fetchQuote,
+}));
+
+vi.mock("../../src/services/client-diagnostics", () => ({
+  recordClientDiagnostic: mocks.recordDiagnostic,
 }));
 
 import { ItemMarketSummary } from "../../src/features/items/ItemMarketSummary";
@@ -55,6 +60,12 @@ const catalog: ItemPriceCatalog = {
 };
 
 describe("ItemMarketSummary", () => {
+  beforeEach(() => {
+    mocks.loadCatalog.mockReset();
+    mocks.fetchQuote.mockReset();
+    mocks.recordDiagnostic.mockReset();
+  });
+
   it("shows PVP/PVE unit and remaining-total estimates with price statistics", async () => {
     mocks.loadCatalog.mockResolvedValue(catalog);
     mocks.fetchQuote.mockImplementation((_id: string, mode: "pvp" | "pve") =>
@@ -93,5 +104,64 @@ describe("ItemMarketSummary", () => {
 
     const summary = await screen.findByRole("region", { name: "시세 요약" });
     await waitFor(() => expect(within(summary).getAllByText("₽0")).toHaveLength(2));
+  });
+
+  it("routes a catalog failure callback to diagnostics without raw failure details", async () => {
+    mocks.loadCatalog.mockImplementation((
+      _signal: AbortSignal,
+      _request: typeof fetch,
+      onFailure?: (code: string) => void,
+    ) => {
+      onFailure?.("REQUEST_FAILED");
+      return Promise.reject(new Error(
+        `C:\\Users\\private-user\\catalog token=${"s".repeat(43)}`,
+      ));
+    });
+
+    render(<ItemMarketSummary itemId={itemId} itemName="Bolts" remainingCount={1} />);
+
+    await waitFor(() => expect(mocks.loadCatalog).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.recordDiagnostic).toHaveBeenCalledOnce());
+    expect(mocks.recordDiagnostic).toHaveBeenCalledWith({
+      source: "optional-resource",
+      code: "PRICE_CATALOG_LOAD_FAILED",
+      level: "warning",
+      message: "The bundled item price catalog could not be loaded.",
+      operation: "LOAD_PRICE_CATALOG",
+    });
+    expect(JSON.stringify(mocks.recordDiagnostic.mock.calls)).not.toContain("private-user");
+    expect(JSON.stringify(mocks.recordDiagnostic.mock.calls)).not.toContain("s".repeat(43));
+  });
+
+  it("routes both PVP and PVE live quote failure callbacks to one diagnostic identity", async () => {
+    mocks.loadCatalog.mockResolvedValue(catalog);
+    mocks.fetchQuote.mockImplementation((
+      _id: string,
+      _mode: "pvp" | "pve",
+      _signal: AbortSignal,
+      _request: typeof fetch,
+      onFailure?: (code: string) => void,
+    ) => {
+      onFailure?.("REQUEST_FAILED");
+      return Promise.resolve(null);
+    });
+
+    render(<ItemMarketSummary itemId={itemId} itemName="Bolts" remainingCount={1} />);
+
+    await waitFor(() => expect(mocks.fetchQuote).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.recordDiagnostic).toHaveBeenCalledTimes(2));
+    expect(mocks.fetchQuote.mock.calls.map((call) => call[1])).toEqual(["pvp", "pve"]);
+    expect(mocks.fetchQuote.mock.calls.every((call) => typeof call[4] === "function")).toBe(true);
+    const quoteDiagnostic = {
+      source: "optional-resource",
+      code: "PRICE_QUOTE_FETCH_FAILED",
+      level: "warning",
+      message: "A live item price quote request failed.",
+      operation: "FETCH_LIVE_QUOTE",
+    };
+    expect(mocks.recordDiagnostic.mock.calls).toEqual([
+      [quoteDiagnostic],
+      [quoteDiagnostic],
+    ]);
   });
 });

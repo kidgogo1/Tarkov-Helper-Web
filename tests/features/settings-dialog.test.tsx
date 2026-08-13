@@ -1,8 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createDefaultState } from "../../src/app/store";
 import { SettingsDialog } from "../../src/features/settings/SettingsDialog";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+  recordClientDiagnostic,
+} from "../../src/services/client-diagnostics";
 
 describe("SettingsDialog", () => {
   it("edits profile fields and shows exact bundled source metadata", () => {
@@ -175,5 +181,85 @@ describe("SettingsDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "진행 중인 퀘스트 입력" }));
 
     expect(onOpenInProgressQuests).toHaveBeenCalledOnce();
+  });
+
+  it("shows, downloads, and clears privacy-safe client diagnostics in data settings", () => {
+    clearClientDiagnostics();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-13T01:02:03.000Z"));
+    recordClientDiagnostic({ code: "UPDATE_FAILED", message: "first failure", source: "update" });
+    vi.setSystemTime(new Date("2026-08-13T01:03:04.000Z"));
+    recordClientDiagnostic({ code: "UPDATE_FAILED", message: "first failure", source: "update" });
+    vi.useRealTimers();
+
+    const createObjectURL = vi.fn(() => "blob:diagnostics");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const state = createDefaultState();
+
+    render(
+      <SettingsDialog
+        dataMeta={{
+          originalCommit: "original",
+          modifiedCommit: "modified",
+          exportedAt: "2026-08-07T00:00:00Z",
+          counts: { quests: 0, items: 0, hideoutStations: 0, maps: 0, mapMarkers: 0 },
+        }}
+        onClose={vi.fn()}
+        onLogFiles={vi.fn()}
+        onOpenInProgressQuests={vi.fn()}
+        onUpdateMapSettings={vi.fn()}
+        onUpdateProfile={vi.fn()}
+        onUpdateSettings={vi.fn()}
+        open
+        profile={state.profiles.pvp}
+        settings={state.settings}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "데이터" }));
+    expect(screen.getByRole("heading", { name: "진단 기록" })).toBeInTheDocument();
+    expect(screen.getByText("고유 오류 1건 · 총 발생 2회")).toBeInTheDocument();
+    expect(screen.getByText("개인정보가 포함될 수 있으므로 공유 전에 내용을 확인해 주세요.")).toBeInTheDocument();
+    expect(screen.getByText("마지막 기록").nextElementSibling?.querySelector("time")).toHaveAttribute(
+      "datetime",
+      "2026-08-13T01:03:04.000Z",
+    );
+
+    const manifest = JSON.parse(localStorage.getItem("tarkov-helper:client-diagnostics:v1") ?? "{}") as {
+      generation: string;
+    };
+    const crossTabEntry = {
+      ...getClientDiagnosticSnapshot().entries[0],
+      occurredAt: "2026-08-13T01:04:05.000Z",
+      lastOccurredAt: "2026-08-13T01:04:05.000Z",
+      count: 1,
+    };
+    const crossTabKey = `tarkov-helper:client-diagnostics:v1:event:${manifest.generation}:cross-tab`;
+    localStorage.setItem(crossTabKey, JSON.stringify({
+      schemaVersion: 1,
+      generation: manifest.generation,
+      entry: crossTabEntry,
+    }));
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: crossTabKey, storageArea: localStorage }));
+    });
+    expect(screen.getByText("고유 오류 1건 · 총 발생 3회")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "진단 기록 JSON 다운로드" }));
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(anchorClick).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:diagnostics");
+
+    fireEvent.click(screen.getByRole("button", { name: "진단 기록 삭제" }));
+    expect(getClientDiagnosticSnapshot().entries).toHaveLength(0);
+    expect(screen.getByText("저장된 진단 기록이 없습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "진단 기록 JSON 다운로드" })).toBeDisabled();
+
+    anchorClick.mockRestore();
+    delete (URL as { createObjectURL?: unknown }).createObjectURL;
+    delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
   });
 });

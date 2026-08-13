@@ -7,6 +7,10 @@ import {
   AppStoreProvider,
   createDefaultState,
 } from "../../src/app/store";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 import type { QuestData, TarkovData } from "../../src/types/data";
 
 const dataMocks = vi.hoisted(() => ({
@@ -89,6 +93,7 @@ function persistedProgress(): Record<string, string> {
 describe("App quest sync integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    clearClientDiagnostics();
     window.history.replaceState(null, "", "#/quests");
     dataMocks.loadTarkovData.mockReset();
   });
@@ -187,5 +192,13 @@ describe("App quest sync integration", () => {
     await waitFor(() => {
       expect(screen.queryByText("로그 읽는 중…")).not.toBeInTheDocument();
     });
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries.find((entry) => entry.code === "LOG_IMPORT_FAILED")).toMatchObject({
+      source: "data",
+      operation: "IMPORT_LOGS",
+      count: 1,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("notifications.log");
+    expect(JSON.stringify(snapshot)).not.toContain("permission denied");
   });
 });

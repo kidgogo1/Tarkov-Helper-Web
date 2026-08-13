@@ -17,6 +17,7 @@ import type {
 } from "../../types/state";
 import { PublicUpdatePanel } from "./PublicUpdatePanel";
 import type { PublicUpdateController } from "./usePublicUpdate";
+import { ClientDiagnosticsPanel } from "./ClientDiagnosticsPanel";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -442,6 +443,7 @@ export function SettingsDialog({
                   status={publicUpdate.status}
                 />
               ) : null}
+              <ClientDiagnosticsPanel />
             </section>
           ) : null}
         </div>

@@ -22,6 +22,17 @@
   color: var(--danger);
 }
 
+.startup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.startup-diagnostic-error {
+  color: var(--danger);
+}
+
 .spin {
   animation: spin 900ms linear infinite;
 }

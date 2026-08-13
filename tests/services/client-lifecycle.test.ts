@@ -1,4 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { recordClientDiagnostic } = vi.hoisted(() => ({
+  recordClientDiagnostic: vi.fn(),
+}));
+
+vi.mock("../../src/services/client-diagnostics", () => ({ recordClientDiagnostic }));
 
 import {
   fetchClientLifecycleSession,
@@ -18,6 +24,10 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+beforeEach(() => {
+  recordClientDiagnostic.mockClear();
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -83,5 +93,114 @@ describe("client lifecycle", () => {
     window.dispatchEvent(new Event("pagehide"));
     stop();
     expect(request).toHaveBeenCalledTimes(1);
+    expect(recordClientDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("does not log an expected aborted lifecycle request", async () => {
+    const request = vi.fn<typeof fetch>().mockRejectedValue(
+      new DOMException("request cancelled", "AbortError"),
+    );
+    startClientLifecycle(request);
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(recordClientDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("records one privacy-safe warning after startup transport retries are exhausted", async () => {
+    vi.useFakeTimers();
+    const opaqueToken = "s".repeat(43);
+    const request = vi.fn<typeof fetch>().mockRejectedValue(
+      new TypeError(`launcher failed at C:\\Users\\Alice\\private ${opaqueToken}`),
+    );
+
+    startClientLifecycle(request);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(6));
+
+    expect(recordClientDiagnostic).toHaveBeenCalledOnce();
+    const diagnostic = recordClientDiagnostic.mock.calls[0]?.[0];
+    expect(diagnostic).toMatchObject({
+      code: "CLIENT_LIFECYCLE_SESSION_FAILED",
+      level: "warning",
+      operation: "client-session",
+      source: "global",
+    });
+    expect(diagnostic.message).not.toContain(opaqueToken);
+    expect(diagnostic.operation).not.toContain(opaqueToken);
+    expect(diagnostic.error).toBeInstanceOf(TypeError);
+    expect(diagnostic).not.toHaveProperty("leaseToken");
+  });
+
+  it("records malformed and non-404 Direct session responses without retaining their bodies", async () => {
+    const responseSecret = "n".repeat(43);
+    const malformed = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      ...session,
+      leaseToken: responseSecret,
+      unexpected: "private body",
+    }));
+    startClientLifecycle(malformed);
+    await vi.waitFor(() => expect(malformed).toHaveBeenCalledOnce());
+
+    const forbidden = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      error: responseSecret,
+    }, 403));
+    startClientLifecycle(forbidden);
+    await vi.waitFor(() => expect(forbidden).toHaveBeenCalledOnce());
+
+    await vi.waitFor(() => expect(recordClientDiagnostic).toHaveBeenCalledTimes(2));
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry.code).sort()).toEqual([
+      "CLIENT_LIFECYCLE_SESSION_FAILED",
+      "CLIENT_LIFECYCLE_SESSION_MALFORMED",
+    ]);
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry.message).join(" "))
+      .not.toContain(responseSecret);
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry.message).join(" "))
+      .not.toContain("private body");
+  });
+
+  it("deduplicates a heartbeat failure streak and records a new streak after recovery", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(session))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    const stop = startClientLifecycle(request);
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    for (let callCount = 2; callCount <= 5; callCount += 1) {
+      await vi.advanceTimersByTimeAsync(session.heartbeatIntervalMs);
+      await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(callCount));
+      await vi.waitFor(() => {
+        const expectedDiagnosticCount = callCount === 2 || callCount === 3 || callCount === 4
+          ? 1
+          : 2;
+        expect(recordClientDiagnostic).toHaveBeenCalledTimes(expectedDiagnosticCount);
+      });
+    }
+
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        code: "CLIENT_LIFECYCLE_HEARTBEAT_FAILED",
+        level: "warning",
+        operation: "client-heartbeat",
+        source: "global",
+      }),
+      expect.objectContaining({
+        code: "CLIENT_LIFECYCLE_HEARTBEAT_FAILED",
+        level: "warning",
+        operation: "client-heartbeat",
+        source: "global",
+      }),
+    ]);
+    expect(recordClientDiagnostic.mock.calls[0]?.[0]).toMatchObject({
+      level: "warning",
+      operation: "client-heartbeat",
+      source: "global",
+    });
+    stop();
   });
 });

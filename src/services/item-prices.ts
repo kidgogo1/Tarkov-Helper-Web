@@ -11,6 +11,11 @@ const ITEM_ID_PATTERN = /^[0-9a-f]{24}$/;
 const LOCAL_ICON_PATTERN = /^assets\/items\/[A-Za-z0-9._-]+\.(?:png|webp|svg)$/;
 const MAX_PRICE = 2_000_000_000;
 
+export type ItemPriceFailureCode = "INVALID_RESPONSE" | "REQUEST_FAILED";
+export type ItemPriceCatalogFailureHandler = (code: ItemPriceFailureCode) => void;
+export type ItemPriceQuoteFailureCode = ItemPriceFailureCode;
+export type ItemPriceQuoteFailureHandler = (code: ItemPriceQuoteFailureCode) => void;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -122,14 +127,36 @@ function parseQuote(value: unknown, itemId: string, gameMode: ProfileType): Live
 export async function loadItemPriceCatalog(
   signal?: AbortSignal,
   request: typeof fetch = fetch,
+  onFailure?: ItemPriceCatalogFailureHandler,
 ): Promise<ItemPriceCatalog> {
-  const response = await request(CATALOG_URL, {
-    cache: "no-store",
-    headers: { Accept: "application/json" },
-    signal,
-  });
-  if (!response.ok) throw new Error(`시세 카탈로그를 불러오지 못했습니다. (HTTP ${response.status})`);
-  const parsed = parseCatalog(await response.json());
+  let response: Response;
+  try {
+    response = await request(CATALOG_URL, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+  } catch (error: unknown) {
+    if (!isAbort(error, signal)) reportItemPriceFailure(onFailure, "REQUEST_FAILED");
+    throw error;
+  }
+  if (!response.ok) {
+    if (!signal?.aborted) {
+      reportItemPriceFailure(onFailure, "REQUEST_FAILED");
+    }
+    throw new Error(`시세 카탈로그를 불러오지 못했습니다. (HTTP ${response.status})`);
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json() as unknown;
+  } catch {
+    if (!signal?.aborted) reportItemPriceFailure(onFailure, "INVALID_RESPONSE");
+    throw new Error("시세 카탈로그 형식이 올바르지 않습니다.");
+  }
+  const parsed = parseCatalog(payload);
+  if (!parsed && !signal?.aborted) {
+    reportItemPriceFailure(onFailure, "INVALID_RESPONSE");
+  }
   if (!parsed) throw new Error("시세 카탈로그 형식이 올바르지 않습니다.");
   return parsed;
 }
@@ -139,6 +166,7 @@ export async function fetchItemPriceQuote(
   gameMode: ProfileType,
   signal?: AbortSignal,
   request: typeof fetch = fetch,
+  onFailure?: ItemPriceQuoteFailureHandler,
 ): Promise<LiveItemPriceQuote | null> {
   if (!ITEM_ID_PATTERN.test(itemId)) return null;
   try {
@@ -146,9 +174,41 @@ export async function fetchItemPriceQuote(
       `/api/v1/item-prices/quote?itemId=${encodeURIComponent(itemId)}&gameMode=${gameMode}`,
       { cache: "no-store", headers: { Accept: "application/json" }, signal },
     );
-    if (!response.ok) return null;
-    return parseQuote(await response.json(), itemId, gameMode);
-  } catch {
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      reportItemPriceFailure(onFailure, "REQUEST_FAILED");
+      return null;
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json() as unknown;
+    } catch {
+      if (!signal?.aborted) reportItemPriceFailure(onFailure, "INVALID_RESPONSE");
+      return null;
+    }
+    const parsed = parseQuote(payload, itemId, gameMode);
+    if (!parsed && !signal?.aborted) reportItemPriceFailure(onFailure, "INVALID_RESPONSE");
+    return parsed;
+  } catch (error: unknown) {
+    if (!isAbort(error, signal)) reportItemPriceFailure(onFailure, "REQUEST_FAILED");
     return null;
+  }
+}
+
+function isAbort(error: unknown, signal?: AbortSignal): boolean {
+  return Boolean(signal?.aborted) || (
+    typeof error === "object" && error !== null &&
+    "name" in error && error.name === "AbortError"
+  );
+}
+
+function reportItemPriceFailure(
+  onFailure: ItemPriceCatalogFailureHandler | ItemPriceQuoteFailureHandler | undefined,
+  code: ItemPriceFailureCode,
+): void {
+  try {
+    onFailure?.(code);
+  } catch {
+    // Reporting must not change catalog or optional live-quote behavior.
   }
 }

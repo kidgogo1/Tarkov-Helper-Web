@@ -2,7 +2,13 @@ import { CircleDollarSign, Database, Radio, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { formatPriceTime, formatRoubles } from "../../domain/item-prices";
-import { loadItemPriceCatalog, fetchItemPriceQuote } from "../../services/item-prices";
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
+import {
+  loadItemPriceCatalog,
+  fetchItemPriceQuote,
+  type ItemPriceCatalogFailureHandler,
+  type ItemPriceQuoteFailureHandler,
+} from "../../services/item-prices";
 import type { ProfileType } from "../../types/data";
 import type {
   ItemPriceCatalogItem,
@@ -32,6 +38,26 @@ interface MarketState {
 }
 
 const MODES: readonly MarketMode[] = ["pvp", "pve"];
+
+const recordCatalogFailure: ItemPriceCatalogFailureHandler = () => {
+  recordClientDiagnostic({
+    source: "optional-resource",
+    code: "PRICE_CATALOG_LOAD_FAILED",
+    level: "warning",
+    message: "The bundled item price catalog could not be loaded.",
+    operation: "LOAD_PRICE_CATALOG",
+  });
+};
+
+const recordQuoteFailure: ItemPriceQuoteFailureHandler = () => {
+  recordClientDiagnostic({
+    source: "optional-resource",
+    code: "PRICE_QUOTE_FETCH_FAILED",
+    level: "warning",
+    message: "A live item price quote request failed.",
+    operation: "FETCH_LIVE_QUOTE",
+  });
+};
 
 function normalize(value: string): string {
   return value.normalize("NFKC").trim().toLocaleLowerCase();
@@ -85,7 +111,11 @@ export function ItemMarketSummary({
     });
     void (async () => {
       try {
-        const catalog = await loadItemPriceCatalog(controller.signal);
+        const catalog = await loadItemPriceCatalog(
+          controller.signal,
+          globalThis.fetch,
+          recordCatalogFailure,
+        );
         if (controller.signal.aborted || !active) return;
 
         const catalogItem = findCatalogItem(catalog.items, itemId, itemName, itemEnglishName);
@@ -97,7 +127,13 @@ export function ItemMarketSummary({
         const results = await Promise.all(MODES.map(async (mode) => ({
           mode,
           snapshot: catalogItem.prices[mode],
-          quote: await fetchItemPriceQuote(catalogItem.id, mode, controller.signal),
+          quote: await fetchItemPriceQuote(
+            catalogItem.id,
+            mode,
+            controller.signal,
+            globalThis.fetch,
+            recordQuoteFailure,
+          ),
         })));
         if (controller.signal.aborted || !active) return;
 

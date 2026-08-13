@@ -214,4 +214,32 @@ describe("local tracker API boundary", () => {
     await expect(fetchLocalTrackerStatus(undefined, invalidJson)).resolves.toBeNull();
     await expect(fetchLocalTrackerEvents(0, undefined, aborted)).resolves.toBeNull();
   });
+
+  it("emits bounded failure reasons without exposing response bodies and excludes abort", async () => {
+    const onFailure = vi.fn();
+    const secret = "z".repeat(43);
+
+    await fetchLocalTrackerStatus(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ error: secret }, 404)),
+      onFailure,
+    );
+    await fetchLocalTrackerStatus(
+      undefined,
+      vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ private: secret })),
+      onFailure,
+    );
+    await fetchLocalTrackerEvents(
+      0,
+      undefined,
+      vi.fn<typeof fetch>().mockRejectedValue(new DOMException("cancelled", "AbortError")),
+      onFailure,
+    );
+
+    expect(onFailure.mock.calls.map(([error]) => error)).toEqual([
+      expect.objectContaining({ code: "NOT_FOUND", status: 404 }),
+      expect.objectContaining({ code: "INVALID_RESPONSE", status: 200 }),
+    ]);
+    expect(JSON.stringify(onFailure.mock.calls)).not.toContain(secret);
+  });
 });

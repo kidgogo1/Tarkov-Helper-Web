@@ -10,6 +10,10 @@ import {
   useAppStore,
 } from "../../src/app/store";
 import type { CustomMapMarker } from "../../src/types/state";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 
 function StoreWrapper({ children }: PropsWithChildren) {
   return <AppStoreProvider>{children}</AppStoreProvider>;
@@ -18,6 +22,7 @@ function StoreWrapper({ children }: PropsWithChildren) {
 describe("AppStoreProvider", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    clearClientDiagnostics();
   });
 
   it("creates independent PVP and PVE profiles in a versioned state", () => {
@@ -421,6 +426,21 @@ describe("AppStoreProvider", () => {
       setItem.mockRestore();
     }
     await waitFor(() => expect(result.current.storageWarning).toBe(true));
+    expect(getClientDiagnosticSnapshot().entries).toEqual([
+      expect.objectContaining({ source: "storage", code: "STATE_WRITE_FAILED", count: 1 }),
+    ]);
+  });
+
+  it("records invalid persisted state without serializing the stored payload", () => {
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, "private-payload{");
+
+    renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries).toEqual([
+      expect.objectContaining({ source: "storage", code: "STATE_READ_FAILED", count: 1 }),
+    ]);
+    expect(JSON.stringify(snapshot)).not.toContain("private-payload");
   });
 
   it("sanitizes, deduplicates, and shares hidden marker types across profiles", () => {

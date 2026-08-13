@@ -3,21 +3,36 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { searchPriceCatalog, selectCatalogSnapshot } from "../../domain/item-prices";
-import { fetchItemPriceQuote, loadItemPriceCatalog } from "../../services/item-prices";
+import {
+  fetchItemPriceQuote,
+  loadItemPriceCatalog,
+  type ItemPriceQuoteFailureHandler,
+} from "../../services/item-prices";
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
 import type { ProfileType } from "../../types/data";
 import type { ItemPriceCatalog, ItemPriceCatalogItem, LiveItemPriceQuote } from "../../types/prices";
 import { PriceDetails } from "./PriceDetails";
 
+type PriceQuoteRequest = (
+  itemId: string,
+  mode: ProfileType,
+  signal?: AbortSignal,
+  onFailure?: ItemPriceQuoteFailureHandler,
+) => Promise<LiveItemPriceQuote | null>;
+
+const fetchLiveQuote: PriceQuoteRequest = (itemId, mode, signal, onFailure) =>
+  fetchItemPriceQuote(itemId, mode, signal, globalThis.fetch, onFailure);
+
 interface PriceSearchPageProps {
   activeProfile: ProfileType;
   loadCatalog?: (signal?: AbortSignal) => Promise<ItemPriceCatalog>;
-  fetchQuote?: (itemId: string, mode: ProfileType, signal?: AbortSignal) => Promise<LiveItemPriceQuote | null>;
+  fetchQuote?: PriceQuoteRequest;
 }
 
 export function PriceSearchPage({
   activeProfile,
   loadCatalog = loadItemPriceCatalog,
-  fetchQuote = fetchItemPriceQuote,
+  fetchQuote = fetchLiveQuote,
 }: PriceSearchPageProps) {
   const [catalog, setCatalog] = useState<ItemPriceCatalog | null>(null);
   const [loadError, setLoadError] = useState<string>();
@@ -34,6 +49,13 @@ export function PriceSearchPage({
     const controller = new AbortController();
     loadCatalog(controller.signal).then(setCatalog).catch((error: unknown) => {
       if (error instanceof DOMException && error.name === "AbortError") return;
+      recordClientDiagnostic({
+        source: "optional-resource",
+        code: "PRICE_CATALOG_LOAD_FAILED",
+        level: "warning",
+        error,
+        message: "포함된 시세 카탈로그를 불러오지 못했습니다.",
+      });
       setLoadError(error instanceof Error ? error.message : "시세 카탈로그를 불러오지 못했습니다.");
     });
     return () => controller.abort();
@@ -55,14 +77,26 @@ export function PriceSearchPage({
     setQuoteLoading(true);
     setLiveAttempted(false);
     setQuote(null);
-    fetchQuote(item.id, activeProfile, controller.signal)
+    const recordQuoteFailure: ItemPriceQuoteFailureHandler = () => {
+      recordClientDiagnostic({
+        source: "optional-resource",
+        code: "PRICE_QUOTE_FETCH_FAILED",
+        level: "warning",
+        message: "A live item price quote request failed.",
+        operation: "FETCH_LIVE_QUOTE",
+      });
+    };
+    fetchQuote(item.id, activeProfile, controller.signal, recordQuoteFailure)
       .then((nextQuote) => {
         if (quoteGeneration.current !== generation) return;
         setQuote(nextQuote);
         setLiveAttempted(true);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (quoteGeneration.current !== generation) return;
+        const wasCancelled = controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError");
+        if (!wasCancelled) recordQuoteFailure("REQUEST_FAILED");
         setQuote(null);
         setLiveAttempted(true);
       })

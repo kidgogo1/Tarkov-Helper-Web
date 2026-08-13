@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app/App";
 import { AppStoreProvider } from "../../src/app/store";
 import type { TarkovData } from "../../src/types/data";
+import {
+  clearClientDiagnostics,
+  getClientDiagnosticSnapshot,
+} from "../../src/services/client-diagnostics";
 
 const dataMocks = vi.hoisted(() => ({
   loadTarkovData: vi.fn(),
@@ -198,9 +202,40 @@ function renderApp() {
 describe("App related navigation", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    clearClientDiagnostics();
     window.history.replaceState(null, "", "#/quests");
     dataMocks.loadTarkovData.mockReset();
     dataMocks.loadTarkovData.mockResolvedValue(data);
+  });
+
+  it("records a sanitized startup data failure", async () => {
+    dataMocks.loadTarkovData.mockRejectedValueOnce(
+      new Error("C:\\Users\\private-user\\data\\tarkov-data.json failed"),
+    );
+
+    renderApp();
+
+    expect(await screen.findByText(/tarkov-data\.json failed/)).toBeInTheDocument();
+    const snapshot = getClientDiagnosticSnapshot();
+    expect(snapshot.entries.find((entry) => entry.code === "CORE_DATA_LOAD_FAILED")).toMatchObject({
+      source: "data",
+      count: 1,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("private-user");
+    const download = screen.getByRole("button", { name: "진단 기록 다운로드" });
+    expect(download).toBeInTheDocument();
+    const createObjectUrl = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: () => { throw new Error("downloads blocked"); },
+    });
+    try {
+      fireEvent.click(download);
+      expect(screen.getByRole("alert")).toHaveTextContent("진단 기록 파일을 만들지 못했습니다.");
+    } finally {
+      if (createObjectUrl) Object.defineProperty(URL, "createObjectURL", createObjectUrl);
+      else delete (URL as { createObjectURL?: unknown }).createObjectURL;
+    }
   });
 
   it("tracks a quest and opens its title and objectives from the map-adjacent quest window button", async () => {

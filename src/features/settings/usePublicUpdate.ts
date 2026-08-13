@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
 import {
   PublicUpdateApiError,
   applyPublicUpdate,
@@ -57,6 +58,37 @@ export interface PublicUpdateController {
 function updateErrorMessage(error: unknown): string {
   if (error instanceof PublicUpdateApiError) return error.message;
   return "업데이트 서비스에서 예상하지 못한 오류가 발생했습니다.";
+}
+
+function updateTargetVersion(status: PublicUpdateStatus | null): string | undefined {
+  return status && "latestVersion" in status ? status.latestVersion : undefined;
+}
+
+function recordUpdateClientError(
+  operation: Exclude<PublicUpdateBusyState, null>,
+  error: unknown,
+  session: PublicUpdateSession | null,
+  status: PublicUpdateStatus | null,
+): void {
+  recordClientDiagnostic({
+    source: "update",
+    code: error instanceof PublicUpdateApiError ? error.code : "UNEXPECTED_CLIENT_ERROR",
+    error,
+    message: updateErrorMessage(error),
+    operation,
+    currentVersion: status?.currentVersion ?? session?.status.currentVersion,
+    targetVersion: updateTargetVersion(status),
+  });
+}
+
+function recordUpdateInitializationError(error: PublicUpdateApiError): void {
+  recordClientDiagnostic({
+    source: "update",
+    code: error.code,
+    error,
+    message: "The local update service could not be initialized.",
+    operation: "INITIALIZE",
+  });
 }
 
 function isPendingStatus(status: PublicUpdateStatus): boolean {
@@ -289,9 +321,33 @@ export function usePublicUpdate(
   const busyRef = useRef(false);
   const operationControllerRef = useRef<AbortController | null>(null);
   const updateChannelRef = useRef<PublicUpdateChannel | null>(null);
+  const terminalErrorFingerprintsRef = useRef(new Set<string>());
   const reload = runtime.reload ?? defaultReload;
   const persistState = runtime.persistState;
   const createUpdateChannel = runtime.createUpdateChannel ?? createDefaultUpdateChannel;
+
+  useEffect(() => {
+    if (status?.state !== "ERROR") return;
+    const fingerprint = [
+      status.operation,
+      status.code,
+      status.currentVersion,
+      status.message,
+    ].join("\u0000");
+    if (terminalErrorFingerprintsRef.current.has(fingerprint)) return;
+    if (terminalErrorFingerprintsRef.current.size >= 32) {
+      const oldest = terminalErrorFingerprintsRef.current.values().next().value;
+      if (oldest !== undefined) terminalErrorFingerprintsRef.current.delete(oldest);
+    }
+    terminalErrorFingerprintsRef.current.add(fingerprint);
+    recordClientDiagnostic({
+      source: "update",
+      code: status.code,
+      message: status.message,
+      operation: status.operation,
+      currentVersion: status.currentVersion,
+    });
+  }, [status]);
 
   const reconnect = useCallback(async (
     previousSession: PublicUpdateSession,
@@ -326,7 +382,9 @@ export function usePublicUpdate(
     const controller = new AbortController();
     let active = true;
 
-    void fetchPublicUpdateSession(controller.signal, request).then(async (loadedSession) => {
+    void fetchPublicUpdateSession(controller.signal, request, (error) => {
+      if (active) recordUpdateInitializationError(error);
+    }).then(async (loadedSession) => {
       if (!active) return;
       setSession(loadedSession);
       setStatus(loadedSession?.status ?? null);
@@ -358,6 +416,7 @@ export function usePublicUpdate(
         }
       } catch (error: unknown) {
         if (active && !(error instanceof DOMException && error.name === "AbortError")) {
+          recordUpdateClientError(operation, error, loadedSession, loadedSession.status);
           setClientError(updateErrorMessage(error));
         }
       } finally {
@@ -455,6 +514,7 @@ export function usePublicUpdate(
       );
     })().catch((error: unknown) => {
       if (mountedRef.current && !(error instanceof DOMException && error.name === "AbortError")) {
+        recordUpdateClientError("APPLY", error, session, session?.status ?? null);
         setClientError(updateErrorMessage(error));
       }
     }).finally(() => {
@@ -466,6 +526,10 @@ export function usePublicUpdate(
 
   const check = useCallback(async () => {
     if (!session || busyRef.current || session.status.state === "DISABLED") return;
+    // A manual operation is a new occurrence. Keep polling duplicates within
+    // one operation quiet, but let the same failure on a later attempt update
+    // its count and last-seen timestamp.
+    terminalErrorFingerprintsRef.current.clear();
     busyRef.current = true;
     setBusy("CHECK");
     setClientError(null);
@@ -481,7 +545,10 @@ export function usePublicUpdate(
         : checking;
       if (mountedRef.current) setStatus(settled);
     } catch (error: unknown) {
-      if (mountedRef.current) setClientError(updateErrorMessage(error));
+      if (mountedRef.current) {
+        recordUpdateClientError("CHECK", error, session, session.status);
+        setClientError(updateErrorMessage(error));
+      }
     } finally {
       busyRef.current = false;
       operationControllerRef.current = null;
@@ -628,6 +695,7 @@ export function usePublicUpdate(
     setClientError(null);
     const controller = new AbortController();
     operationControllerRef.current = controller;
+    let diagnosticOperation: Exclude<PublicUpdateBusyState, null> = "STAGE";
     try {
       const staging = await stagePublicUpdate(session, status.candidateId, controller.signal, request);
       assertReviewedStageStatus(status, staging);
@@ -639,11 +707,15 @@ export function usePublicUpdate(
         : staging;
       if (mountedRef.current) setStatus(settled);
       if (settled.state === "READY_TO_RESTART") {
+        diagnosticOperation = "APPLY";
         setBusy("APPLY");
         await applyReady(settled.candidateId, settled.latestVersion, controller);
       }
     } catch (error: unknown) {
-      if (mountedRef.current) setClientError(updateErrorMessage(error));
+      if (mountedRef.current) {
+        recordUpdateClientError(diagnosticOperation, error, session, status);
+        setClientError(updateErrorMessage(error));
+      }
     } finally {
       busyRef.current = false;
       operationControllerRef.current = null;
@@ -662,6 +734,7 @@ export function usePublicUpdate(
       await applyReady(status.candidateId, status.latestVersion, controller);
     } catch (error: unknown) {
       if (mountedRef.current && !(error instanceof DOMException && error.name === "AbortError")) {
+        recordUpdateClientError("APPLY", error, session, status);
         setClientError(updateErrorMessage(error));
       }
     } finally {

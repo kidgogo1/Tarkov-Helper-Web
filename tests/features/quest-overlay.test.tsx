@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef, StrictMode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { recordClientDiagnostic } = vi.hoisted(() => ({
+  recordClientDiagnostic: vi.fn(),
+}));
+
+vi.mock("../../src/services/client-diagnostics", () => ({ recordClientDiagnostic }));
 
 import {
   QuestOverlay,
@@ -125,6 +131,10 @@ function OverlayHarness({
 }
 
 describe("QuestOverlay", () => {
+  beforeEach(() => {
+    recordClientDiagnostic.mockClear();
+  });
+
   afterEach(() => {
     Object.defineProperty(window, "documentPictureInPicture", {
       configurable: true,
@@ -152,6 +162,34 @@ describe("QuestOverlay", () => {
     expect(screen.queryByRole("complementary", { name: "퀘스트 창" }))
       .not.toBeInTheDocument();
     await waitFor(() => expect(opener).toHaveFocus());
+    expect(recordClientDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("records a privacy-safe warning when popup setup throws before the portal is ready", async () => {
+    const opaqueNonce = "n".repeat(43);
+    render(
+      <OverlayHarness
+        openPopup={() => {
+          throw new Error(`windowNonce=${opaqueNonce} at C:\\Users\\Alice\\private`);
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    await screen.findByRole("complementary", { name: "퀘스트 창" });
+
+    expect(recordClientDiagnostic).toHaveBeenCalledOnce();
+    const diagnostic = recordClientDiagnostic.mock.calls[0]?.[0];
+    expect(diagnostic).toMatchObject({
+      code: "QUEST_OVERLAY_POPUP_FAILED",
+      level: "warning",
+      operation: "quest-popup",
+      source: "optional-resource",
+    });
+    expect(diagnostic.message).not.toContain(opaqueNonce);
+    expect(diagnostic.operation).not.toContain(opaqueNonce);
+    expect(diagnostic.error).toBeInstanceOf(Error);
+    expect(diagnostic).not.toHaveProperty("windowNonce");
   });
 
   it("offers a separate map-route checkbox beside each tracked quest title", async () => {
@@ -443,11 +481,107 @@ describe("QuestOverlay", () => {
     expect(popupDocument.body.textContent).toContain("물병자리 작전");
     expect(close).not.toHaveBeenCalled();
     expect(nativeRequest.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        code: "QUEST_OVERLAY_ATTACH_FAILED",
+        level: "warning",
+        operation: "quest-native-attach",
+        source: "optional-resource",
+      }),
+    ]);
 
     popupDocument.querySelector<HTMLButtonElement>(
       'button[aria-label="퀘스트 창 닫기"]',
     )?.click();
     await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  });
+
+  it("records an active native claim failure but not an unsupported session", async () => {
+    const popupDocument = document.implementation.createHTMLDocument("");
+    const popupWindow = {
+      closed: false,
+      close: vi.fn(),
+      document: popupDocument,
+      focus: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    const nativeRequest = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).endsWith("/session")) return jsonResponse(nativeV2Session);
+      if (String(input).endsWith("/claims")) {
+        return jsonResponse({ error: { code: "NATIVE_FAILURE", message: "private body" } }, 500);
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const { unmount } = render(
+      <OverlayHarness nativeRequest={nativeRequest} openPopup={() => popupWindow} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    await waitFor(() => expect(popupDocument.body.textContent).toContain(
+      "화면 위 연결을 사용할 수 없어 일반 퀘스트 창으로 열었습니다.",
+    ));
+
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        code: "QUEST_OVERLAY_CLAIM_FAILED",
+        level: "warning",
+        operation: "quest-native-claim",
+        source: "optional-resource",
+      }),
+    ]);
+    expect(recordClientDiagnostic.mock.calls[0]?.[0]?.message).not.toContain("private body");
+
+    unmount();
+    recordClientDiagnostic.mockClear();
+    const unsupportedDocument = document.implementation.createHTMLDocument("");
+    const unsupportedWindow = {
+      closed: false,
+      close: vi.fn(),
+      document: unsupportedDocument,
+      focus: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    render(
+      <OverlayHarness
+        nativeRequest={vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 404))}
+        openPopup={() => unsupportedWindow}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    await waitFor(() => expect(unsupportedDocument.body.textContent).toContain(
+      "일반 브라우저 창입니다",
+    ));
+    expect(recordClientDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("records an actionable native session failure before using the regular popup", async () => {
+    const popupDocument = document.implementation.createHTMLDocument("");
+    const popupWindow = {
+      closed: false,
+      close: vi.fn(),
+      document: popupDocument,
+      focus: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    const nativeRequest = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 500));
+
+    render(<OverlayHarness nativeRequest={nativeRequest} openPopup={() => popupWindow} />);
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    await waitFor(() => expect(popupDocument.body.textContent).toContain(
+      "일반 브라우저 창입니다",
+    ));
+
+    expect(recordClientDiagnostic.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        code: "QUEST_OVERLAY_SESSION_FAILED",
+        level: "warning",
+        operation: "quest-native-session",
+        source: "optional-resource",
+      }),
+    ]);
   });
 
   it("opens synchronously and cleans up the native quest window when its opener unloads", async () => {
@@ -486,6 +620,7 @@ describe("QuestOverlay", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(nativeRequest.mock.calls.some(([input]) => String(input).endsWith("/claims")))
       .toBe(false);
+    expect(recordClientDiagnostic).not.toHaveBeenCalled();
 
     window.dispatchEvent(new Event("pageshow"));
     fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));

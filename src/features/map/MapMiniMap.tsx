@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { useAppStore } from "../../app/store";
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
 import {
   applySvgFloorVisibility,
   getMapDirectionAngle,
@@ -691,6 +692,32 @@ function nativeOverlayErrorNotice(error: unknown): NativeOverlayNotice {
   };
 }
 
+type NativeOverlayDiagnosticOperation =
+  | "ATTACH"
+  | "CLAIM"
+  | "EVENT_POLL"
+  | "LOCK"
+  | "SESSION"
+  | "UPDATE_MODE"
+  | "UPDATE_OPACITY";
+
+function recordNativeOverlayFailure(
+  operation: NativeOverlayDiagnosticOperation,
+  error: unknown,
+): void {
+  if (!(error instanceof NativeOverlayApiError)) return;
+  const safeCode = /^[A-Z][A-Z0-9_]{1,39}$/.test(error.code)
+    ? error.code
+    : "FAILURE";
+  recordClientDiagnostic({
+    source: "optional-resource",
+    code: `NATIVE_OVERLAY_${safeCode}`,
+    level: "warning",
+    message: "A Windows native mini-map operation failed.",
+    operation,
+  });
+}
+
 export function MapMiniMap(props: MapMiniMapProps) {
   const { settings, updateMapSettings } = useAppStore();
   const mapSettings = settings.map;
@@ -751,6 +778,8 @@ export function MapMiniMap(props: MapMiniMapProps) {
       session,
       controller.signal,
       window,
+      globalThis.fetch,
+      (error) => recordNativeOverlayFailure("EVENT_POLL", error),
     ).finally(() => {
       if (nativeEventPollingAbortRef.current === controller) {
         nativeEventPollingAbortRef.current = null;
@@ -770,7 +799,11 @@ export function MapMiniMap(props: MapMiniMapProps) {
     if (sessionDetectionRef.current) return sessionDetectionRef.current;
     if (nativeSessionCheckedRef.current) return null;
 
-    const detection = fetchNativeOverlaySession();
+      const detection = fetchNativeOverlaySession(
+        undefined,
+        globalThis.fetch,
+        (error) => recordNativeOverlayFailure("SESSION", error),
+      );
     sessionDetectionRef.current = detection;
     try {
       const session = await detection;
@@ -984,6 +1017,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         setNativeNotice(nativeOverlayModeNotice(next));
       }
     } catch (error) {
+      recordNativeOverlayFailure("UPDATE_MODE", error);
       if (
         error instanceof NativeOverlayApiError &&
         error.code === "OVERLAY_NOT_FOUND"
@@ -1020,6 +1054,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         rememberNativeOverlay(next);
       }
     }).catch((error: unknown) => {
+      recordNativeOverlayFailure("UPDATE_OPACITY", error);
       nativeOpacityRef.current = null;
       if (mountedRef.current) setNativeNotice(nativeOverlayErrorNotice(error));
     }).finally(() => {
@@ -1066,6 +1101,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
           const claim = await beginNativeOverlayClaim(session);
           claimId = claim.claimId;
         } catch (error) {
+          recordNativeOverlayFailure("CLAIM", error);
           nativeClaimFailed = true;
           if (isCurrentAttempt()) {
             setNativeNotice(nativeOverlayErrorNotice(error));
@@ -1106,6 +1142,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
         setFallbackNotice("");
 
         if (session && claimId) {
+          let nativeOpenOperation: NativeOverlayDiagnosticOperation = "ATTACH";
           try {
             const attached = await attachNativeMiniMap(session, claimId);
             if (
@@ -1124,6 +1161,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
               startNativeEventPolling(session);
             }
             nativeOpacityRef.current = mapSettings.miniMapOpacity;
+            nativeOpenOperation = "LOCK";
             const locked = await updateNativeMiniMap(
               session,
               attached.overlayId,
@@ -1142,6 +1180,7 @@ export function MapMiniMap(props: MapMiniMapProps) {
               setNativeNotice(nativeOverlayModeNotice(locked));
             }
           } catch (error) {
+            recordNativeOverlayFailure(nativeOpenOperation, error);
             if (
               error instanceof NativeOverlayApiError &&
               error.code === "OVERLAY_NOT_FOUND"
