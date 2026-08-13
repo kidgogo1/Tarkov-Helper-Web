@@ -39,6 +39,10 @@ body:has(.app-page-layer:not(.app-page-layer--preserved) .map-page)
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.quest-overlay--popup:has(.quest-overlay-native-notice) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .quest-overlay-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -146,6 +150,22 @@ body:has(.app-page-layer:not(.app-page-layer--preserved) .map-page)
   padding: 8px 12px;
   font-size: 10px;
   line-height: 1.45;
+}
+
+.quest-overlay-native-notice {
+  margin: 0;
+  border-bottom: 1px solid rgb(87 217 133 / 28%);
+  background: rgb(87 217 133 / 8%);
+  color: var(--text-muted);
+  padding: 7px 11px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.quest-overlay-native-notice--warning {
+  border-bottom-color: rgb(255 198 79 / 28%);
+  background: rgb(255 198 79 / 8%);
+  color: var(--warning);
 }
 
 .quest-overlay-body {

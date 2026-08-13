@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createRef, StrictMode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   QuestOverlay,
@@ -67,7 +67,36 @@ const untrackedQuest: QuestData = {
   objectives: [],
 };
 
-function OverlayHarness({ openPopup }: { openPopup: () => Window | null }) {
+const nativeV2Session = {
+  protocolVersion: 2,
+  capability: "WINDOWS_MULTI_OVERLAY",
+  token: "t".repeat(43),
+  windowTitles: {
+    minimap: "Tarkov Helper Web",
+    questList: "Tarkov Helper Quest List",
+  },
+  sizeLimits: {
+    minWidth: 240,
+    minHeight: 240,
+    maxWidth: 1000,
+    maxHeight: 1000,
+  },
+} as const;
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function OverlayHarness({
+  nativeRequest,
+  openPopup,
+}: {
+  nativeRequest?: typeof fetch;
+  openPopup: () => Window | null;
+}) {
   const profile = createDefaultState().profiles.pvp;
   profile.trackedQuestIds = [trackedQuest.id];
   profile.objectiveProgress["objective-extract"] = true;
@@ -83,6 +112,7 @@ function OverlayHarness({ openPopup }: { openPopup: () => Window | null }) {
         onObjectiveChange={vi.fn()}
         onQuestMapRouteChange={vi.fn()}
         onQuestTrackedChange={vi.fn()}
+        nativeRequest={nativeRequest}
         openPopup={openPopup}
         profile={profile}
         mapConfigs={mapConfigs}
@@ -95,13 +125,20 @@ function OverlayHarness({ openPopup }: { openPopup: () => Window | null }) {
 }
 
 describe("QuestOverlay", () => {
+  afterEach(() => {
+    Object.defineProperty(window, "documentPictureInPicture", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
   it("falls back to a focused dock, closes with Escape, and restores the opener", async () => {
     render(<OverlayHarness openPopup={() => null} />);
 
     const opener = screen.getByRole("button", { name: "퀘스트 창 토글" });
     opener.focus();
     fireEvent.click(opener);
-    const overlay = screen.getByRole("complementary", { name: "퀘스트 창" });
+    const overlay = await screen.findByRole("complementary", { name: "퀘스트 창" });
     expect(overlay).toHaveAttribute("data-presentation", "dock");
     await waitFor(() => expect(overlay).toHaveFocus());
     expect(within(overlay).getByRole("heading", { name: "물병자리 작전" })).toBeInTheDocument();
@@ -117,7 +154,7 @@ describe("QuestOverlay", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
-  it("offers a separate map-route checkbox beside each tracked quest title", () => {
+  it("offers a separate map-route checkbox beside each tracked quest title", async () => {
     const onQuestMapRouteChange = vi.fn();
     const profile = createDefaultState().profiles.pvp;
     profile.trackedQuestIds = [trackedQuest.id];
@@ -142,7 +179,7 @@ describe("QuestOverlay", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "경로 창 열기" }));
 
-    const routeToggle = screen.getByRole("checkbox", {
+    const routeToggle = await screen.findByRole("checkbox", {
       name: "물병자리 작전 지도 경로 표시",
     });
     expect(routeToggle).not.toBeChecked();
@@ -154,7 +191,7 @@ describe("QuestOverlay", () => {
     );
   });
 
-  it("explains and disables map routing when a tracked quest has no safe coordinates", () => {
+  it("explains and disables map routing when a tracked quest has no safe coordinates", async () => {
     const onQuestMapRouteChange = vi.fn();
     const coordinateLessQuest: QuestData = {
       ...trackedQuest,
@@ -189,7 +226,7 @@ describe("QuestOverlay", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "좌표 창 열기" }));
 
-    const routeToggle = screen.getByRole("checkbox", {
+    const routeToggle = await screen.findByRole("checkbox", {
       name: /^좌표 없는 퀘스트 지도 경로 표시/,
     });
     expect(routeToggle).toBeDisabled();
@@ -215,6 +252,15 @@ describe("QuestOverlay", () => {
         if (type === "pagehide") pageHideListeners.delete(listener);
       },
     } as unknown as Window;
+    const requestWindow = vi.fn();
+    const closeMiniMap = vi.fn();
+    Object.defineProperty(window, "documentPictureInPicture", {
+      configurable: true,
+      value: {
+        window: { close: closeMiniMap },
+        requestWindow,
+      },
+    });
 
     render(
       <StrictMode>
@@ -227,12 +273,149 @@ describe("QuestOverlay", () => {
       expect(popupDocument.body.textContent).toContain("물병자리 작전");
     });
     expect(screen.queryByRole("complementary", { name: "퀘스트 창" })).not.toBeInTheDocument();
-    expect(popupDocument.title).toBe("타르코프 헬퍼 퀘스트 창");
+    expect(popupDocument.title).toBe("Tarkov Helper Quest List");
+    expect(requestWindow).not.toHaveBeenCalled();
+    expect(closeMiniMap).not.toHaveBeenCalled();
 
     for (const listener of pageHideListeners) listener(new Event("pagehide"));
     await waitFor(() => {
       expect(pageHideListeners.size).toBe(0);
     });
     expect(close).not.toHaveBeenCalled();
+  });
+
+  it("turns the Direct popup into an independent always-on-top quest overlay", async () => {
+    const popupDocument = document.implementation.createHTMLDocument("");
+    const pageHideListeners = new Set<EventListener>();
+    const close = vi.fn();
+    const focus = vi.fn();
+    const popupWindow = {
+      closed: false,
+      close,
+      document: popupDocument,
+      focus,
+      addEventListener: (type: string, listener: EventListener) => {
+        if (type === "pagehide") pageHideListeners.add(listener);
+      },
+      removeEventListener: (type: string, listener: EventListener) => {
+        if (type === "pagehide") pageHideListeners.delete(listener);
+      },
+    } as unknown as Window;
+    const order: string[] = [];
+    const attachment = {
+      protocolVersion: 2,
+      overlayKind: "quest-list",
+      overlayId: "o".repeat(43),
+      state: "ATTACHED",
+      mode: "UNLOCKED",
+      globalHotkeysAvailable: false,
+      bounds: { left: 20, top: 40, width: 430, height: 680 },
+    } as const;
+    const nativeRequest = vi.fn<typeof fetch>(async (input, init) => {
+      const path = String(input);
+      const method = init?.method ?? "GET";
+      if (path.endsWith("/session")) return jsonResponse(nativeV2Session);
+      if (path.endsWith("/claims")) {
+        order.push("CLAIM");
+        return jsonResponse({
+          protocolVersion: 2,
+          overlayKind: "quest-list",
+          claimId: "c".repeat(43),
+          expiresAt: "2026-08-13T12:00:15.000Z",
+        }, 201);
+      }
+      if (path.endsWith("/windows") && method === "POST") {
+        order.push("ATTACH");
+        return jsonResponse(attachment, 201);
+      }
+      if (path.endsWith("/windows") && method === "DELETE") {
+        order.push("DETACH");
+        return new Response(null, { status: 204 });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+
+    render(
+      <OverlayHarness
+        nativeRequest={nativeRequest}
+        openPopup={() => {
+          order.push("OPEN");
+          return popupWindow;
+        }}
+      />,
+    );
+    await waitFor(() => expect(nativeRequest).toHaveBeenCalledWith(
+      "/api/v2/native-overlay/session",
+      expect.any(Object),
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+
+    await waitFor(() => expect(order).toEqual(["CLAIM", "OPEN", "ATTACH"]));
+    expect(popupDocument.title).toBe("Tarkov Helper Quest List");
+    expect(popupDocument.body.textContent).toContain("화면 위에 표시됨 · 이동 가능");
+    expect(popupDocument.body.textContent).toContain("물병자리 작전");
+
+    const closeButton = popupDocument.querySelector<HTMLButtonElement>(
+      'button[aria-label="퀘스트 창 닫기"]',
+    );
+    expect(closeButton).not.toBeNull();
+    closeButton?.click();
+    await waitFor(() => expect(order.at(-1)).toBe("DETACH"));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(pageHideListeners.size).toBe(0);
+  });
+
+  it("keeps a usable regular popup when native window matching fails closed", async () => {
+    const popupDocument = document.implementation.createHTMLDocument("");
+    const close = vi.fn();
+    const popupWindow = {
+      closed: false,
+      close,
+      document: popupDocument,
+      focus: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as Window;
+    const nativeRequest = vi.fn<typeof fetch>(async (input, init) => {
+      const path = String(input);
+      const method = init?.method ?? "GET";
+      if (path.endsWith("/session")) return jsonResponse(nativeV2Session);
+      if (path.endsWith("/claims")) {
+        return jsonResponse({
+          protocolVersion: 2,
+          overlayKind: "quest-list",
+          claimId: "c".repeat(43),
+          expiresAt: "2026-08-13T12:00:15.000Z",
+        }, 201);
+      }
+      if (path.endsWith("/windows") && method === "POST") {
+        return jsonResponse({
+          error: {
+            code: "AMBIGUOUS_WINDOW",
+            message: "untrusted native detail",
+          },
+        }, 409);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+
+    render(<OverlayHarness nativeRequest={nativeRequest} openPopup={() => popupWindow} />);
+    await waitFor(() => expect(nativeRequest).toHaveBeenCalledWith(
+      "/api/v2/native-overlay/session",
+      expect.any(Object),
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+
+    await waitFor(() => expect(popupDocument.body.textContent).toContain(
+      "화면 위 연결을 사용할 수 없어 일반 퀘스트 창으로 열었습니다.",
+    ));
+    expect(popupDocument.body.textContent).toContain("물병자리 작전");
+    expect(close).not.toHaveBeenCalled();
+    expect(nativeRequest.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+
+    popupDocument.querySelector<HTMLButtonElement>(
+      'button[aria-label="퀘스트 창 닫기"]',
+    )?.click();
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
   });
 });

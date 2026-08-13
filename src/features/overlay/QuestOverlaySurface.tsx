@@ -32,6 +32,10 @@ export interface QuestOverlaySurfaceProps {
   profile: ProfileState;
   mapConfigs: readonly MapConfig[];
   mapFloorLocations: readonly MapFloorLocation[];
+  nativeNotice?: {
+    kind: "status" | "warning";
+    text: string;
+  };
   quests: readonly QuestData[];
   surfaceRef?: Ref<HTMLElement>;
 }
@@ -50,6 +54,7 @@ export function QuestOverlaySurface({
   profile,
   mapConfigs,
   mapFloorLocations,
+  nativeNotice,
   quests,
   surfaceRef,
 }: QuestOverlaySurfaceProps) {
@@ -97,6 +102,14 @@ export function QuestOverlaySurface({
       {presentation === "dock" ? (
         <p className="quest-overlay-notice" role="status">
           팝업이 차단되어 페이지 안에 열었습니다. 브라우저에서 팝업을 허용하면 별도 창으로 사용할 수 있습니다.
+        </p>
+      ) : null}
+      {nativeNotice ? (
+        <p
+          className={`quest-overlay-native-notice quest-overlay-native-notice--${nativeNotice.kind}`}
+          role={nativeNotice.kind === "warning" ? "alert" : "status"}
+        >
+          {nativeNotice.text}
         </p>
       ) : null}
 

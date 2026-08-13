@@ -15,14 +15,29 @@ import type {
   QuestData,
 } from "../../types/data";
 import type { ProfileState } from "../../types/state";
+import {
+  attachNativeOverlayWindow,
+  beginNativeOverlayV2Claim,
+  detachNativeOverlayWindow,
+  fetchNativeOverlayV2Session,
+  type NativeOverlayV2Attachment,
+  type NativeOverlayV2Session,
+} from "../../services/native-overlay-v2";
 import { QuestOverlaySurface } from "./QuestOverlaySurface";
 import "../../styles/quest-overlay.css";
 
 const QUEST_WINDOW_NAME = "tarkov-helper-quest-list";
-const QUEST_WINDOW_TITLE = "타르코프 헬퍼 퀘스트 창";
+const QUEST_WINDOW_TITLE = "Tarkov Helper Quest List";
+const QUEST_WINDOW_WIDTH = 430;
+const QUEST_WINDOW_HEIGHT = 680;
 
 interface QuestOverlayPortal {
   root: HTMLElement;
+}
+
+interface QuestNativeNotice {
+  kind: "status" | "warning";
+  text: string;
 }
 
 export interface QuestOverlayHandle {
@@ -44,6 +59,8 @@ interface QuestOverlayProps {
     tracked: boolean,
     selectableQuestIds?: readonly string[],
   ) => void;
+  /** Injectable only so the Direct launcher boundary can be tested without a local server. */
+  nativeRequest?: typeof fetch;
   /** Injectable only so popup-blocking and lifecycle behavior can be tested without real windows. */
   openPopup?: () => Window | null;
   profile: ProfileState;
@@ -53,8 +70,8 @@ interface QuestOverlayProps {
 }
 
 function defaultOpenPopup(): Window | null {
-  const width = 430;
-  const height = 680;
+  const width = QUEST_WINDOW_WIDTH;
+  const height = QUEST_WINDOW_HEIGHT;
   const screenX = Number.isFinite(window.screenX) ? window.screenX : 0;
   const screenY = Number.isFinite(window.screenY) ? window.screenY : 0;
   const outerWidth = Number.isFinite(window.outerWidth) ? window.outerWidth : width + 32;
@@ -110,6 +127,7 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
     onOpenChange,
     onQuestMapRouteChange,
     onQuestTrackedChange,
+    nativeRequest = globalThis.fetch,
     openPopup = defaultOpenPopup,
     profile,
     mapConfigs,
@@ -118,9 +136,17 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
   }, ref) {
     const [portal, setPortal] = useState<QuestOverlayPortal | null>(null);
     const [fallbackOpen, setFallbackOpen] = useState(false);
+    const [isOpening, setIsOpening] = useState(false);
+    const [nativeNotice, setNativeNotice] = useState<QuestNativeNotice>();
     const popupRef = useRef<Window | null>(null);
     const fallbackOpenRef = useRef(false);
     const lifecycleCleanupRef = useRef<(() => void) | null>(null);
+    const nativeSessionRef = useRef<NativeOverlayV2Session | null>(null);
+    const nativeSessionPromiseRef = useRef<Promise<NativeOverlayV2Session | null> | null>(null);
+    const nativeSessionCheckedRef = useRef(false);
+    const nativeAttachmentRef = useRef<NativeOverlayV2Attachment | null>(null);
+    const openingRef = useRef(false);
+    const openAttemptRef = useRef(0);
     const mountedRef = useRef(true);
     const openerRef = useRef<HTMLElement | null>(null);
     const fallbackSurfaceRef = useRef<HTMLElement>(null);
@@ -135,6 +161,44 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
       lifecycleCleanupRef.current = null;
       cleanup?.();
     }, []);
+
+    const resolveNativeSession = useCallback(async () => {
+      if (nativeSessionRef.current) return nativeSessionRef.current;
+      if (nativeSessionPromiseRef.current) return nativeSessionPromiseRef.current;
+      if (nativeSessionCheckedRef.current) return null;
+
+      const detection = fetchNativeOverlayV2Session(undefined, nativeRequest);
+      nativeSessionPromiseRef.current = detection;
+      try {
+        const session = await detection;
+        nativeSessionRef.current = session;
+        return session;
+      } finally {
+        nativeSessionCheckedRef.current = true;
+        if (nativeSessionPromiseRef.current === detection) {
+          nativeSessionPromiseRef.current = null;
+        }
+      }
+    }, [nativeRequest]);
+
+    const detachNativeOverlay = useCallback(async (keepalive: boolean) => {
+      const session = nativeSessionRef.current;
+      const attachment = nativeAttachmentRef.current;
+      nativeAttachmentRef.current = null;
+      if (!session || !attachment) return;
+      try {
+        await detachNativeOverlayWindow(
+          session,
+          "quest-list",
+          attachment.overlayId,
+          keepalive ? { keepalive: true } : {},
+          nativeRequest,
+        );
+      } catch {
+        // The popup may already be closing. The launcher also restores every
+        // attached window during shutdown, so lifecycle cleanup is best-effort.
+      }
+    }, [nativeRequest]);
 
     const restoreOpenerFocus = useCallback(() => {
       const opener = openerRef.current;
@@ -151,32 +215,75 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
     }, []);
 
     const close = useCallback(() => {
-      const wasOpen = Boolean(popupRef.current || fallbackOpenRef.current);
+      openAttemptRef.current += 1;
+      const wasOpen = Boolean(
+        openingRef.current || popupRef.current || fallbackOpenRef.current,
+      );
+      openingRef.current = false;
+      if (mountedRef.current) setIsOpening(false);
       clearLifecycle();
       const popup = popupRef.current;
       popupRef.current = null;
       if (mountedRef.current) setPortal(null);
       setFallback(false);
-      if (popup && !popup.closed) popup.close();
-      if (wasOpen) queueMicrotask(restoreOpenerFocus);
-    }, [clearLifecycle, restoreOpenerFocus, setFallback]);
+      if (mountedRef.current) setNativeNotice(undefined);
+      const finishClose = () => {
+        if (popup && !popup.closed) popup.close();
+        if (wasOpen) queueMicrotask(restoreOpenerFocus);
+      };
+      if (nativeAttachmentRef.current) {
+        void detachNativeOverlay(false).finally(finishClose);
+      } else {
+        finishClose();
+      }
+    }, [clearLifecycle, detachNativeOverlay, restoreOpenerFocus, setFallback]);
 
-    const open = useCallback(() => {
+    const open = useCallback(async () => {
       const existing = popupRef.current;
       if (existing && !existing.closed) {
         existing.focus();
         return;
       }
-      if (fallbackOpenRef.current) return;
+      if (fallbackOpenRef.current || openingRef.current) return;
 
       openerRef.current = document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
+      const attemptId = openAttemptRef.current + 1;
+      openAttemptRef.current = attemptId;
+      const isCurrentAttempt = () =>
+        mountedRef.current && openAttemptRef.current === attemptId;
+      openingRef.current = true;
+      setIsOpening(true);
+
+      const session = await resolveNativeSession();
+      if (!isCurrentAttempt()) return;
+      let claimId: string | undefined;
+      if (session) {
+        setNativeNotice({ kind: "status", text: "화면 위 퀘스트 창 준비 중…" });
+        try {
+          const claim = await beginNativeOverlayV2Claim(
+            session,
+            "quest-list",
+            nativeRequest,
+          );
+          claimId = claim.claimId;
+        } catch {
+          setNativeNotice({
+            kind: "warning",
+            text: "화면 위 연결을 사용할 수 없어 일반 퀘스트 창으로 열었습니다.",
+          });
+        }
+      }
+      if (!isCurrentAttempt()) return;
 
       let popup: Window | null = null;
       try {
         popup = openPopup();
         if (!popup) {
+          openingRef.current = false;
+          setIsOpening(false);
+          setNativeNotice(undefined);
           setFallback(true);
           return;
         }
@@ -184,9 +291,14 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
         const handlePageHide = () => {
           if (popupRef.current !== popup) return;
           popupRef.current = null;
+          openingRef.current = false;
+          openAttemptRef.current += 1;
           clearLifecycle();
           if (mountedRef.current) setPortal(null);
           setFallback(false);
+          setNativeNotice(undefined);
+          void detachNativeOverlay(true);
+          queueMicrotask(restoreOpenerFocus);
         };
         popup.addEventListener("pagehide", handlePageHide);
         lifecycleCleanupRef.current = () => {
@@ -196,28 +308,82 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
         setFallback(false);
         if (mountedRef.current) setPortal({ root });
         popup.focus();
+
+        if (session && claimId) {
+          try {
+            const attachment = await attachNativeOverlayWindow(
+              session,
+              "quest-list",
+              claimId,
+              nativeRequest,
+            );
+            if (!isCurrentAttempt() || popupRef.current !== popup) {
+              await detachNativeOverlayWindow(
+                session,
+                "quest-list",
+                attachment.overlayId,
+                { keepalive: true },
+                nativeRequest,
+              ).catch(() => undefined);
+              if (!popup.closed) popup.close();
+              return;
+            }
+            nativeAttachmentRef.current = attachment;
+            setNativeNotice({ kind: "status", text: "화면 위에 표시됨 · 이동 가능" });
+          } catch {
+            await detachNativeOverlay(false);
+            if (isCurrentAttempt()) {
+              setNativeNotice({
+                kind: "warning",
+                text: "화면 위 연결을 사용할 수 없어 일반 퀘스트 창으로 열었습니다.",
+              });
+            }
+          }
+        }
       } catch {
         if (popup && !popup.closed) popup.close();
         popupRef.current = null;
         clearLifecycle();
         if (mountedRef.current) setPortal(null);
+        setNativeNotice(undefined);
         setFallback(true);
+      } finally {
+        if (isCurrentAttempt()) {
+          openingRef.current = false;
+          setIsOpening(false);
+        }
       }
-    }, [clearLifecycle, openPopup, setFallback]);
+    }, [
+      clearLifecycle,
+      detachNativeOverlay,
+      nativeRequest,
+      openPopup,
+      resolveNativeSession,
+      restoreOpenerFocus,
+      setFallback,
+    ]);
 
     const toggle = useCallback(() => {
-      if ((popupRef.current && !popupRef.current.closed) || fallbackOpenRef.current) {
+      if (
+        openingRef.current ||
+        (popupRef.current && !popupRef.current.closed) ||
+        fallbackOpenRef.current
+      ) {
         close();
       } else {
-        open();
+        void open();
       }
     }, [close, open]);
 
     useImperativeHandle(ref, () => ({ close, toggle }), [close, toggle]);
 
     useEffect(() => {
-      onOpenChange?.(Boolean(portal || fallbackOpen));
-    }, [fallbackOpen, onOpenChange, portal]);
+      onOpenChange?.(Boolean(isOpening || portal || fallbackOpen));
+    }, [fallbackOpen, isOpening, onOpenChange, portal]);
+
+    useEffect(() => {
+      void resolveNativeSession();
+    }, [resolveNativeSession]);
 
     useEffect(() => {
       if (!fallbackOpen) return;
@@ -235,12 +401,15 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
       mountedRef.current = true;
       return () => {
         mountedRef.current = false;
+        openingRef.current = false;
+        openAttemptRef.current += 1;
         clearLifecycle();
+        void detachNativeOverlay(true);
         const popup = popupRef.current;
         popupRef.current = null;
         if (popup && !popup.closed) popup.close();
       };
-    }, [clearLifecycle]);
+    }, [clearLifecycle, detachNativeOverlay]);
 
     const surface = (
       <QuestOverlaySurface
@@ -253,6 +422,7 @@ export const QuestOverlay = forwardRef<QuestOverlayHandle, QuestOverlayProps>(
         profile={profile}
         mapConfigs={mapConfigs}
         mapFloorLocations={mapFloorLocations}
+        nativeNotice={portal ? nativeNotice : undefined}
         quests={quests}
         surfaceRef={fallbackOpen && !portal ? fallbackSurfaceRef : undefined}
       />
