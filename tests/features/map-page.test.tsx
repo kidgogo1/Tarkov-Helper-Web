@@ -1287,7 +1287,49 @@ describe("MapPage", () => {
       .not.toBeInTheDocument();
   });
 
-  it("caches a map-identified screenshot and restores it after switching to the matching map", async () => {
+  it("discards an unconfirmed mapless screenshot when the user changes maps", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 1,
+        });
+      }
+      if (url.includes("afterCursor=0")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 1,
+            fileName: "2026-08-07[10-20]_88, 7, 144_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 1, nextCursor: 1, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    await screen.findByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/);
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "지도 선택" }))
+      .toHaveValue("Woods"));
+    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 88/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("automatically switches to a map-identified screenshot and persists the detected map", async () => {
     const requestedUrls: string[] = [];
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
@@ -1320,17 +1362,17 @@ describe("MapPage", () => {
     });
     vi.stubGlobal("fetch", request);
 
-    renderPage({ focusQuestId: "quest-customs" });
+    renderPage({ focusQuestId: "quest-customs" }, true);
     await waitFor(() => expect(requestedUrls.some((url) => url.includes("afterCursor=8")))
       .toBe(true));
-    expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
-      .not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
-      target: { value: "Woods" },
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Woods");
+      expect(settingsState().map.lastMapKey).toBe("Woods");
     });
     expect(await screen.findByRole("button", { name: /플레이어 위치 X 66.*Z 122/ }))
       .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Woods 자동 감지 연결됨" }))
+      .toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "플레이어 경로 지우기" }));
     expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
@@ -1434,24 +1476,148 @@ describe("MapPage", () => {
       });
     });
     vi.stubGlobal("fetch", request);
-    const pageData: TarkovData = {
-      ...data,
-      mapConfigs: data.mapConfigs.map((map) => map.key === "Woods"
-        ? { ...map, aliases: ["woods_preset"] }
-        : map),
-    };
-    renderPage({ focusQuestId: "quest-customs" }, false, pageData);
+    renderPage({ focusQuestId: "quest-customs" });
 
     await waitFor(() => expect(request).toHaveBeenCalledWith(
       "/api/v1/local-tracker/events?afterCursor=1&pageSize=100",
       expect.anything(),
     ));
-    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
-      target: { value: "Woods" },
-    });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "지도 선택" }))
+      .toHaveValue("Woods"));
     expect(await screen.findByRole("button", { name: /플레이어 위치 X 66.*Z 122/ }))
       .toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /플레이어 위치 X 10.*Z 20/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      label: "mapless",
+      latest: {
+        type: "SCREENSHOT_CREATED",
+        sequence: 2,
+        fileName: "2026-08-07[10-21]_88, 7, 144_0, 0, 0, 1_0.png",
+        detectedAt: "2026-08-07T01:21:00.000Z",
+      },
+      message: /자동 감지된 스크린샷에는 지도 이름이 없습니다/,
+    },
+    {
+      label: "unsupported-map",
+      latest: {
+        type: "SCREENSHOT_CREATED",
+        sequence: 2,
+        mapKey: "brand_new_map",
+        fileName: "2026-08-07[10-21]_88, 7, 144_0, 0, 0, 1_0.png",
+        detectedAt: "2026-08-07T01:21:00.000Z",
+      },
+      message: "감지된 지도를 지원하지 않아 위치를 표시하지 못했습니다.",
+    },
+    {
+      label: "malformed",
+      latest: {
+        type: "SCREENSHOT_CREATED",
+        sequence: 2,
+        mapKey: "Woods",
+        fileName: "ordinary-screenshot.png",
+        detectedAt: "2026-08-07T01:21:00.000Z",
+      },
+      message: "감지된 스크린샷의 위치를 해석하지 못했습니다.",
+    },
+  ])("lets the newest $label event prevent an older known-map auto switch", async ({ latest, message }) => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 0,
+        });
+      }
+      if (url.includes("afterCursor=0")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 1,
+              mapKey: "Woods",
+              fileName: "2026-08-07[10-20]_66, 2, 122_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:20:00.000Z",
+            },
+            latest,
+          ],
+          pagination: { afterCursor: 0, nextCursor: 2, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 2, nextCursor: 2, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Customs");
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("invalidates an older map cache even when a newer valid map is the active event", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 0,
+        });
+      }
+      if (url.includes("afterCursor=0")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          data: [
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 1,
+              mapKey: "Woods",
+              fileName: "2026-08-07[10-20]_66, 2, 122_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:20:00.000Z",
+            },
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 2,
+              mapKey: "Woods",
+              fileName: "ordinary-screenshot.png",
+              detectedAt: "2026-08-07T01:21:00.000Z",
+            },
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 3,
+              mapKey: "Customs",
+              fileName: "2026-08-07[10-22]_77, 7, 133_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:22:00.000Z",
+            },
+          ],
+          pagination: { afterCursor: 0, nextCursor: 3, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        data: [],
+        pagination: { afterCursor: 3, nextCursor: 3, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    await screen.findByRole("button", { name: /플레이어 위치 X 77.*Z 133/ });
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 50)));
+    expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
       .not.toBeInTheDocument();
   });
 
@@ -1575,7 +1741,7 @@ describe("MapPage", () => {
     expect(capturedSignal?.aborted).toBe(true);
   });
 
-  it("reconnects after a transient event request failure and restores the latest position", async () => {
+  it("resets an equal cursor after a launcher restart and replays every retained position", async () => {
     let statusCalls = 0;
     let eventCalls = 0;
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
@@ -1585,23 +1751,39 @@ describe("MapPage", () => {
         if (statusCalls === 2) throw new TypeError("server still restarting");
         return trackerResponse({
           protocolVersion: 1,
+          instanceId: statusCalls === 1
+            ? "11111111111111111111111111111111"
+            : "22222222222222222222222222222222",
           screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
-          latestCursor: statusCalls === 1 ? 0 : 5,
+          latestCursor: 5,
         });
+      }
+      if (url.includes("/native-overlay/")) {
+        return trackerResponse({ error: "Not found" }, 404);
       }
       eventCalls += 1;
       if (eventCalls === 1) throw new TypeError("server restarted");
-      if (url.includes("afterCursor=4")) {
+      if (url.includes("afterCursor=0")) {
         return trackerResponse({
           protocolVersion: 1,
-          data: [{
-            type: "SCREENSHOT_CREATED",
-            sequence: 5,
-            mapKey: "Customs",
-            fileName: "2026-08-07[10-20]_77, 7, 133_0, 0, 0, 1_0.png",
-            detectedAt: "2026-08-07T01:20:00.000Z",
-          }],
-          pagination: { afterCursor: 4, nextCursor: 5, hasMore: false },
+          instanceId: "22222222222222222222222222222222",
+          data: [
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 4,
+              mapKey: "Woods",
+              fileName: "2026-08-07[10-19]_55, 2, 66_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:19:00.000Z",
+            },
+            {
+              type: "SCREENSHOT_CREATED",
+              sequence: 5,
+              mapKey: "Customs",
+              fileName: "2026-08-07[10-20]_77, 7, 133_0, 0, 0, 1_0.png",
+              detectedAt: "2026-08-07T01:20:00.000Z",
+            },
+          ],
+          pagination: { afterCursor: 0, nextCursor: 5, hasMore: false },
         });
       }
       return trackerResponse({
@@ -1622,16 +1804,80 @@ describe("MapPage", () => {
       ),
     ).toBeInTheDocument();
     expect(statusCalls).toBeGreaterThanOrEqual(3);
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Woods" },
+    });
+    expect(await screen.findByRole("button", { name: /플레이어 위치 X 55.*Z 66/ }))
+      .toBeInTheDocument();
     expect(getClientDiagnosticSnapshot().entries.filter(
       (entry) => entry.operation === "local-tracker-poll",
     )).toEqual([
       expect.objectContaining({
-        code: "LOCAL_TRACKER_INVALID_RESPONSE",
+        code: "LOCAL_TRACKER_NETWORK_ERROR",
         count: 1,
         operation: "local-tracker-poll",
         source: "optional-resource",
       }),
     ]);
+  });
+
+  it("discards an event page from a replaced launcher instance and refetches from cursor zero", async () => {
+    const requestedCursors: number[] = [];
+    const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/local-tracker/status")) {
+        return trackerResponse({
+          protocolVersion: 1,
+          instanceId: "11111111111111111111111111111111",
+          screenshotWatcher: { state: "WATCHING", folderPath: "C:\\Screenshots" },
+          latestCursor: 5,
+        });
+      }
+      if (url.includes("/native-overlay/")) return trackerResponse({}, 404);
+      const cursor = Number(new URL(url, "http://localhost").searchParams.get("afterCursor"));
+      requestedCursors.push(cursor);
+      if (requestedCursors.length === 1) {
+        return trackerResponse({
+          protocolVersion: 1,
+          instanceId: "22222222222222222222222222222222",
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 5,
+            mapKey: "Woods",
+            fileName: "2026-08-07[10-19]_55, 2, 66_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:19:00.000Z",
+          }],
+          pagination: { afterCursor: 4, nextCursor: 5, hasMore: false },
+        });
+      }
+      if (cursor === 0) {
+        return trackerResponse({
+          protocolVersion: 1,
+          instanceId: "22222222222222222222222222222222",
+          data: [{
+            type: "SCREENSHOT_CREATED",
+            sequence: 1,
+            mapKey: "Customs",
+            fileName: "2026-08-07[10-20]_77, 7, 133_0, 0, 0, 1_0.png",
+            detectedAt: "2026-08-07T01:20:00.000Z",
+          }],
+          pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+        });
+      }
+      return trackerResponse({
+        protocolVersion: 1,
+        instanceId: "22222222222222222222222222222222",
+        data: [],
+        pagination: { afterCursor: cursor, nextCursor: cursor, hasMore: false },
+      });
+    });
+    vi.stubGlobal("fetch", request);
+    renderPage({ focusQuestId: "quest-customs" });
+
+    expect(await screen.findByRole("button", { name: /플레이어 위치 X 77.*Z 133/ }))
+      .toBeInTheDocument();
+    expect(requestedCursors.slice(0, 2)).toEqual([4, 0]);
+    expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Customs");
   });
 
   it("refreshes watcher status within five seconds and resumes from the existing cursor", async () => {

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -17,10 +17,46 @@ const launcherPath = directReleaseRoot
 const outputDirectory = path.resolve("output", "playwright");
 const storageProbeKey = "tarkov-helper-direct-e2e";
 const serverStartupTimeoutMs = 30_000;
+const serverPort = Number.parseInt(process.env.TARKOV_HELPER_E2E_PORT ?? "41753", 10);
+if (!Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65_535) {
+  throw new Error("TARKOV_HELPER_E2E_PORT must be a valid TCP port.");
+}
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-direct-e2e-"));
 const screenshotFolder = path.join(temporaryRoot, "Escape from Tarkov", "Screenshots");
+const gameLogRoot = path.join(temporaryRoot, "Escape from Tarkov", "Logs");
+const gameLogSession = path.join(gameLogRoot, "log_2026.08.08_00-00-00_direct-e2e");
 const stateDirectory = path.join(temporaryRoot, "state");
+
+function localParts(date) {
+  return {
+    year: String(date.getFullYear()),
+    month: String(date.getMonth() + 1).padStart(2, "0"),
+    day: String(date.getDate()).padStart(2, "0"),
+    hour: String(date.getHours()).padStart(2, "0"),
+    minute: String(date.getMinutes()).padStart(2, "0"),
+    second: String(date.getSeconds()).padStart(2, "0"),
+  };
+}
+
+function logTimestamp(date) {
+  const value = localParts(date);
+  return `${value.year}-${value.month}-${value.day} ${value.hour}:${value.minute}:${value.second}.000`;
+}
+
+function screenshotPrefix(date) {
+  const value = localParts(date);
+  return `${value.year}-${value.month}-${value.day}[${value.hour}-${value.minute}]`;
+}
+
+const e2eStartedAt = new Date();
+e2eStartedAt.setMilliseconds(0);
 await mkdir(screenshotFolder, { recursive: true });
+await mkdir(gameLogSession, { recursive: true });
+await writeFile(
+  path.join(gameLogSession, "2026.08.08_00-00-00_direct-e2e application_000.log"),
+  `${logTimestamp(new Date(e2eStartedAt.getTime() - 60_000))}|test|Debug|application|TRACE-NetworkGameCreate Location: customs_preset, Sid: test\n`,
+  "utf8",
+);
 const canonicalScreenshotFolder = await realpath(screenshotFolder);
 
 function assert(condition, message) {
@@ -111,9 +147,19 @@ function startServer() {
       screenshotFolder,
       "-StateDirectory",
       stateDirectory,
+      "-Port",
+      String(serverPort),
       "-NoBrowser",
     ],
-    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+    {
+      env: {
+        ...process.env,
+        TARKOV_HELPER_TRACKER_TEST_LOG_ROOT: gameLogRoot,
+        TARKOV_HELPER_TRACKER_TEST_MODE: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
   );
 
   let stdout = "";
@@ -133,7 +179,9 @@ function startServer() {
       reject(new Error(`Direct server startup timed out.\nstdout: ${stdout}\nstderr: ${stderr}`));
     }, serverStartupTimeoutMs);
     const inspect = () => {
-      const match = stdout.match(/TARKOV_HELPER_URL=(http:\/\/127\.0\.0\.1:41753\/)/);
+      const match = stdout.match(new RegExp(
+        `TARKOV_HELPER_URL=(http:\\/\\/127\\.0\\.0\\.1:${serverPort}\\/)`,
+      ));
       if (!match) return;
       clearTimeout(timeout);
       resolve(match[1]);
@@ -241,16 +289,26 @@ try {
     "The map did not report the watched EFT screenshot folder",
   );
 
-  await page.locator("#map-picker").selectOption("Customs");
+  await page.locator("#map-picker").selectOption("Woods");
   await page.waitForFunction(() =>
     Boolean(globalThis.document.querySelector("object.map-svg-image")?.contentDocument?.documentElement),
   );
-  await assertMapCentered(page, "Direct Customs initial fit");
-  const trackedScreenshotName = "2026-08-08[00-20]_100, 1, 200_0, 0.7071068, 0, 0.7071068_16.74.png";
-  await writeFile(path.join(screenshotFolder, trackedScreenshotName), Buffer.alloc(0));
-  await page.getByRole("button", { name: "현재 지도로 자동 위치 연결" }).waitFor();
-  await page.getByRole("button", { name: "현재 지도로 자동 위치 연결" }).click();
+  await assertMapCentered(page, "Direct Woods initial fit");
+  const trackedAt = new Date();
+  trackedAt.setMilliseconds(0);
+  const trackedScreenshotName = `${screenshotPrefix(trackedAt)}_100, 1, 200_0, 0.7071068, 0, 0.7071068_16.74.png`;
+  const trackedScreenshotPath = path.join(screenshotFolder, trackedScreenshotName);
+  await writeFile(trackedScreenshotPath, Buffer.alloc(0));
+  await utimes(
+    trackedScreenshotPath,
+    trackedAt,
+    trackedAt,
+  );
+  await page.waitForFunction(() =>
+    globalThis.document.querySelector("#map-picker")?.value === "Customs",
+  );
   await page.locator(".map-player-marker").waitFor({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Customs 자동 감지 연결됨" }).waitFor();
   const playerMarkerLabel = await page.locator(".map-player-marker").getAttribute("aria-label");
   assert(
     playerMarkerLabel?.includes("X 100") && playerMarkerLabel.includes("Y 1") && playerMarkerLabel.includes("Z 200"),

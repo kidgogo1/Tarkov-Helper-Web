@@ -116,39 +116,55 @@ const MAP_NAME_MAPPING = new Map<string, string>([
   ["customs", "Customs"],
   ["customs_preset", "Customs"],
   ["bigmap", "Customs"],
+  ["bigmap_preset", "Customs"],
   ["shoreline", "Shoreline"],
   ["shoreline_preset", "Shoreline"],
   ["interchange", "Interchange"],
   ["shopping_mall", "Interchange"],
+  ["shopping_mall_preset", "Interchange"],
   ["reserve", "Reserve"],
   ["rezervbase", "Reserve"],
+  ["rezerv_base", "Reserve"],
   ["rezerv_base_preset", "Reserve"],
   ["lighthouse", "Lighthouse"],
   ["lighthouse_preset", "Lighthouse"],
   ["tarkovstreets", "StreetsOfTarkov"],
   ["streets", "StreetsOfTarkov"],
+  ["streets of tarkov", "StreetsOfTarkov"],
+  ["city", "StreetsOfTarkov"],
   ["city_preset", "StreetsOfTarkov"],
   ["factory", "Factory"],
   ["factory4_day", "Factory"],
   ["factory4_night", "Factory"],
+  ["factory4_day_preset", "Factory"],
+  ["factory4_night_preset", "Factory"],
+  ["factory_day", "Factory"],
+  ["factory_night", "Factory"],
   ["factory_day_preset", "Factory"],
   ["factory_night_preset", "Factory"],
   ["groundzero", "GroundZero"],
+  ["ground zero", "GroundZero"],
+  ["ground_zero", "GroundZero"],
   ["sandbox", "GroundZero"],
   ["sandbox_high", "GroundZero"],
   ["sandbox_start", "GroundZero"],
   ["sandbox_preset", "GroundZero"],
   ["sandbox_high_preset", "GroundZero"],
+  ["sandbox_start_preset", "GroundZero"],
   ["laboratory", "Labs"],
   ["laboratory_preset", "Labs"],
   ["labs", "Labs"],
+  ["the lab", "Labs"],
   ["labyrinth", "Labyrinth"],
+  ["the labyrinth", "Labyrinth"],
   ["labyrinth_preset", "Labyrinth"],
+  ["terminal", "Terminal"],
+  ["terminal_preset", "Terminal"],
 ]);
 
 const MAP_DETECTION_PATTERNS = [
-  /maps\/(\w+)_preset\.bundle/i,
-  /Location:\s*(\w+),/i,
+  /maps\/([A-Za-z0-9_]+)\.bundle/i,
+  /Location:\s*([A-Za-z0-9_ -]+),/i,
 ];
 
 const QUEST_MESSAGE_TYPES = new Map<number, QuestLogEventType>([
@@ -325,9 +341,15 @@ export function parseScreenshotFilename(
 }
 
 export function normalizeMapName(rawMapName: string): string | null {
-  if (!rawMapName) return null;
-  const normalized = rawMapName.toLocaleLowerCase("en-US");
-  return MAP_NAME_MAPPING.get(normalized) ?? normalized;
+  const normalized = rawMapName.trim().toLocaleLowerCase("en-US");
+  if (!normalized) return null;
+  const directMatch = MAP_NAME_MAPPING.get(normalized);
+  if (directMatch) return directMatch;
+  if (normalized.endsWith("_preset")) {
+    const withoutPreset = normalized.slice(0, -"_preset".length);
+    return MAP_NAME_MAPPING.get(withoutPreset) ?? withoutPreset;
+  }
+  return normalized;
 }
 
 export function detectMapFromLogLine(line: string): string | null {

@@ -130,6 +130,18 @@ describe("game log parsing", () => {
     expect(
       detectMapFromLogLine("TRACE-NetworkGameCreate Location: bigmap, Sid: 42"),
     ).toBe("Customs");
+    expect(
+      detectMapFromLogLine("scene preset path:maps/shopping_mall.bundle"),
+    ).toBe("Interchange");
+    expect(
+      detectMapFromLogLine("scene preset path:maps/bigmap_preset.bundle"),
+    ).toBe("Customs");
+    expect(
+      detectMapFromLogLine("scene preset path:maps/factory4_day_preset.bundle"),
+    ).toBe("Factory");
+    expect(
+      detectMapFromLogLine("scene preset path:maps/tarkovstreets_preset.bundle"),
+    ).toBe("StreetsOfTarkov");
     expect(detectMapFromLogLine("Location: brand_new_map, Sid: 42")).toBe(
       "brand_new_map",
     );

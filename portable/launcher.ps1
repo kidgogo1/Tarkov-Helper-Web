@@ -35,9 +35,26 @@ $trackerDebounceMilliseconds = 500
 $trackerDiscoveryIntervalSeconds = 5
 $trackerReconciliationIntervalSeconds = 5
 $trackerFingerprintLimit = 2048
+$trackerMapObservationMaximumAgeMinutes = 90
+$trackerMapBootstrapByteBudget = 1048576
+$trackerMapBootstrapFileByteBudget = 262144
+$trackerMapScreenshotBootstrapByteBudget = 262144
+$trackerMapBootstrapIntervalMilliseconds = 100
+$trackerMapPendingFallbackSeconds = 15
+$trackerTestMode = [string]$env:TARKOV_HELPER_TRACKER_TEST_MODE -ceq "1"
+$trackerInstanceId = [Guid]::NewGuid().ToString("N")
 $trackerStartedAtUtc = [DateTime]::UtcNow
 $trackerEvents = New-Object 'Collections.Generic.List[object]'
 $trackerLatestCursor = [long]0
+$trackerGameLogRootsCache = @()
+$trackerNextGameLogRootDiscoveryUtc = [DateTime]::MinValue
+$trackerGameLogSessionCache = $null
+$trackerGameLogRootFingerprint = ""
+$trackerMapStateCacheSession = ""
+$trackerMapLogFileStates = @{}
+$trackerMapArchivedEvents = @()
+$trackerMapBootstrapRoundRobinIndex = 0
+$trackerNextMapBootstrapUtc = [DateTime]::MinValue
 $screenshotWatcher = $null
 $screenshotWatcherSources = @()
 $screenshotWatcherErrorSource = $null
@@ -170,6 +187,685 @@ function Get-ScreenshotCandidates {
     return $paths.ToArray()
 }
 
+function ConvertTo-TrackerMapKey {
+    param([string]$MapName)
+
+    if ([string]::IsNullOrWhiteSpace($MapName) -or $MapName.Length -gt 80) { return $null }
+    $normalized = $MapName.Trim().ToLowerInvariant()
+    if ($normalized.EndsWith("_preset", [StringComparison]::Ordinal)) {
+        $withoutPreset = $normalized.Substring(0, $normalized.Length - "_preset".Length)
+        $fallback = ConvertTo-TrackerMapKey -MapName $withoutPreset
+        if (-not [string]::IsNullOrWhiteSpace($fallback)) { return $fallback }
+    }
+    switch ($normalized) {
+        { $_ -in @("woods", "woods_preset") } { return "Woods" }
+        { $_ -in @("customs", "customs_preset", "bigmap", "bigmap_preset") } { return "Customs" }
+        { $_ -in @("shoreline", "shoreline_preset") } { return "Shoreline" }
+        { $_ -in @("interchange", "shopping_mall", "shopping_mall_preset") } { return "Interchange" }
+        { $_ -in @("reserve", "rezervbase", "rezerv_base", "rezerv_base_preset") } { return "Reserve" }
+        { $_ -in @("lighthouse", "lighthouse_preset") } { return "Lighthouse" }
+        { $_ -in @("streets", "streets of tarkov", "tarkovstreets", "city", "city_preset") } { return "StreetsOfTarkov" }
+        { $_ -in @("factory", "factory4_day", "factory4_night", "factory4_day_preset", "factory4_night_preset", "factory_day", "factory_night", "factory_day_preset", "factory_night_preset") } { return "Factory" }
+        { $_ -in @("groundzero", "ground zero", "ground_zero", "sandbox", "sandbox_high", "sandbox_start", "sandbox_preset", "sandbox_high_preset", "sandbox_start_preset") } { return "GroundZero" }
+        { $_ -in @("lab", "labs", "the lab", "laboratory", "laboratory_preset") } { return "Labs" }
+        { $_ -in @("labyrinth", "the labyrinth", "labyrinth_preset") } { return "Labyrinth" }
+        { $_ -in @("terminal", "terminal_preset") } { return "Terminal" }
+        default { return $null }
+    }
+}
+
+function Get-TrackerScreenshotCapturedAt {
+    param([string]$FileName)
+
+    if ($FileName -notmatch '^(?<date>\d{4}-\d{2}-\d{2})\[(?<time>\d{2}-\d{2})\]_') { return $null }
+    $capturedAt = [DateTime]::MinValue
+    $timestamp = "$($Matches.date)[$($Matches.time)]"
+    if (-not [DateTime]::TryParseExact(
+        $timestamp,
+        "yyyy-MM-dd[HH-mm]",
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::None,
+        [ref]$capturedAt
+    )) { return $null }
+    return $capturedAt
+}
+
+function Get-TrackerGameLogRoots {
+    $now = [DateTime]::UtcNow
+    if ($now -lt $script:trackerNextGameLogRootDiscoveryUtc) {
+        return @($script:trackerGameLogRootsCache)
+    }
+
+    $paths = New-Object 'Collections.Generic.List[string]'
+    $knownPaths = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+
+    function Add-LogRoot {
+        param([string]$Candidate)
+        if ([string]::IsNullOrWhiteSpace($Candidate)) { return }
+        try {
+            $normalized = [IO.Path]::GetFullPath($Candidate)
+            if ([IO.Directory]::Exists($normalized) -and $knownPaths.Add($normalized)) {
+                $paths.Add($normalized)
+            }
+        } catch {
+            # Discovery candidates are local hints only; malformed paths are ignored.
+        }
+    }
+
+    if ($trackerTestMode) {
+        Add-LogRoot ([string]$env:TARKOV_HELPER_TRACKER_TEST_LOG_ROOT)
+    } else {
+        foreach ($registryPath in @(
+            "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\EscapeFromTarkov",
+            "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\EscapeFromTarkov",
+            "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\EscapeFromTarkov"
+        )) {
+            try {
+                $installation = Get-ItemProperty -LiteralPath $registryPath -ErrorAction Stop
+                if ($installation.InstallLocation -is [string]) {
+                    Add-LogRoot (Join-Path ([string]$installation.InstallLocation) "Logs")
+                }
+            } catch {
+                # The game may be installed without this registry view.
+            }
+        }
+
+        foreach ($process in @(Get-Process -Name "EscapeFromTarkov" -ErrorAction SilentlyContinue)) {
+            try {
+                if (-not [string]::IsNullOrWhiteSpace($process.Path)) {
+                    Add-LogRoot (Join-Path ([IO.Path]::GetDirectoryName($process.Path)) "Logs")
+                }
+            } catch {
+                # Protected process metadata is optional discovery input.
+            }
+        }
+
+        try {
+            $launcherSettings = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)) "Battlestate Games\BsgLauncher\settings"
+            if ([IO.File]::Exists($launcherSettings) -and ([IO.FileInfo]::new($launcherSettings)).Length -le 1048576) {
+                $settings = ConvertFrom-Json ([IO.File]::ReadAllText($launcherSettings, [Text.Encoding]::UTF8))
+                if ($settings.gamesRootDir -is [string]) {
+                    Add-LogRoot (Join-Path (Join-Path ([string]$settings.gamesRootDir) "Escape from Tarkov") "Logs")
+                }
+            }
+        } catch {
+            # Launcher settings are optional and their contents are never logged.
+        }
+    }
+
+    $script:trackerGameLogRootsCache = @($paths.ToArray())
+    $script:trackerNextGameLogRootDiscoveryUtc = $now.AddSeconds(30)
+    return @($script:trackerGameLogRootsCache)
+}
+
+function Get-TrackerGameLogSession {
+    $rootFingerprintParts = New-Object 'Collections.Generic.List[string]'
+    foreach ($logRoot in @(Get-TrackerGameLogRoots)) {
+        try {
+            $rootInfo = [IO.DirectoryInfo]::new($logRoot)
+            $rootFingerprintParts.Add("$($rootInfo.FullName)|$($rootInfo.LastWriteTimeUtc.Ticks)")
+        } catch { }
+    }
+    $rootFingerprint = [string]::Join("`n", @($rootFingerprintParts | Sort-Object))
+    if (
+        $rootFingerprint -ceq $script:trackerGameLogRootFingerprint -and
+        -not [string]::IsNullOrWhiteSpace([string]$script:trackerGameLogSessionCache) -and
+        [IO.Directory]::Exists([string]$script:trackerGameLogSessionCache)
+    ) {
+        return [string]$script:trackerGameLogSessionCache
+    }
+
+    $sessions = New-Object 'Collections.Generic.List[object]'
+    $knownSessions = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($logRoot in @(Get-TrackerGameLogRoots)) {
+        try {
+            foreach ($sessionPath in [IO.Directory]::EnumerateDirectories($logRoot, "log_*", [IO.SearchOption]::TopDirectoryOnly)) {
+                try {
+                    $normalized = [IO.Path]::GetFullPath($sessionPath)
+                    if ($knownSessions.Add($normalized)) {
+                        $sessions.Add([IO.DirectoryInfo]::new($normalized))
+                    }
+                } catch { }
+            }
+            if (@([IO.Directory]::EnumerateFiles($logRoot, "*application*.log", [IO.SearchOption]::TopDirectoryOnly)).Count -gt 0) {
+                $normalizedRoot = [IO.Path]::GetFullPath($logRoot)
+                if ($knownSessions.Add($normalizedRoot)) {
+                    $sessions.Add([IO.DirectoryInfo]::new($normalizedRoot))
+                }
+            }
+        } catch {
+            # A log session can disappear while the game rotates it.
+        }
+    }
+
+    $selected = @($sessions | Sort-Object -Property LastWriteTimeUtc -Descending | Select-Object -First 1)
+    $nextSession = if ($selected.Count -eq 1) { [string]$selected[0].FullName } else { $null }
+    if ($nextSession -cne [string]$script:trackerGameLogSessionCache) {
+        $script:trackerMapStateCacheSession = ""
+        $script:trackerMapLogFileStates = @{}
+        $script:trackerMapArchivedEvents = @()
+        $script:trackerMapBootstrapRoundRobinIndex = 0
+    }
+    $script:trackerGameLogSessionCache = $nextSession
+    $script:trackerGameLogRootFingerprint = $rootFingerprint
+    return $nextSession
+}
+
+function ConvertTo-TrackerMapStateEvent {
+    param([string]$Line)
+
+    if ($Line -notmatch '^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,7})?)') { return $null }
+    $observedAt = [DateTime]::MinValue
+    if (-not [DateTime]::TryParse(
+        [string]$Matches.timestamp,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::None,
+        [ref]$observedAt
+    )) { return $null }
+
+    $rawMapName = $null
+    if ($Line -match '(?i)scene preset path:maps/(?<map>[A-Za-z0-9_]+)\.bundle') {
+        $rawMapName = [string]$Matches.map
+    } elseif ($Line -match '(?i)\bLocation:\s*(?<map>[A-Za-z0-9_ -]+),') {
+        $rawMapName = [string]$Matches.map
+    }
+    if (-not [string]::IsNullOrWhiteSpace($rawMapName)) {
+        return [pscustomobject]@{
+            observedAt = $observedAt
+            kind = "MAP"
+            rawMapName = $rawMapName
+        }
+    }
+    if ($Line -match '(?i)\b(?:PrepareSelectedProfileLocally|CompleteSelectedProfile|Disposing BEClient|TRACE-NetworkGameDestroy|GameStop(?:ped|ping)|StopSession)\b') {
+        return [pscustomobject]@{
+            observedAt = $observedAt
+            kind = "INACTIVE"
+            rawMapName = $null
+        }
+    }
+    return $null
+}
+
+function Read-TrackerLogStateAppend {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [long]$StartOffset,
+        [bool]$DiscardUntilNewline
+    )
+
+    $stream = $null
+    $events = New-Object 'Collections.Generic.List[object]'
+    try {
+        $stream = [IO.FileStream]::new(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        )
+        if ($StartOffset -lt 0 -or $StartOffset -gt $stream.Length) { $StartOffset = 0 }
+        $stream.Position = $StartOffset
+        $lineBuffer = [IO.MemoryStream]::new()
+        $discardLine = $DiscardUntilNewline
+        $committedOffset = $StartOffset
+        $buffer = New-Object byte[] 65536
+        while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $chunkStart = $stream.Position - $read
+            $segmentStart = 0
+            while ($segmentStart -lt $read) {
+                $newlineIndex = [Array]::IndexOf($buffer, [byte]10, $segmentStart, $read - $segmentStart)
+                $segmentEnd = if ($newlineIndex -ge 0) { $newlineIndex } else { $read }
+                $segmentLength = $segmentEnd - $segmentStart
+                if (-not $discardLine -and $segmentLength -gt 0) {
+                    if (($lineBuffer.Length + $segmentLength) -le 16384) {
+                        $lineBuffer.Write($buffer, $segmentStart, $segmentLength)
+                    } else {
+                        $lineBuffer.SetLength(0)
+                        $discardLine = $true
+                    }
+                }
+                if ($newlineIndex -lt 0) { break }
+                if (-not $discardLine) {
+                    $lineBytes = $lineBuffer.ToArray()
+                    $line = [Text.Encoding]::UTF8.GetString($lineBytes).TrimEnd("`r")
+                    $event = ConvertTo-TrackerMapStateEvent -Line $line
+                    if ($null -ne $event) { $events.Add($event) }
+                }
+                $lineBuffer.SetLength(0)
+                $discardLine = $false
+                $committedOffset = $chunkStart + $newlineIndex + 1
+                $segmentStart = $newlineIndex + 1
+            }
+        }
+        if ($discardLine) { $committedOffset = [long]$stream.Position }
+        return [pscustomobject]@{
+            offset = [long]$committedOffset
+            discardUntilNewline = [bool]$discardLine
+            events = $events.ToArray()
+        }
+    } catch {
+        return $null
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Advance-TrackerLogBootstrapState {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][object]$State,
+        [ValidateRange(1, 1048576)][int]$MaximumBytes
+    )
+
+    if ([bool]$State.bootstrapComplete) { return 0 }
+    $stream = $null
+    try {
+        $stream = [IO.FileStream]::new(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        )
+        $position = [Math]::Min([long]$State.bootstrapPosition, [long]$stream.Length)
+        if ($position -le 0) {
+            $State.bootstrapComplete = $true
+            return 0
+        }
+
+        $readLength = [int][Math]::Min([long]$MaximumBytes, $position)
+        $position -= $readLength
+        $stream.Position = $position
+        $buffer = New-Object byte[] $readLength
+        $read = $stream.Read($buffer, 0, $readLength)
+        if ($read -le 0) { return 0 }
+        $State.bootstrapPosition = $position
+        $chunk = [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+        $discardTail = [bool]$State.bootstrapDiscardTail
+        if ($discardTail) {
+            $lastNewline = $chunk.LastIndexOf("`n", [StringComparison]::Ordinal)
+            if ($lastNewline -lt 0) {
+                if ($position -eq 0) { $State.bootstrapComplete = $true }
+                return $read
+            }
+            $chunk = $chunk.Substring(0, $lastNewline + 1)
+            $discardTail = $false
+        }
+
+        $text = $chunk + [string]$State.bootstrapCarry
+        $lines = [Text.RegularExpressions.Regex]::Split($text, "`r?`n")
+        $carry = $lines[0]
+        $foundEvents = New-Object 'Collections.Generic.List[object]'
+        for ($index = $lines.Length - 1; $index -ge 1; $index--) {
+            $event = ConvertTo-TrackerMapStateEvent -Line $lines[$index]
+            if ($null -ne $event) { $foundEvents.Add($event) }
+        }
+
+        if ($carry.Length -gt 16384) {
+            $carry = ""
+            $discardTail = $true
+        }
+        $State.bootstrapCarry = $carry
+        $State.bootstrapDiscardTail = $discardTail
+        if ($position -eq 0) {
+            if (-not $discardTail -and -not [string]::IsNullOrWhiteSpace($carry)) {
+                $event = ConvertTo-TrackerMapStateEvent -Line $carry
+                if ($null -ne $event) { $foundEvents.Add($event) }
+            }
+            $State.bootstrapCarry = ""
+            $State.bootstrapDiscardTail = $false
+            $State.bootstrapComplete = $true
+        }
+        if ($foundEvents.Count -gt 0) {
+            $State.events = @(
+                @($State.events) + @($foundEvents.ToArray()) |
+                    Sort-Object -Property observedAt |
+                    Select-Object -Last 512
+            )
+        }
+        return $read
+    } catch {
+        return 0
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Get-TrackerLogCommittedState {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = $null
+    try {
+        $stream = [IO.FileStream]::new(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        )
+        if ($stream.Length -eq 0) {
+            return [pscustomobject]@{ offset = [long]0; discardUntilNewline = $false }
+        }
+        $stream.Position = $stream.Length - 1
+        if ($stream.ReadByte() -eq 10) {
+            return [pscustomobject]@{ offset = [long]$stream.Length; discardUntilNewline = $false }
+        }
+        $maximumScan = [long][Math]::Min(16384, $stream.Length)
+        $start = $stream.Length - $maximumScan
+        $stream.Position = $start
+        $buffer = New-Object byte[] ([int]$maximumScan)
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        for ($index = $read - 1; $index -ge 0; $index--) {
+            if ($buffer[$index] -eq 10) {
+                return [pscustomobject]@{
+                    offset = [long]($start + $index + 1)
+                    discardUntilNewline = $false
+                }
+            }
+        }
+        if ($stream.Length -le 16384) {
+            return [pscustomobject]@{ offset = [long]0; discardUntilNewline = $false }
+        }
+        return [pscustomobject]@{ offset = [long]$stream.Length; discardUntilNewline = $true }
+    } catch {
+        return $null
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Get-TrackerLogHeadFingerprint {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = $null
+    try {
+        $stream = [IO.FileStream]::new(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        )
+        $buffer = New-Object byte[] ([int][Math]::Min([long]512, $stream.Length))
+        $read = if ($buffer.Length -gt 0) { $stream.Read($buffer, 0, $buffer.Length) } else { 0 }
+        return [Convert]::ToBase64String($buffer, 0, $read)
+    } catch {
+        return $null
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Get-TrackerLogBoundaryFingerprint {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [long]$Offset
+    )
+
+    $stream = $null
+    try {
+        $stream = [IO.FileStream]::new(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        )
+        if ($Offset -lt 0 -or $Offset -gt $stream.Length) { return $null }
+        $length = [int][Math]::Min([long]512, $Offset)
+        if ($length -eq 0) { return "" }
+        $stream.Position = $Offset - $length
+        $buffer = New-Object byte[] $length
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        if ($read -ne $length) { return $null }
+        return [Convert]::ToBase64String($buffer, 0, $read)
+    } catch {
+        return $null
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Get-TrackerMapStateEvents {
+    param(
+        [switch]$AdvanceBootstrap,
+        [ValidateRange(1, 1048576)]
+        [int]$BootstrapByteBudget = $trackerMapBootstrapByteBudget
+    )
+
+    $sessionPath = Get-TrackerGameLogSession
+    if ([string]::IsNullOrWhiteSpace($sessionPath) -or -not [IO.Directory]::Exists($sessionPath)) {
+        return @()
+    }
+
+    if ($script:trackerMapStateCacheSession -cne $sessionPath) {
+        $script:trackerMapStateCacheSession = $sessionPath
+        $script:trackerMapLogFileStates = @{}
+        $script:trackerMapArchivedEvents = @()
+        $script:trackerMapBootstrapRoundRobinIndex = 0
+    }
+
+    $applicationLogs = New-Object 'Collections.Generic.List[object]'
+    try {
+        foreach ($path in [IO.Directory]::EnumerateFiles($sessionPath, "*application*.log", [IO.SearchOption]::TopDirectoryOnly)) {
+            try { $applicationLogs.Add([IO.FileInfo]::new($path)) } catch { }
+        }
+    } catch {
+        return @()
+    }
+    $currentPaths = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($logFile in @($applicationLogs | Sort-Object -Property LastWriteTimeUtc -Descending)) {
+        [void]$currentPaths.Add($logFile.FullName)
+        $state = if ($script:trackerMapLogFileStates.ContainsKey($logFile.FullName)) {
+            $script:trackerMapLogFileStates[$logFile.FullName]
+        } else {
+            $null
+        }
+        $headFingerprint = Get-TrackerLogHeadFingerprint -Path $logFile.FullName
+        if ($null -eq $headFingerprint) {
+            if ($null -eq $state) {
+                $state = [pscustomobject]@{
+                    offset = [long]0
+                    discardUntilNewline = $false
+                    lastWriteTicks = [long]$logFile.LastWriteTimeUtc.Ticks
+                    headFingerprint = ""
+                    boundaryFingerprint = ""
+                    sourceAvailable = $false
+                    events = @()
+                    bootstrapPosition = [long]0
+                    bootstrapCarry = ""
+                    bootstrapDiscardTail = $false
+                    bootstrapComplete = $false
+                }
+                $script:trackerMapLogFileStates[$logFile.FullName] = $state
+            } else {
+                $state.sourceAvailable = $false
+                $state.events = @()
+                $state.bootstrapComplete = $false
+            }
+            continue
+        }
+        $boundaryFingerprint = if (
+            $null -ne $state -and
+            $logFile.Length -ge [long]$state.offset
+        ) {
+            Get-TrackerLogBoundaryFingerprint -Path $logFile.FullName -Offset ([long]$state.offset)
+        } else {
+            ""
+        }
+        if (
+            $null -ne $state -and
+            $logFile.Length -ge [long]$state.offset -and
+            $null -eq $boundaryFingerprint
+        ) {
+            $state.sourceAvailable = $false
+            $state.events = @()
+            $state.bootstrapComplete = $false
+            continue
+        }
+        $mustReset = $null -eq $state -or -not [bool]$state.sourceAvailable -or $logFile.Length -lt [long]$state.offset -or (
+            $logFile.Length -eq [long]$state.offset -and
+            $logFile.LastWriteTimeUtc.Ticks -ne [long]$state.lastWriteTicks
+        ) -or (
+            $null -ne $state -and (
+                $headFingerprint -cne [string]$state.headFingerprint -or
+                $boundaryFingerprint -cne [string]$state.boundaryFingerprint
+            )
+        )
+        if ($mustReset) {
+            $committedState = Get-TrackerLogCommittedState -Path $logFile.FullName
+            if ($null -eq $committedState) {
+                $state = [pscustomobject]@{
+                    offset = [long]0
+                    discardUntilNewline = $false
+                    lastWriteTicks = [long]$logFile.LastWriteTimeUtc.Ticks
+                    headFingerprint = $headFingerprint
+                    boundaryFingerprint = ""
+                    sourceAvailable = $false
+                    events = @()
+                    bootstrapPosition = [long]0
+                    bootstrapCarry = ""
+                    bootstrapDiscardTail = $false
+                    bootstrapComplete = $false
+                }
+                $script:trackerMapLogFileStates[$logFile.FullName] = $state
+                continue
+            }
+            $committedBoundaryFingerprint = Get-TrackerLogBoundaryFingerprint `
+                -Path $logFile.FullName `
+                -Offset ([long]$committedState.offset)
+            $state = [pscustomobject]@{
+                offset = [long]$committedState.offset
+                discardUntilNewline = [bool]$committedState.discardUntilNewline
+                lastWriteTicks = [long]$logFile.LastWriteTimeUtc.Ticks
+                headFingerprint = $headFingerprint
+                boundaryFingerprint = if ($null -eq $committedBoundaryFingerprint) { "" } else { $committedBoundaryFingerprint }
+                sourceAvailable = $null -ne $committedBoundaryFingerprint
+                events = @()
+                bootstrapPosition = [long]$committedState.offset
+                bootstrapCarry = ""
+                bootstrapDiscardTail = [bool]$committedState.discardUntilNewline
+                bootstrapComplete = $null -ne $committedBoundaryFingerprint -and [long]$committedState.offset -eq 0
+            }
+            $script:trackerMapLogFileStates[$logFile.FullName] = $state
+            if (-not [bool]$state.sourceAvailable) { continue }
+        }
+        if ($logFile.Length -gt [long]$state.offset -or $mustReset) {
+            $append = Read-TrackerLogStateAppend `
+                -Path $logFile.FullName `
+                -StartOffset ([long]$state.offset) `
+                -DiscardUntilNewline ([bool]$state.discardUntilNewline)
+            if ($null -ne $append) {
+                $combinedEvents = @($state.events) + @($append.events)
+                $appendBoundaryFingerprint = Get-TrackerLogBoundaryFingerprint `
+                    -Path $logFile.FullName `
+                    -Offset ([long]$append.offset)
+                $state = [pscustomobject]@{
+                    offset = [long]$append.offset
+                    discardUntilNewline = [bool]$append.discardUntilNewline
+                    lastWriteTicks = [long]$logFile.LastWriteTimeUtc.Ticks
+                    headFingerprint = $headFingerprint
+                    boundaryFingerprint = if ($null -eq $appendBoundaryFingerprint) { "" } else { $appendBoundaryFingerprint }
+                    sourceAvailable = $null -ne $appendBoundaryFingerprint
+                    events = @($combinedEvents | Sort-Object -Property observedAt | Select-Object -Last 512)
+                    bootstrapPosition = [long]$state.bootstrapPosition
+                    bootstrapCarry = [string]$state.bootstrapCarry
+                    bootstrapDiscardTail = [bool]$state.bootstrapDiscardTail
+                    bootstrapComplete = [bool]$state.bootstrapComplete
+                }
+                $script:trackerMapLogFileStates[$logFile.FullName] = $state
+            } else {
+                $state.sourceAvailable = $false
+                $state.events = @()
+                $state.bootstrapComplete = $false
+            }
+        }
+    }
+    foreach ($knownPath in @($script:trackerMapLogFileStates.Keys)) {
+        if (-not $currentPaths.Contains([string]$knownPath)) {
+            $script:trackerMapArchivedEvents = @(
+                @($script:trackerMapArchivedEvents) + @($script:trackerMapLogFileStates[$knownPath].events) |
+                    Sort-Object -Property observedAt |
+                    Select-Object -Last 512
+            )
+            $script:trackerMapLogFileStates.Remove($knownPath)
+        }
+    }
+
+    if ($AdvanceBootstrap -and $script:trackerMapLogFileStates.Count -gt 0) {
+        $paths = @($script:trackerMapLogFileStates.Keys | Sort-Object)
+        $remainingBytes = $BootstrapByteBudget
+        $visitsWithoutProgress = 0
+        while ($remainingBytes -gt 0 -and $visitsWithoutProgress -lt $paths.Count) {
+            $index = $script:trackerMapBootstrapRoundRobinIndex % $paths.Count
+            $path = [string]$paths[$index]
+            $script:trackerMapBootstrapRoundRobinIndex = ($index + 1) % $paths.Count
+            $state = $script:trackerMapLogFileStates[$path]
+            if ([bool]$state.bootstrapComplete) {
+                $visitsWithoutProgress++
+                continue
+            }
+            $maximumBytes = [int][Math]::Min(
+                [long]$trackerMapBootstrapFileByteBudget,
+                [long]$remainingBytes
+            )
+            $read = Advance-TrackerLogBootstrapState `
+                -Path $path `
+                -State $state `
+                -MaximumBytes $maximumBytes
+            if ([int]$read -gt 0) {
+                $remainingBytes -= [int]$read
+                $visitsWithoutProgress = 0
+            } else {
+                $visitsWithoutProgress++
+            }
+        }
+    }
+
+    $states = @($script:trackerMapArchivedEvents) + @(
+        $script:trackerMapLogFileStates.Values | ForEach-Object { $_.events }
+    )
+    return @($states | Sort-Object -Property observedAt | Select-Object -Last 1024)
+}
+
+function Test-TrackerMapBootstrapReady {
+    if (
+        [string]::IsNullOrWhiteSpace([string]$script:trackerMapStateCacheSession) -or
+        $script:trackerMapLogFileStates.Count -eq 0
+    ) {
+        return $false
+    }
+    foreach ($state in $script:trackerMapLogFileStates.Values) {
+        if (-not [bool]$state.sourceAvailable -or -not [bool]$state.bootstrapComplete) { return $false }
+    }
+    return $true
+}
+
+function Get-TrackerMapKeyForScreenshot {
+    param(
+        [string]$FileName,
+        [Nullable[DateTime]]$FileWrittenAt
+    )
+
+    $capturedAt = Get-TrackerScreenshotCapturedAt -FileName $FileName
+    if ($null -eq $capturedAt -or $null -eq $FileWrittenAt) { return $null }
+    $correlationAt = [DateTime]$FileWrittenAt
+    if ($correlationAt.Kind -eq [DateTimeKind]::Utc) {
+        $correlationAt = $correlationAt.ToLocalTime()
+    }
+    if ([Math]::Abs(($correlationAt - $capturedAt).TotalMinutes) -gt 2) { return $null }
+    $notBefore = $correlationAt.AddMinutes(-$trackerMapObservationMaximumAgeMinutes)
+    $states = @(
+        Get-TrackerMapStateEvents `
+            -AdvanceBootstrap `
+            -BootstrapByteBudget $trackerMapScreenshotBootstrapByteBudget
+    )
+    if (-not (Test-TrackerMapBootstrapReady)) { return $null }
+    $latestState = @(
+        $states |
+            Where-Object { $_.observedAt -ge $notBefore -and $_.observedAt -le $correlationAt } |
+            Sort-Object -Property observedAt -Descending |
+            Select-Object -First 1
+    )
+    if ($latestState.Count -ne 1 -or $latestState[0].kind -cne "MAP") { return $null }
+    return ConvertTo-TrackerMapKey -MapName ([string]$latestState[0].rawMapName)
+}
+
 function Get-ScreenshotSnapshot {
     param([Parameter(Mandatory = $true)][string]$FolderPath)
 
@@ -292,19 +988,26 @@ function Start-ScreenshotWatcher {
 }
 
 function Add-ScreenshotEvent {
-    param([string]$FileName)
+    param(
+        [string]$FileName,
+        [Nullable[DateTime]]$FileWrittenAt
+    )
 
     if ([string]::IsNullOrWhiteSpace($FileName) -or $FileName.Length -gt 255) { return }
     if ([IO.Path]::GetFileName($FileName) -ne $FileName) { return }
     if (-not [IO.Path]::GetExtension($FileName).Equals(".png", [StringComparison]::OrdinalIgnoreCase)) { return }
 
-    $script:trackerLatestCursor++
-    $script:trackerEvents.Add([pscustomobject]@{
+    $event = [ordered]@{
         type = "SCREENSHOT_CREATED"
-        sequence = $script:trackerLatestCursor
+        sequence = $script:trackerLatestCursor + 1
         fileName = $FileName
         detectedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
-    })
+    }
+    $mapKey = Get-TrackerMapKeyForScreenshot -FileName $FileName -FileWrittenAt $FileWrittenAt
+    if (-not [string]::IsNullOrWhiteSpace($mapKey)) { $event.mapKey = $mapKey }
+
+    $script:trackerLatestCursor++
+    $script:trackerEvents.Add([pscustomobject]$event)
     while ($script:trackerEvents.Count -gt $trackerEventLimit) {
         $script:trackerEvents.RemoveAt(0)
     }
@@ -382,11 +1085,12 @@ function Update-ScreenshotWatcher {
     $now = [DateTime]::UtcNow
     foreach ($fileName in @($script:screenshotPendingFiles.Keys)) {
         if (($now - $script:screenshotPendingFiles[$fileName]).TotalMilliseconds -lt $trackerDebounceMilliseconds) { continue }
-        $script:screenshotPendingFiles.Remove($fileName)
+        $fileWrittenAt = $null
         try {
             $filePath = Join-Path $script:screenshotWatcher.Path $fileName
             if ([IO.File]::Exists($filePath)) {
                 $file = [IO.FileInfo]::new($filePath)
+                $fileWrittenAt = $file.LastWriteTime
                 $script:screenshotFingerprints[$fileName] = [pscustomobject]@{
                     fileName = $fileName
                     fingerprint = "$($file.Length):$($file.LastWriteTimeUtc.Ticks)"
@@ -396,7 +1100,17 @@ function Update-ScreenshotWatcher {
         } catch {
             # The filename-only event remains useful if the game has already moved the file.
         }
-        Add-ScreenshotEvent -FileName $fileName
+        $null = @(Get-TrackerMapStateEvents -AdvanceBootstrap)
+        $bootstrapReady = Test-TrackerMapBootstrapReady
+        if (
+            -not $bootstrapReady -and
+            ($now - $script:screenshotPendingFiles[$fileName]).TotalSeconds -lt $trackerMapPendingFallbackSeconds
+        ) { continue }
+        $script:screenshotPendingFiles.Remove($fileName)
+        $correlationFileWrittenAt = if ($bootstrapReady) { $fileWrittenAt } else { $null }
+        Add-ScreenshotEvent `
+            -FileName $fileName `
+            -FileWrittenAt $correlationFileWrittenAt
     }
 }
 
@@ -1068,6 +1782,7 @@ function Get-TrackerEventsPayload {
 
     return [pscustomobject]@{
         protocolVersion = $trackerProtocolVersion
+        instanceId = $trackerInstanceId
         data = $data
         pagination = [pscustomobject]@{
             afterCursor = $afterCursor
@@ -4917,6 +5632,12 @@ try {
     while (-not $script:shutdownRequested -and ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests)) {
         while (-not $script:shutdownRequested -and -not $listener.Pending()) {
             Update-ClientLeases
+            if ([DateTime]::UtcNow -ge $script:trackerNextMapBootstrapUtc) {
+                $script:trackerNextMapBootstrapUtc = [DateTime]::UtcNow.AddMilliseconds(
+                    $trackerMapBootstrapIntervalMilliseconds
+                )
+                $null = @(Get-TrackerMapStateEvents -AdvanceBootstrap)
+            }
             Update-ScreenshotWatcher
             Update-NativeOverlayBridge
             if (
@@ -5770,6 +6491,7 @@ try {
             if ($requestPath -eq "/api/v1/local-tracker/status") {
                 Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -HeadOnly:$headOnly -Value ([pscustomobject]@{
                     protocolVersion = $trackerProtocolVersion
+                    instanceId = $trackerInstanceId
                     screenshotWatcher = $script:screenshotWatcherState
                     latestCursor = $script:trackerLatestCursor
                 })

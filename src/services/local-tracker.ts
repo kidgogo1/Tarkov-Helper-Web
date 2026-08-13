@@ -8,6 +8,8 @@ export type ScreenshotWatcherStatus =
 
 export interface LocalTrackerStatus {
   protocolVersion: typeof LOCAL_TRACKER_PROTOCOL_VERSION;
+  /** Changes whenever the in-memory launcher event history is recreated. */
+  instanceId?: string;
   screenshotWatcher: ScreenshotWatcherStatus;
   latestCursor: number;
 }
@@ -30,6 +32,7 @@ export interface LocalTrackerPagination {
 
 export interface LocalTrackerEventPage {
   protocolVersion: typeof LOCAL_TRACKER_PROTOCOL_VERSION;
+  instanceId?: string;
   data: ScreenshotCreatedEvent[];
   pagination: LocalTrackerPagination;
 }
@@ -96,6 +99,13 @@ function isNonEmptyString(value: unknown, maximumLength: number): value is strin
   );
 }
 
+function parseInstanceId(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === "string" && /^[a-f0-9]{32}$/i.test(value)
+    ? value
+    : null;
+}
+
 function parseWatcherStatus(value: unknown): ScreenshotWatcherStatus | null {
   if (!isRecord(value) || typeof value.state !== "string") return null;
 
@@ -128,16 +138,20 @@ function parseStatus(value: unknown): LocalTrackerStatus | null {
   ) {
     return null;
   }
+  const instanceId = parseInstanceId(value.instanceId);
+  if (instanceId === null) return null;
   const screenshotWatcher = parseWatcherStatus(value.screenshotWatcher);
   if (!screenshotWatcher) return null;
   return {
     protocolVersion: LOCAL_TRACKER_PROTOCOL_VERSION,
+    ...(instanceId === undefined ? {} : { instanceId }),
     screenshotWatcher,
     latestCursor: value.latestCursor,
   };
 }
 
 function parseScreenshotEvent(value: unknown): ScreenshotCreatedEvent | null {
+  const hasMapKey = isRecord(value) && Object.prototype.hasOwnProperty.call(value, "mapKey");
   if (
     !isRecord(value) ||
     value.type !== "SCREENSHOT_CREATED" ||
@@ -148,7 +162,8 @@ function parseScreenshotEvent(value: unknown): ScreenshotCreatedEvent | null {
     value.fileName.includes("\\") ||
     !value.fileName.toLocaleLowerCase("en-US").endsWith(".png") ||
     !isNonEmptyString(value.detectedAt, 100) ||
-    !Number.isFinite(Date.parse(value.detectedAt))
+    !Number.isFinite(Date.parse(value.detectedAt)) ||
+    (hasMapKey && !isNonEmptyString(value.mapKey, 128))
   ) {
     return null;
   }
@@ -157,7 +172,7 @@ function parseScreenshotEvent(value: unknown): ScreenshotCreatedEvent | null {
     sequence: value.sequence,
     fileName: value.fileName,
     detectedAt: value.detectedAt,
-    ...(isNonEmptyString(value.mapKey, 128) ? { mapKey: value.mapKey.trim() } : {}),
+    ...(hasMapKey ? { mapKey: (value.mapKey as string).trim() } : {}),
   };
 }
 
@@ -170,6 +185,8 @@ function parseEventPage(value: unknown, requestedCursor: number): LocalTrackerEv
   ) {
     return null;
   }
+  const instanceId = parseInstanceId(value.instanceId);
+  if (instanceId === null) return null;
 
   const { afterCursor, nextCursor, hasMore, isResetRequired } = value.pagination;
   if (
@@ -192,6 +209,7 @@ function parseEventPage(value: unknown, requestedCursor: number): LocalTrackerEv
 
   return {
     protocolVersion: LOCAL_TRACKER_PROTOCOL_VERSION,
+    ...(instanceId === undefined ? {} : { instanceId }),
     data,
     pagination: {
       afterCursor,

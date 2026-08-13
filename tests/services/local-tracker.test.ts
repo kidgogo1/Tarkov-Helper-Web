@@ -17,6 +17,7 @@ describe("local tracker API boundary", () => {
     const controller = new AbortController();
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,
+      instanceId: "0123456789abcdef0123456789abcdef",
       screenshotWatcher: {
         state: "WATCHING",
         folderPath: "C:\\Users\\Tester\\Documents\\Escape from Tarkov\\Screenshots",
@@ -26,6 +27,7 @@ describe("local tracker API boundary", () => {
 
     await expect(fetchLocalTrackerStatus(controller.signal, request)).resolves.toEqual({
       protocolVersion: 1,
+      instanceId: "0123456789abcdef0123456789abcdef",
       screenshotWatcher: {
         state: "WATCHING",
         folderPath: "C:\\Users\\Tester\\Documents\\Escape from Tarkov\\Screenshots",
@@ -78,6 +80,7 @@ describe("local tracker API boundary", () => {
     { protocolVersion: 1, screenshotWatcher: { state: "ERROR" }, latestCursor: 0 },
     { protocolVersion: 1, screenshotWatcher: { state: "NOT_FOUND" }, latestCursor: -1 },
     { protocolVersion: 1, screenshotWatcher: { state: "NOT_FOUND" }, latestCursor: 1.5 },
+    { protocolVersion: 1, instanceId: "not-an-instance", screenshotWatcher: { state: "NOT_FOUND" }, latestCursor: 0 },
   ])("treats an invalid status payload as unavailable", async (payload) => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload));
     await expect(fetchLocalTrackerStatus(undefined, request)).resolves.toBeNull();
@@ -87,6 +90,7 @@ describe("local tracker API boundary", () => {
     const controller = new AbortController();
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       protocolVersion: 1,
+      instanceId: "fedcba9876543210fedcba9876543210",
       data: [
         {
           type: "SCREENSHOT_CREATED",
@@ -105,6 +109,7 @@ describe("local tracker API boundary", () => {
 
     await expect(fetchLocalTrackerEvents(7, controller.signal, request)).resolves.toEqual({
       protocolVersion: 1,
+      instanceId: "fedcba9876543210fedcba9876543210",
       data: [
         {
           type: "SCREENSHOT_CREATED",
@@ -185,6 +190,21 @@ describe("local tracker API boundary", () => {
     },
     {
       protocolVersion: 1,
+      data: [{ type: "SCREENSHOT_CREATED", sequence: 1, fileName: "position.png", detectedAt: "2026-08-07T00:00:00Z", mapKey: "" }],
+      pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+    },
+    {
+      protocolVersion: 1,
+      data: [{ type: "SCREENSHOT_CREATED", sequence: 1, fileName: "position.png", detectedAt: "2026-08-07T00:00:00Z", mapKey: 42 }],
+      pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+    },
+    {
+      protocolVersion: 1,
+      data: [{ type: "SCREENSHOT_CREATED", sequence: 1, fileName: "position.png", detectedAt: "2026-08-07T00:00:00Z", mapKey: "x".repeat(129) }],
+      pagination: { afterCursor: 0, nextCursor: 1, hasMore: false },
+    },
+    {
+      protocolVersion: 1,
       data: [],
       pagination: { afterCursor: 2, nextCursor: 1, hasMore: false },
     },
@@ -197,6 +217,12 @@ describe("local tracker API boundary", () => {
       protocolVersion: 1,
       data: [],
       pagination: { afterCursor: 0, nextCursor: 0, hasMore: false, isResetRequired: "yes" },
+    },
+    {
+      protocolVersion: 1,
+      instanceId: "x".repeat(32),
+      data: [],
+      pagination: { afterCursor: 0, nextCursor: 0, hasMore: false },
     },
   ])("treats an invalid event page as unavailable", async (payload) => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(payload));

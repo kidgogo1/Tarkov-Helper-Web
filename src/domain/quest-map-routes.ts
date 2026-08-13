@@ -1,4 +1,4 @@
-import { detectFloor, transformMapPosition } from "./map";
+import { detectFloor, normalizeMapName, transformMapPosition } from "./map";
 import type {
   MapConfig,
   MapFloorLocation,
@@ -30,7 +30,12 @@ export function findRouteMapConfig(
   configs: readonly MapConfig[],
   mapName: string | undefined,
 ): MapConfig | undefined {
-  return configs.find((config) => mapConfigMatchesRouteName(config, mapName));
+  const directMatch = configs.find((config) => mapConfigMatchesRouteName(config, mapName));
+  if (directMatch || !mapName) return directMatch;
+  const canonicalName = normalizeMapName(mapName);
+  return canonicalName
+    ? configs.find((config) => mapConfigMatchesRouteName(config, canonicalName))
+    : undefined;
 }
 
 /**
