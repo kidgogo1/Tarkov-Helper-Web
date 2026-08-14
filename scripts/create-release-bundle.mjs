@@ -400,8 +400,12 @@ export async function createReleaseBundle(options) {
   context.projectRoot = projectRoot;
   const signing = updaterEnabled
     ? options.prepareOnly || options.finalizeUnsigned
-      ? loadPublicSigningKey(process.env.UPDATE_SIGNING_PUBLIC_KEY)
-      : loadSigningKeyPair(process.env.UPDATE_SIGNING_PRIVATE_KEY, process.env.UPDATE_SIGNING_PUBLIC_KEY)
+      ? loadPublicSigningKey(process.env.UPDATE_SIGNING_PUBLIC_KEY, config.updater.signing.trustedKeyId)
+      : loadSigningKeyPair(
+          process.env.UPDATE_SIGNING_PRIVATE_KEY,
+          process.env.UPDATE_SIGNING_PUBLIC_KEY,
+          config.updater.signing.trustedKeyId,
+        )
     : null;
   const releaseIds = updaterEnabled && !options.prepareOnly
     ? releaseIdentity(options)

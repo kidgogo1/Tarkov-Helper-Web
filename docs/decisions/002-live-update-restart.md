@@ -59,6 +59,13 @@ status를 확인한다.
 - API 응답을 flush한 뒤에만 server shutdown과 실제 directory swap이 시작되게 한다.
 - 설치는 sibling staging과 디렉터리 rename, same-port health/version probe, 자동 rollback이라는
   ADR-001의 transaction을 그대로 재사용한다.
+- 실행 중 적용과 다음 실행 적용 모두 패키지 크기·파일 수로 계산한 검증 예산을 사용한다. broker는
+  staged tree와 교체된 tree를 각각 다시 검증하므로 적용 제한 시간은 단일 검증 예산의 두 배에
+  health/start/rename/cleanup 여유를 더해 120초에서 85분 사이로 제한한다. 새 서버의 인증된 health
+  대기는 일반 cold start와 같은 30초를 사용한다.
+- 첫 package-to-backup rename이 잠금 때문에 실패했지만 아직 swap이 시작되지 않았다면 후보와 pending을
+  삭제하지 않는다. 기존 서버를 인증해 다시 기동하고 `READY_TO_RESTART`로 되돌려 다음 명시적 재시도를
+  허용한다. 브라우저는 이 상태를 90분 동안 `APPLYING`으로 오인하지 않고 재시도 안내로 끝낸다.
 - 여러 탭에서 동시에 적용해도 한 요청만 transaction을 소유하고 나머지는 충돌 응답을 받는다.
 - 자동 재연결은 최대 90분의 제한 시간과 초기 10초 이후 빈도를 낮추는 bounded polling을 가지며,
   새 버전 또는 복원된 이전 버전만 신뢰한다.
@@ -81,6 +88,17 @@ status를 확인한다.
 
 ## Bootstrap 제한
 
-이 apply endpoint가 없는 v1.0.4 이하 설치본은 스스로 이 기능을 추가할 수 없다. 따라서 최초
-live-update-capable direct 릴리스인 v1.0.5는 한 번 수동으로 교체해야 한다. 그 버전 이후의 릴리스부터는 실행
-중 한 번의 클릭으로 자동 적용·재연결한다.
+v1.0.5부터 실행 중 apply endpoint와 브라우저 자동 재연결을 지원한다. 이는 정상 상태의 기능 기준이며
+모든 과거 로컬 상태와 느린 저장 장치를 무조건 자동 복구한다는 뜻은 아니다. v1.0.3과 v1.0.4는 같은
+서명·교체 프로토콜로 최신 릴리스를 준비할 수 있지만, 앱을 종료하고 다시 실행해야 pending 업데이트가
+적용된다.
+v1.0.1과 v1.0.2도 updater protocol 1을 사용하지만 실행 프로세스의 현재 디렉터리가 패키지 폴더인 경우
+Windows가 폴더 rename을 막는다. 이미 배포된 구버전 broker는 새 패키지가 실행되기 전에 동작하므로 최신
+패키지 코드로 이 잠금을 안전하게 우회할 수 없다. 이 두 버전과 출처를 확인할 수 없는 더 오래된 설치본은
+기존 앱을 종료한 뒤 최신 Direct ZIP을 짧은 새 폴더에 푸는 수동 bootstrap을 사용한다. 상세 릴리스 호환성
+정책은 ADR-004를 따른다.
+
+업데이트의 첫 hop은 항상 현재 설치본의 launcher·worker·broker가 수행한다. 따라서 동적 적용 제한 시간,
+30초 health, 잠금 실패 후보 보존 같은 새 방어는 해당 방어가 포함된 릴리스를 한 번 설치한 뒤의 업데이트부터
+적용된다. 새 릴리스는 직전 공개 Direct 설치본이 가진 기존 제한 시간 안에서도 실제 후보를 적용할 수 있는지
+별도 first-hop 회귀로 확인해야 한다.

@@ -17,6 +17,12 @@ function actionReferences(workflow) {
   return [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)(?:\s+#.*)?$/gm)].map((match) => match[1]);
 }
 
+function workflowJob(workflow, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\n  ${escapedName}:\\n([\\s\\S]*?)(?=\\n  [a-zA-Z0-9_-]+:\\n|$)`)
+    .exec(`\n${workflow.replace(/\r\n?/g, "\n")}`)?.[1] ?? "";
+}
+
 function isolatedZipValidatorSource(workflow) {
   const lines = workflow.split(/\r?\n/);
   const start = lines.findIndex((line) => line.includes("$zipValidatorSource = @'"));
@@ -38,11 +44,75 @@ test("all third-party workflow actions are pinned to a full commit SHA", async (
 
 test("CI is read-only and every browser test remains headless", async () => {
   const workflow = await text(".github/workflows/ci.yml");
+  const qualityJob = workflowJob(workflow, "quality");
   assert.match(workflow, /^permissions:\s*\n\s+contents:\s+read\s*$/m);
   assert.doesNotMatch(workflow, /contents:\s+write/);
   assert.doesNotMatch(workflow, /--headed|headless:\s*false|Start-Process/i);
   assert.match(workflow, /pnpm test:e2e/);
   assert.match(workflow, /pnpm test:release/);
+  assert.match(qualityJob, /actions\/checkout@[0-9a-f]{40}[\s\S]*fetch-depth:\s*0/,
+    "portable historical first-hop tests require the previous release tags");
+});
+
+test("CI exercises an extracted final Direct ZIP on Windows Server 2022", async () => {
+  const workflow = await text(".github/workflows/ci.yml");
+  const compatibilityJob = workflowJob(workflow, "windows-2022-compatibility");
+  assert.notEqual(compatibilityJob, "", "CI must define a Windows Server 2022 compatibility job");
+  assert.match(compatibilityJob, /runs-on:\s+windows-2022/);
+  assert.match(compatibilityJob, /pnpm install --frozen-lockfile/);
+  assert.match(compatibilityJob, /dotnet-version:\s+10\.0\.301/);
+  assert.match(compatibilityJob, /node scripts\/create-direct-release\.mjs/);
+  assert.match(compatibilityJob, /create-release-bundle\.mjs[\s\S]*--updater-disabled/);
+  assert.match(compatibilityJob, /verify-release-bundle\.mjs[\s\S]*--updater-disabled/);
+  assert.match(compatibilityJob, /ZipFile\]::ExtractToDirectory/);
+  assert.match(compatibilityJob, /TARKOV_HELPER_DIRECT_ROOT/);
+  assert.match(compatibilityJob, /TcpListener/);
+  assert.match(compatibilityJob, /LocalEndpoint\)\.Port/);
+  assert.match(compatibilityJob, /netstat\.exe[\s\S]*LISTENING/);
+  assert.match(compatibilityJob, /pnpm test:e2e:direct/);
+  assert.doesNotMatch(compatibilityJob, /TARKOV_HELPER_E2E_PORT\s*[:=]\s*["']?41753/);
+
+  const verified = compatibilityJob.indexOf("verify-release-bundle.mjs");
+  const extracted = compatibilityJob.indexOf("ExtractToDirectory");
+  const directRoot = compatibilityJob.indexOf("TARKOV_HELPER_DIRECT_ROOT");
+  const browserE2e = compatibilityJob.indexOf("pnpm test:e2e:direct", directRoot);
+  assert(verified >= 0 && verified < extracted && extracted < directRoot && directRoot < browserE2e,
+    "the final ZIP must be verified, extracted, and selected before its browser E2E runs");
+});
+
+test("release packaging launches the exact verified prepared Direct ZIP", async () => {
+  const workflow = await text(".github/workflows/release.yml");
+  const packageJob = workflowJob(workflow, "package");
+  assert.equal([...packageJob.matchAll(/pnpm test:e2e:direct/g)].length, 1,
+    "the release package job should run only the post-ZIP Direct E2E");
+  assert.match(packageJob, /verify-release-bundle\.mjs[\s\S]*--prepared-only/);
+  assert.match(packageJob, /ZipFile\]::ExtractToDirectory/);
+  assert.match(packageJob, /TARKOV_HELPER_DIRECT_ROOT/);
+  assert.match(packageJob, /TcpListener/);
+  assert.match(packageJob, /LocalEndpoint\)\.Port/);
+  assert.match(packageJob, /netstat\.exe[\s\S]*LISTENING/);
+
+  const verified = packageJob.indexOf("verify-release-bundle.mjs");
+  const extracted = packageJob.indexOf("ExtractToDirectory", verified);
+  const directRoot = packageJob.indexOf("TARKOV_HELPER_DIRECT_ROOT", extracted);
+  const browserE2e = packageJob.indexOf("pnpm test:e2e:direct", directRoot);
+  assert(verified >= 0 && verified < extracted && extracted < directRoot && directRoot < browserE2e,
+    "release E2E must consume the prepared ZIP after release-bundle verification");
+});
+
+test("generated release notes prepend a fixed legacy-update recovery path", async () => {
+  const workflow = await text(".github/workflows/release.yml");
+  const finalizeJob = workflowJob(workflow, "finalize");
+  assert.match(finalizeJob, /v1\.0\.2 이하/);
+  assert.doesNotMatch(finalizeJob, /v1\.0\.4 이하/);
+  assert.match(finalizeJob, /업데이트가 반복해서 실패/);
+  assert.match(finalizeJob, /기존 Tarkov Helper를 먼저 종료/);
+  assert.match(finalizeJob, /기존 폴더에 덮어쓰지/);
+  assert.match(finalizeJob, /최신 Direct ZIP/);
+  assert.match(finalizeJob, /새 짧은 폴더/);
+  assert.match(finalizeJob, /Tarkov Helper 격리 복구 실행\.cmd/);
+  assert.match(finalizeJob, /일반 상태는 보존/);
+  assert.match(finalizeJob, /gh release create[\s\S]*--generate-notes[\s\S]*--notes \$recoveryNotes/);
 });
 
 test("every launcher build job installs the exact pinned .NET SDK", async () => {
@@ -53,8 +123,10 @@ test("every launcher build job installs the exact pinned .NET SDK", async () => 
   const setupContract = new RegExp(
     `uses: ${setupDotnet} # v5\\.4\\.0[\\s\\S]*?with:\\s*\\n\\s+dotnet-version: 10\\.0\\.301`,
   );
-  assert.equal(actionReferences(ci).filter((reference) => reference === setupDotnet).length, 1);
+  const compatibilityJob = workflowJob(ci, "windows-2022-compatibility");
+  assert.equal(actionReferences(ci).filter((reference) => reference === setupDotnet).length, 2);
   assert.match(ci, setupContract);
+  assert.match(compatibilityJob, setupContract);
 
   const qualityJob = /\n\x20{2}quality:\n([\s\S]*?)\n\x20{2}package:\n/.exec(release)?.[1] ?? "";
   const packageJob = /\n\x20{2}package:\n([\s\S]*?)\n\x20{2}finalize:\n/.exec(release)?.[1] ?? "";
@@ -143,6 +215,11 @@ test("release identity comes from GitHub context and signing is isolated from ta
   assert.match(signJob, /Tarkov Helper 실행\.vbs/);
   assert.match(signJob, /Tarkov Helper 시작 메뉴 등록\.vbs/);
   assert.match(signJob, /Tarkov Helper 시작 메뉴 제거\.vbs/);
+  assert.match(signJob, /Tarkov Helper 종료\.vbs/);
+  assert.match(signJob, /문제 해결용 실행\.cmd/);
+  assert.match(signJob, /Tarkov Helper 상태 복구\.cmd/);
+  assert.match(signJob, /Tarkov Helper 격리 복구 실행\.cmd/);
+  assert.match(signJob, /사용 안내\.txt/);
   assert.match(signJob, /ZIP report exceeds client unpacked bounds/);
   assert.match(signJob, /UPDATE_CONFIG\.json/);
   assert.match(publishJob, /releases\/\$releaseId/);
@@ -200,6 +277,11 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     await writeFile(path.join(input, "Tarkov Helper 실행.vbs"), "fixture\n");
     await writeFile(path.join(input, "Tarkov Helper 시작 메뉴 등록.vbs"), "fixture\n");
     await writeFile(path.join(input, "Tarkov Helper 시작 메뉴 제거.vbs"), "fixture\n");
+    await writeFile(path.join(input, "Tarkov Helper 종료.vbs"), "fixture\n");
+    await writeFile(path.join(input, "문제 해결용 실행.cmd"), "fixture\n");
+    await writeFile(path.join(input, "Tarkov Helper 상태 복구.cmd"), "fixture\n");
+    await writeFile(path.join(input, "Tarkov Helper 격리 복구 실행.cmd"), "fixture\n");
+    await writeFile(path.join(input, "사용 안내.txt"), "fixture\n");
     await writeFile(path.join(input, "PACKAGE_INFO.txt"), "fixture\n");
     await writeFile(path.join(input, "UPDATE_CONFIG.json"), "{}\n");
     await writeFile(path.join(input, "app", "version.json"), "{}\n");
@@ -241,7 +323,7 @@ test("isolated signer ZIP validator recomputes trees and rejects unsafe or inter
     const valid = validate();
     assert.equal(valid.status, 0, `${valid.stdout}\n${valid.stderr}`);
     const report = JSON.parse(valid.stdout);
-    assert.equal(report.fileCount, 14);
+    assert.equal(report.fileCount, expectedFiles.length);
     assert.equal(report.appFileCount, 2);
     assert.equal(report.bytes, expectedFiles.reduce((total, file) => total + file.size, 0));
     assert.equal(report.appBytes, expectedAppFiles.reduce((total, file) => total + file.size, 0));

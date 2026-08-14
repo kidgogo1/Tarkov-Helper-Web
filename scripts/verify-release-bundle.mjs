@@ -179,8 +179,13 @@ function verifyDirectArchive(archive, rootDirectory, context, config, signing, u
     "Tarkov Helper.exe",
     "start-menu.ps1",
     "Tarkov Helper 실행.vbs",
+    "Tarkov Helper 종료.vbs",
     "Tarkov Helper 시작 메뉴 등록.vbs",
     "Tarkov Helper 시작 메뉴 제거.vbs",
+    "문제 해결용 실행.cmd",
+    "Tarkov Helper 상태 복구.cmd",
+    "Tarkov Helper 격리 복구 실행.cmd",
+    "사용 안내.txt",
   ]) {
     requireArchiveFile(files, filename, "Direct archive");
   }
@@ -286,7 +291,9 @@ export async function verifyReleaseBundle(options) {
     requireRepository: updaterEnabled,
     tag: options.tag,
   });
-  const signing = updaterEnabled ? loadPublicSigningKey(process.env.UPDATE_SIGNING_PUBLIC_KEY) : null;
+  const signing = updaterEnabled
+    ? loadPublicSigningKey(process.env.UPDATE_SIGNING_PUBLIC_KEY, config.updater.signing.trustedKeyId)
+    : null;
   const releaseIds = updaterEnabled && !preparedOnly
     ? releaseIdentity(options)
     : null;

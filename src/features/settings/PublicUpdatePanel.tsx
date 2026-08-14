@@ -28,6 +28,9 @@ function updateCheckUnavailableReason(
   if (!session) return "Windows 바로 실행 버전에서 사용할 수 있습니다.";
   if (!status) return "업데이트 상태를 불러오는 중입니다.";
   if (status.state === "DISABLED") return "공개 GitHub 릴리스 저장소 연결 후 사용할 수 있습니다.";
+  if (status.state === "AVAILABLE") {
+    return "이미 검증한 업데이트 후보를 설치하거나 앱을 다시 실행한 뒤 확인할 수 있습니다.";
+  }
   if (status.state === "READY_TO_RESTART") return "준비된 업데이트를 적용한 뒤 다시 확인할 수 있습니다.";
   return null;
 }
@@ -37,13 +40,15 @@ function updateAnnouncement(
   status: PublicUpdateStatus | null,
   initializing: boolean,
   busy: PublicUpdateBusyState,
+  clientError: string | null,
 ): string {
   if (initializing) return "로컬 업데이트 기능을 확인하는 중입니다.";
+  if (clientError) return clientError;
   if (!session) return "업데이트 기능은 Windows 바로 실행 버전에서 사용할 수 있습니다.";
   if (!status) return "업데이트 상태를 불러오는 중입니다.";
   switch (status.state) {
     case "DISABLED": return "공개 GitHub 릴리스 저장소가 연결되지 않았습니다.";
-    case "IDLE":
+    case "IDLE": return "아직 업데이트를 확인하지 않았습니다.";
     case "CHECKING": return "최신 공개 버전을 확인하는 중입니다.";
     case "DOWNLOADING": return "업데이트를 다운로드하는 중입니다.";
     case "VERIFYING": return "서명, 해시, 패키지 파일을 검증하는 중입니다.";
@@ -82,7 +87,7 @@ export function PublicUpdatePanel({
   onApply,
 }: PublicUpdatePanelProps) {
   const checkUnavailableReason = updateCheckUnavailableReason(session, status, initializing);
-  const announcement = updateAnnouncement(session, status, initializing, busy);
+  const announcement = updateAnnouncement(session, status, initializing, busy, clientError);
 
   return (
     <>
@@ -105,7 +110,7 @@ export function PublicUpdatePanel({
       </div>
 
       {initializing ? <p className="update-status">로컬 업데이트 기능을 확인하는 중입니다.</p> : null}
-      {!initializing && !session ? (
+      {!initializing && !session && !clientError ? (
         <p className="update-status muted">업데이트 기능은 Windows 바로 실행 버전에서 사용할 수 있습니다.</p>
       ) : null}
       {status?.state === "DISABLED" ? (
@@ -113,7 +118,10 @@ export function PublicUpdatePanel({
           이 빌드는 아직 공개 GitHub 릴리스 저장소와 연결되지 않았습니다.
         </p>
       ) : null}
-      {status?.state === "IDLE" || busy === "CHECK" ? (
+      {status?.state === "IDLE" && busy !== "CHECK" ? (
+        <p className="update-status muted">아직 업데이트를 확인하지 않았습니다.</p>
+      ) : null}
+      {status?.state === "CHECKING" || busy === "CHECK" ? (
         <p className="update-status">최신 공개 버전을 확인하는 중입니다.</p>
       ) : null}
       {status?.state === "DOWNLOADING" ? (
@@ -177,7 +185,11 @@ export function PublicUpdatePanel({
       {status?.state === "ERROR" ? (
         <div className="update-status error" role="alert">
           <TriangleAlert aria-hidden="true" size={18} />
-          <span>{formatUpdateError(status)}</span>
+          <span>
+            {formatUpdateError(status)}
+            {" "}
+            <code>지원 코드: {status.operation}/{status.code}</code>
+          </span>
         </div>
       ) : null}
       {clientError ? (

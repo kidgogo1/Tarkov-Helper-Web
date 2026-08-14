@@ -13,7 +13,8 @@
     "requireImmutableRelease": true,
     "signing": {
       "algorithm": "RSA-SHA256",
-      "minimumRsaBits": 3072
+      "minimumRsaBits": 3072,
+      "trustedKeyId": "sha256:874185c4bdb08ef0804728c39220082d07bd68b7af9af6f3f4f030b7fad7d915"
     }
   }
 }

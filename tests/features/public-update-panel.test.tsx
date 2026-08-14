@@ -131,6 +131,7 @@ describe("public update settings", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("GitHub 공개 API 요청 제한");
     expect(screen.getByRole("alert")).toHaveTextContent("계정이 차단된 것은 아닙니다");
+    expect(screen.getByRole("alert")).toHaveTextContent("지원 코드: CHECK/GITHUB_RATE_LIMIT");
   });
 
   it("does not check GitHub on startup or on a six-hour timer", async () => {
@@ -170,6 +171,7 @@ describe("public update settings", () => {
     }, 503));
     const broken = renderHook(() => usePublicUpdate(brokenRequest));
     await waitFor(() => expect(broken.result.current.initializing).toBe(false));
+    expect(broken.result.current.clientError).toContain("업데이트 서비스");
 
     const brokenSnapshot = getClientDiagnosticSnapshot();
     expect(brokenSnapshot.entries).toEqual([
@@ -198,6 +200,33 @@ describe("public update settings", () => {
     await waitFor(() => expect(cancelled.result.current.initializing).toBe(false));
     expect(getClientDiagnosticSnapshot().entries).toHaveLength(0);
     cancelled.unmount();
+  });
+
+  it("distinguishes an unchecked Direct session from a broken local update service", () => {
+    const props = {
+      busy: null,
+      initializing: false,
+      onCheck: vi.fn(),
+      onInstall: vi.fn(),
+      onApply: vi.fn(),
+      status: idleSession.status,
+    } as const;
+    const { rerender } = render(
+      <PublicUpdatePanel {...props} clientError={null} session={idleSession} />,
+    );
+    expect(screen.getAllByText("아직 업데이트를 확인하지 않았습니다.")).toHaveLength(2);
+    expect(screen.queryByText("최신 공개 버전을 확인하는 중입니다.")).not.toBeInTheDocument();
+
+    rerender(
+      <PublicUpdatePanel
+        {...props}
+        clientError="로컬 업데이트 서비스에 연결하지 못했습니다."
+        session={null}
+        status={null}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("로컬 업데이트 서비스에 연결하지 못했습니다.");
+    expect(screen.queryByText("업데이트 기능은 Windows 바로 실행 버전에서 사용할 수 있습니다.")).not.toBeInTheDocument();
   });
 
   it("preserves a fresh updated terminal state until a manual check", async () => {
@@ -659,6 +688,48 @@ describe("public update settings", () => {
     expect(reload).toHaveBeenCalledOnce();
     expect(result.current.status).toEqual(rollback);
     expect(result.current.session?.token).toBe("b".repeat(43));
+  });
+
+  it("stops reconnecting when the restarted old app preserves the staged candidate for retry", async () => {
+    const ready = {
+      state: "READY_TO_RESTART",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      stagedAt: "2026-08-09T03:05:06.000Z",
+    } as const;
+    const deferredSession = {
+      ...idleSession,
+      token: "d".repeat(43),
+      status: {
+        ...ready,
+        stagedAt: "2026-08-09T03:05:10.000Z",
+      },
+    } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: ready }))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "APPLYING",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          startedAt: "2026-08-09T03:05:07.000Z",
+        },
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse(deferredSession));
+    const reload = vi.fn();
+    const { result } = renderHook(() => usePublicUpdate(request, { reload }));
+    await waitFor(() => expect(result.current.status).toEqual(ready));
+
+    await act(async () => result.current.apply());
+
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(result.current.busy).toBeNull();
+    expect(result.current.session).toEqual(deferredSession);
+    expect(result.current.status).toEqual(deferredSession.status);
+    expect(result.current.clientError).toContain("다시 적용");
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("reloads another open tab after receiving a validated update restart broadcast", async () => {
@@ -1266,7 +1337,7 @@ describe("public update settings", () => {
     await waitFor(() => expect(result.current.status).toEqual(availableStatus));
   });
 
-  it("shows release details, retries checks, and explains restart installation", () => {
+  it("shows release details, reuses the reviewed candidate, and explains restart installation", () => {
     const onCheck = vi.fn();
     const onStage = vi.fn();
     const { rerender } = render(
@@ -1289,8 +1360,12 @@ describe("public update settings", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "업데이트 및 계속 사용" }));
     expect(onStage).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "업데이트 확인" }));
-    expect(onCheck).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "업데이트 확인" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "업데이트 확인" })).toHaveAttribute(
+      "title",
+      "이미 검증한 업데이트 후보를 설치하거나 앱을 다시 실행한 뒤 확인할 수 있습니다.",
+    );
+    expect(onCheck).not.toHaveBeenCalled();
 
     rerender(
       <PublicUpdatePanel

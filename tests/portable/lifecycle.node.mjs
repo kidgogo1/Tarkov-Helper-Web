@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +13,7 @@ const launcherPath = path.join(portableRoot, "launcher.ps1");
 const startVbsPath = path.join(portableRoot, "Tarkov Helper 실행.vbs");
 const stopVbsPath = path.join(portableRoot, "Tarkov Helper 종료.vbs");
 const diagnosticCommandPath = path.join(portableRoot, "문제 해결용 실행.cmd");
+const repairCommandPath = path.join(portableRoot, "Tarkov Helper 상태 복구.cmd");
 
 function runLauncher(arguments_, timeout = 15_000, options = {}) {
   return spawnSync(
@@ -27,7 +28,7 @@ function runLauncher(arguments_, timeout = 15_000, options = {}) {
       launcherPath,
       ...arguments_,
     ],
-    { cwd: options.cwd, encoding: "utf8", windowsHide: true, timeout },
+    { cwd: options.cwd, env: options.env ? { ...process.env, ...options.env } : undefined, encoding: "utf8", windowsHide: true, timeout },
   );
 }
 
@@ -40,11 +41,22 @@ async function waitFor(check, timeoutMs = 10_000) {
   throw new Error("Timed out waiting for lifecycle state.");
 }
 
+async function getUnusedLoopbackPort() {
+  const probe = net.createServer();
+  await new Promise((resolve, reject) => probe.listen(0, "127.0.0.1", resolve).once("error", reject));
+  const address = probe.address();
+  assert.ok(address && typeof address !== "string");
+  const port = address.port;
+  await new Promise((resolve) => probe.close(resolve));
+  return port;
+}
+
 test("double-click scripts start and stop the hidden broker without a console", async () => {
-  const [startVbs, stopVbs, diagnosticCommand, launcher, updateBroker] = await Promise.all([
+  const [startVbs, stopVbs, diagnosticCommand, repairCommand, launcher, updateBroker] = await Promise.all([
     readFile(startVbsPath, "utf8"),
     readFile(stopVbsPath, "utf8"),
     readFile(diagnosticCommandPath, "utf8"),
+    readFile(repairCommandPath, "utf8"),
     readFile(launcherPath, "utf8"),
     readFile(path.join(portableRoot, "app-update-broker.ps1"), "utf8"),
   ]);
@@ -56,13 +68,18 @@ test("double-click scripts start and stop the hidden broker without a console", 
   assert.match(stopVbs, /-Action Stop/i);
   assert.match(stopVbs, /\.Run\([\s\S]*,\s*0\s*,/i);
   assert.match(diagnosticCommand, /-Action Serve/i);
+  assert.match(repairCommand, /-Action Repair/i);
+  const instanceReader = /function Read-PortableInstance \{([\s\S]*?)\n\}/.exec(launcher)?.[1] ?? "";
+  assert.match(instanceReader, /Length -gt 32768/);
+  assert.match(instanceReader, /FileStream/);
+  assert.doesNotMatch(instanceReader, /Get-Content/);
   assert.match(launcher, /Start-Process[\s\S]*-WindowStyle Hidden/i);
   const launcherStarts = launcher.match(/^\s*(?:\$\w+\s*=\s*)?Start-Process\b/gm) ?? [];
   const hiddenLauncherStarts = launcher.match(/^\s*(?:\$\w+\s*=\s*)?Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/gm) ?? [];
   assert.ok(launcherStarts.length >= 3, "expected the launcher, worker, and update handoff process starts");
   assert.equal(hiddenLauncherStarts.length, launcherStarts.length);
   assert.match(updateBroker, /Start-Process\b[\s\S]{0,300}?-WindowStyle Hidden/i);
-  assert.equal((launcher.match(/Get-StateMutexName -Purpose "Control"/g) ?? []).length, 2);
+  assert.equal((launcher.match(/Get-StateMutexName -Purpose "Control"/g) ?? []).length, 3);
   assert.match(launcher, /function Get-FileSha256Hex/);
   assert.match(launcher, /Get-FileSha256Hex -Path \$PSCommandPath/);
   assert.match(launcher, /\$Root = \$rootPath[\s\S]*?\$ScreenshotFolder = \[IO\.Path\]::GetFullPath\(\$ScreenshotFolder\)[\s\S]*?\$StateDirectory = \[IO\.Path\]::GetFullPath\(\$serveWorkingDirectory\)[\s\S]*?SetCurrentDirectory/);
@@ -392,6 +409,384 @@ test("Start and Stop preserve corrupt instance state and report that it cannot b
     runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
     await rm(temporaryRoot, { recursive: true, force: true });
   }
+});
+
+test("Repair explicitly quarantines corrupt instance state before a clean restart", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-corrupt-state-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  const corruptState = "{not valid json";
+  await mkdir(appRoot);
+  await mkdir(stateDirectory);
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Repair state test</title>", "utf8");
+  await writeFile(instancePath, corruptState, "utf8");
+  const repairPort = await getUnusedLoopbackPort();
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /quarantined|repair|recovery/i);
+  await assert.rejects(readFile(instancePath, "utf8"), { code: "ENOENT" });
+  const quarantined = (await readdir(stateDirectory)).filter((name) => /^instance\.corrupt-[0-9]{8}T[0-9]{6}-[0-9a-f]{32}\.json$/.test(name));
+  assert.equal(quarantined.length, 1);
+  assert.equal(await readFile(path.join(stateDirectory, quarantined[0]), "utf8"), corruptState);
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+});
+
+test("Repair quarantines a directory occupying the instance-state path", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-directory-state-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  await mkdir(appRoot);
+  await mkdir(stateDirectory);
+  await mkdir(instancePath);
+  await writeFile(path.join(instancePath, "preserved.txt"), "do not delete", "utf8");
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Repair directory state test</title>", "utf8");
+  const repairPort = await getUnusedLoopbackPort();
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`);
+  const quarantined = (await readdir(stateDirectory)).filter((name) => /^instance\.corrupt-[0-9]{8}T[0-9]{6}-[0-9a-f]{32}\.directory$/.test(name));
+  assert.equal(quarantined.length, 1);
+  assert.equal(await readFile(path.join(stateDirectory, quarantined[0], "preserved.txt"), "utf8"), "do not delete");
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+});
+
+test("Repair bounds and quarantines an oversized corrupt instance-state file", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-oversized-state-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  const oversizedState = "x".repeat(1024 * 1024);
+  await mkdir(stateDirectory);
+  await writeFile(instancePath, oversizedState, "utf8");
+  const repairPort = await getUnusedLoopbackPort();
+
+  t.after(async () => {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory], 5_000);
+  assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`);
+  const quarantined = (await readdir(stateDirectory)).filter((name) => /^instance\.corrupt-[0-9]{8}T[0-9]{6}-[0-9a-f]{32}\.json$/.test(name));
+  assert.equal(quarantined.length, 1);
+  assert.equal((await readFile(path.join(stateDirectory, quarantined[0]))).byteLength, oversizedState.length);
+});
+
+test("Repair refuses to alter an authenticated running instance", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-running-state-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  await mkdir(appRoot);
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Repair running test</title>", "utf8");
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const originalState = await readFile(instancePath, "utf8");
+  const runningPort = JSON.parse(originalState).port;
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(runningPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /running|stop|refused/i);
+  assert.equal(await readFile(instancePath, "utf8"), originalState);
+});
+
+test("Repair quarantines only a bound corrupt pending update before a clean restart", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-corrupt-update-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const portProbe = net.createServer();
+  await new Promise((resolve, reject) => portProbe.listen(0, "127.0.0.1", resolve).once("error", reject));
+  const portAddress = portProbe.address();
+  assert.ok(portAddress && typeof portAddress !== "string");
+  const freePort = portAddress.port;
+  await new Promise((resolve) => portProbe.close(resolve));
+  const corruptPending = JSON.stringify({
+    schemaVersion: 1,
+    state: "READY_TO_RESTART",
+    packageRoot: portableRoot,
+    stateDirectory,
+    port: freePort,
+    brokerSha256: "not-a-valid-sha256",
+    unexpected: true,
+  });
+  await mkdir(appRoot);
+  await mkdir(updateDirectory, { recursive: true });
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Repair update state test</title>", "utf8");
+  await writeFile(pendingPath, corruptPending, "utf8");
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const failedStart = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(failedStart.status, 2, `${failedStart.stdout}\n${failedStart.stderr}`);
+  assert.equal(await readFile(pendingPath, "utf8"), corruptPending);
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(freePort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /update.*quarantined|quarantined.*update/i);
+  await assert.rejects(readFile(pendingPath, "utf8"), { code: "ENOENT" });
+  const quarantined = (await readdir(stateDirectory)).filter((name) => /^app-update\.pending-corrupt-[0-9]{8}T[0-9]{6}-[0-9a-f]{32}\.json$/.test(name));
+  assert.equal(quarantined.length, 1);
+  assert.equal(await readFile(path.join(stateDirectory, quarantined[0]), "utf8"), corruptPending);
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+});
+
+test("Repair preserves a corrupt pending update when any apply journal exists", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-update-journal-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const journalPath = path.join(updateDirectory, "apply-journal.json");
+  const corruptPending = JSON.stringify({ state: "CORRUPT", packageRoot: portableRoot, stateDirectory });
+  const journal = "{not a valid journal";
+  await mkdir(updateDirectory, { recursive: true });
+  await writeFile(pendingPath, corruptPending, "utf8");
+  await writeFile(journalPath, journal, "utf8");
+  const repairPort = await getUnusedLoopbackPort();
+
+  t.after(async () => {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /journal|transaction|refused|preserved/i);
+  assert.equal(await readFile(pendingPath, "utf8"), corruptPending);
+  assert.equal(await readFile(journalPath, "utf8"), journal);
+  assert.equal((await readdir(stateDirectory)).some((name) => name.startsWith("app-update.pending-corrupt-")), false);
+});
+
+test("Repair preserves pending update evidence while a recorded update worker is alive", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-live-worker-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const workerPath = path.join(updateDirectory, "worker.json");
+  const corruptPending = JSON.stringify({ state: "CORRUPT", packageRoot: portableRoot, stateDirectory });
+  await mkdir(updateDirectory, { recursive: true });
+  await writeFile(pendingPath, corruptPending, "utf8");
+  const repairPort = await getUnusedLoopbackPort();
+  const worker = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"], {
+    windowsHide: true,
+    stdio: "ignore",
+  });
+
+  t.after(async () => {
+    worker.kill();
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  await waitFor(() => worker.pid && worker.exitCode === null, 5_000);
+  const queried = spawnSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+    `(Get-Process -Id ${worker.pid}).StartTime.ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture)`,
+  ], { encoding: "utf8", windowsHide: true });
+  assert.equal(queried.status, 0, queried.stderr);
+  await writeFile(workerPath, JSON.stringify({
+    protocolVersion: 1,
+    pid: worker.pid,
+    processStartTimeUtc: queried.stdout.trim(),
+    operation: "STAGE",
+  }), "utf8");
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /worker|update|refused|running/i);
+  assert.equal(await readFile(pendingPath, "utf8"), corruptPending);
+});
+
+test("Repair refuses a reparse point at a dangerous update bookkeeping path", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-update-reparse-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const reparseTarget = path.join(temporaryRoot, "reparse-target");
+  await mkdir(updateDirectory, { recursive: true });
+  await mkdir(reparseTarget);
+  await writeFile(path.join(reparseTarget, "preserved.txt"), "do not alter", "utf8");
+  await symlink(reparseTarget, pendingPath, "junction");
+  const repairPort = await getUnusedLoopbackPort();
+
+  t.after(async () => {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /reparse|unsafe|refused|preserved/i);
+  assert.equal(await readFile(path.join(pendingPath, "preserved.txt"), "utf8"), "do not alter");
+});
+
+test("Repair preserves a bound corrupt pending update when its recorded loopback port is occupied", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-update-port-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const listener = net.createServer();
+  await new Promise((resolve, reject) => listener.listen(0, "127.0.0.1", resolve).once("error", reject));
+  const address = listener.address();
+  assert.ok(address && typeof address !== "string");
+  const corruptPending = JSON.stringify({ state: "CORRUPT", packageRoot: portableRoot, stateDirectory, port: address.port });
+  await mkdir(updateDirectory, { recursive: true });
+  await writeFile(pendingPath, corruptPending, "utf8");
+
+  t.after(async () => {
+    await new Promise((resolve) => listener.close(resolve));
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(address.port), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /port|server|occupied|refused|preserved/i);
+  assert.equal(await readFile(pendingPath, "utf8"), corruptPending);
+});
+
+test("Repair preserves instance identity when pending quarantine cannot complete", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-atomic-update-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const portProbe = net.createServer();
+  await new Promise((resolve, reject) => portProbe.listen(0, "127.0.0.1", resolve).once("error", reject));
+  const address = portProbe.address();
+  assert.ok(address && typeof address !== "string");
+  await new Promise((resolve) => portProbe.close(resolve));
+  const corruptInstance = "{not valid instance json";
+  const corruptPending = JSON.stringify({
+    state: "CORRUPT",
+    packageRoot: portableRoot,
+    stateDirectory,
+    port: address.port,
+  });
+  await mkdir(updateDirectory, { recursive: true });
+  await writeFile(instancePath, corruptInstance, "utf8");
+  await writeFile(pendingPath, corruptPending, "utf8");
+
+  t.after(async () => {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(address.port), "-StateDirectory", stateDirectory], 15_000, {
+    env: { TARKOV_HELPER_UPDATE_TEST_FAIL_REPAIR_PENDING_MOVE: "1" },
+  });
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.equal(await readFile(instancePath, "utf8"), corruptInstance);
+  assert.equal(await readFile(pendingPath, "utf8"), corruptPending);
+  assert.equal((await readdir(stateDirectory)).some((name) => name.startsWith("instance.corrupt-")), false);
+});
+
+test("Repair quarantines a plain directory blocking the cross-session update lock", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-lock-directory-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const lockPath = path.join(stateDirectory, "app-update.transaction.lock");
+  await mkdir(appRoot);
+  await mkdir(lockPath, { recursive: true });
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Repair lock directory test</title>", "utf8");
+  await writeFile(path.join(lockPath, "preserved.txt"), "do not delete", "utf8");
+  const repairPort = await getUnusedLoopbackPort();
+
+  t.after(async () => {
+    runLauncher(["-Action", "Stop", "-StateDirectory", stateDirectory], 5_000);
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(repairPort), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /lock|update|quarantined|recovery/i);
+  const quarantined = (await readdir(stateDirectory)).filter((name) => /^app-update\.transaction-lock-corrupt-[0-9]{8}T[0-9]{6}-[0-9a-f]{32}\.directory$/.test(name));
+  assert.equal(quarantined.length, 1);
+  assert.equal(await readFile(path.join(stateDirectory, quarantined[0], "preserved.txt"), "utf8"), "do not delete");
+
+  const started = runLauncher([
+    "-Action", "Start",
+    "-Root", appRoot,
+    "-Port", "0",
+    "-NoBrowser",
+    "-StateDirectory", stateDirectory,
+  ]);
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+});
+
+test("Repair preserves corrupt instance state while its requested port is occupied outside the serve mutex", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-repair-cross-session-port-"));
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const instancePath = path.join(stateDirectory, "instance.json");
+  const listener = net.createServer();
+  await new Promise((resolve, reject) => listener.listen(0, "127.0.0.1", resolve).once("error", reject));
+  const address = listener.address();
+  assert.ok(address && typeof address !== "string");
+  const corruptInstance = "{not valid instance json";
+  await mkdir(stateDirectory);
+  await writeFile(instancePath, corruptInstance, "utf8");
+
+  t.after(async () => {
+    await new Promise((resolve) => listener.close(resolve));
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  const repaired = runLauncher(["-Action", "Repair", "-Port", String(address.port), "-StateDirectory", stateDirectory]);
+  assert.equal(repaired.status, 2, `${repaired.stdout}\n${repaired.stderr}`);
+  assert.match(`${repaired.stdout}\n${repaired.stderr}`, /port|server|occupied|refused|preserved/i);
+  assert.equal(await readFile(instancePath, "utf8"), corruptInstance);
 });
 
 test("Serve refuses a second listener that would overwrite the same instance state", { skip: process.platform !== "win32" }, async (t) => {

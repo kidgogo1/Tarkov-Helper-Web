@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("Start", "Serve", "Stop")]
+    [ValidateSet("Start", "Serve", "Stop", "Repair")]
     [string]$Action = "Serve",
     [string]$Root,
     [ValidateRange(0, 65535)]
@@ -10,7 +10,8 @@ param(
     [int]$MaxRequests = 0,
     [string]$ScreenshotFolder,
     [string]$StateDirectory,
-    [string]$UpdateNonce
+    [string]$UpdateNonce,
+    [switch]$DisablePackageUpdates
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,7 +79,7 @@ $nativeOverlayNextReconciliationUtc = [DateTime]::MinValue
 $protectedPortableLogPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $appUpdateProtocolVersion = 1
 $appUpdateToken = $null
-$legacyAppUpdateCleanupFinished = $false
+$legacyAppUpdateCleanupFinished = [bool]$DisablePackageUpdates
 $legacyAppUpdateCleanupNextAttemptUtc = [DateTime]::MinValue
 $legacyAppUpdateCleanupDeadlineUtc = [DateTime]::UtcNow.AddMinutes(5)
 $itemPriceProtocolVersion = 1
@@ -3846,6 +3847,44 @@ function Get-AppUpdateCandidatePath { return Join-Path (Get-AppUpdateDirectory) 
 function Get-AppUpdatePendingPath { return Join-Path (Get-AppUpdateDirectory) "pending.json" }
 function Get-AppUpdateWorkerPath { return Join-Path (Get-AppUpdateDirectory) "worker.json" }
 
+function Enter-AppUpdateTransactionLock {
+    param([ValidateRange(0, 30000)][int]$TimeoutMilliseconds = 0)
+
+    $stateRoot = [IO.Path]::GetFullPath((Initialize-StateDirectory))
+    if (([IO.File]::GetAttributes($stateRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw [IO.IOException]::new("The runtime state directory is unsafe for update locking.")
+    }
+    $lockPath = Join-Path ($stateRoot) "app-update.transaction.lock"
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        try {
+            $existingLockEntry = $null
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($stateRoot)) {
+                if ([IO.Path]::GetFileName($entry).Equals("app-update.transaction.lock", [StringComparison]::OrdinalIgnoreCase)) { $existingLockEntry = $entry; break }
+            }
+            if ($null -ne $existingLockEntry) {
+                $lockAttributes = [IO.File]::GetAttributes($existingLockEntry)
+                if (($lockAttributes -band [IO.FileAttributes]::Directory) -ne 0) { throw [IO.IOException]::new("The update transaction lock path is occupied by a directory; run state repair.") }
+                if (($lockAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update transaction lock path must not be a reparse point.") }
+            }
+            $stream = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::WriteThrough)
+            if (([IO.File]::GetAttributes($lockPath) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                $stream.Dispose()
+                throw [IO.IOException]::new("The update transaction lock path must not be a reparse point.")
+            }
+            return $stream
+        } catch [IO.IOException] {
+            if ([DateTime]::UtcNow -ge $deadline) { throw }
+            Start-Sleep -Milliseconds 50
+        }
+    } while ($true)
+}
+
+function Exit-AppUpdateTransactionLock {
+    param([object]$Lock)
+    if ($null -ne $Lock) { try { $Lock.Dispose() } catch { } }
+}
+
 function Write-AppUpdateJson {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][object]$Value)
     $json = ConvertTo-Json -InputObject $Value -Compress -Depth 12
@@ -3938,6 +3977,12 @@ function Get-AppUpdateContext {
     }
     $currentVersion = [string]$version.version
     $currentCommit = [string]$version.commit
+    if ($DisablePackageUpdates) {
+        # Isolated recovery deliberately shares the immutable package tree but
+        # not its runtime state. Never let that state boundary authorize a
+        # package mutation or cleanup belonging to the normal installation.
+        return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $null }
+    }
     $configuration = Read-AppUpdateJson -Path (Join-Path $packageRoot "UPDATE_CONFIG.json") -MaximumBytes 65536
     if ($null -eq $configuration) {
         return [pscustomobject]@{ Enabled = $false; CurrentVersion = $currentVersion; CurrentCommit = $currentCommit; Repository = $null; PackageRoot = $packageRoot; Configuration = $null }
@@ -3975,42 +4020,126 @@ function Test-AppUpdateWorkerAlive {
     } catch { return $false }
 }
 
+function Enter-AppUpdateLoopbackPortReservation {
+    param([ValidateRange(1, 65535)][int]$PendingPort)
+
+    $listener = $null
+    try {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $PendingPort)
+        $listener.Server.ExclusiveAddressUse = $true
+        $listener.Start()
+        return $listener
+    } catch {
+        if ($null -ne $listener) { try { $listener.Stop() } catch { } }
+        return $null
+    }
+}
+
 function Try-ArchiveStalePendingAppUpdate {
     param(
         [object]$Pending,
         [Parameter(Mandatory = $true)][string]$ExpectedPackageRoot
     )
 
-    # This path only retires an update that will never be applied.  Older
-    # releases wrote a different set of bookkeeping fields, so do not make
-    # startup depend on hashes, byte counts, or broker metadata from that
-    # obsolete schema.  The live apply path below remains fully strict.
-    if (
-        $null -eq $Pending -or
-        $Pending.state -cne "READY_TO_RESTART" -or
-        $Pending.packageRoot -isnot [string] -or
-        [string]::IsNullOrWhiteSpace([string]$Pending.packageRoot) -or
-        -not (Test-AppUpdateVersion $Pending.latestVersion)
-    ) { return $false }
+    if ($DisablePackageUpdates) { return $false }
 
-    $pendingPackageRoot = $null
-    try { $pendingPackageRoot = [IO.Path]::GetFullPath([string]$Pending.packageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) } catch { return $false }
-    $normalizedExpectedRoot = [IO.Path]::GetFullPath($ExpectedPackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
-    if ($pendingPackageRoot.Equals($normalizedExpectedRoot, [StringComparison]::OrdinalIgnoreCase)) { return $false }
-    if (Test-AppUpdateWorkerAlive) { return $false }
-
-    $versionPath = Join-Path $normalizedExpectedRoot "app\version.json"
-    $version = Read-AppUpdateJson -Path $versionPath -MaximumBytes 8192
-    if (
-        -not (Test-AppUpdateObjectShape $version @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -or
-        $version.schemaVersion -ne 1 -or
-        $version.product -cne "tarkov-helper-web" -or
-        -not (Test-AppUpdateVersion $version.version) -or
-        (Compare-AppUpdateVersion -Left ([string]$version.version) -Right ([string]$Pending.latestVersion)) -lt 0
-    ) { return $false }
-
+    $transactionLock = $null
+    $legacyMutex = $null
+    $hasLegacyMutex = $false
+    $workerLock = $null
+    $portReservation = $null
     try {
+        # The sibling file lock crosses Windows sessions. The legacy mutex and
+        # worker.lock also serialize already-published brokers/workers in this
+        # session. Every acquisition is nonblocking, so mixed-version lock
+        # ordering cannot deadlock and a busy transaction is simply preserved.
+        $transactionLock = Enter-AppUpdateTransactionLock
+        $legacyMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "UpdateApply"))
+        try { $hasLegacyMutex = $legacyMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasLegacyMutex = $true }
+        if (-not $hasLegacyMutex) { return $false }
         $sourceDirectory = [IO.Path]::GetFullPath((Get-AppUpdateDirectory))
+        $workerLockPath = Join-Path $sourceDirectory "worker.lock"
+        try { $workerLock = [IO.FileStream]::new($workerLockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch [IO.IOException] { return $false }
+        if (Test-AppUpdateWorkerAlive) { return $false }
+
+        $pendingPath = Join-Path $sourceDirectory "pending.json"
+        $pendingInfo = [IO.FileInfo]::new($pendingPath)
+        $pendingInfo.Refresh()
+        if (-not $pendingInfo.Exists -or ($pendingInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        $Pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
+        $candidateProperty = if ($null -ne $Pending) { $Pending.PSObject.Properties["candidateId"] } else { $null }
+        $hasCandidateId = $null -ne $candidateProperty
+        $portProperty = if ($null -ne $Pending) { $Pending.PSObject.Properties["port"] } else { $null }
+        $hasRecordedPort = $null -ne $portProperty
+        if (
+            $null -eq $Pending -or $Pending.state -cne "READY_TO_RESTART" -or
+            ($hasCandidateId -and ($Pending.candidateId -isnot [string] -or $Pending.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$')) -or
+            ($hasRecordedPort -and -not (Test-AppUpdateInteger -Value $Pending.port -Minimum 1 -Maximum 65535)) -or
+            $Pending.packageRoot -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Pending.packageRoot) -or
+            -not (Test-AppUpdateVersion $Pending.latestVersion)
+        ) { return $false }
+        $journalPath = Join-Path $sourceDirectory "apply-journal.json"
+        if (Test-LegacyAppUpdatePathOccupied -Path $journalPath) { return $false }
+        # Pre-tag metadata did not always record the port. Only absence receives
+        # the fixed port selected for this Start; a present malformed value is
+        # never downgraded into the legacy compatibility path.
+        $pendingPort = if ($hasRecordedPort) { [int]$Pending.port } else { [int]$Port }
+        if ($pendingPort -lt 1 -or $pendingPort -gt 65535) { return $false }
+        $recordedInstance = Read-PortableInstance
+        if ($null -ne $recordedInstance -and $recordedInstance.port -eq $pendingPort) { return $false }
+        # A missing/corrupt instance record does not prove the foreign server is
+        # gone. Reserve the exact loopback port exclusively and hold it through
+        # pending-last archival, closing the probe-to-mutation TOCTOU window.
+        $portReservation = Enter-AppUpdateLoopbackPortReservation -PendingPort $pendingPort
+        if ($null -eq $portReservation) { return $false }
+
+        $pendingPackageRoot = [IO.Path]::GetFullPath([string]$Pending.packageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        $normalizedExpectedRoot = [IO.Path]::GetFullPath($ExpectedPackageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        if ($pendingPackageRoot.Equals($normalizedExpectedRoot, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        $pendingRootInfo = [IO.DirectoryInfo]::new($pendingPackageRoot)
+        $pendingRootInfo.Refresh()
+        $pendingRootOccupied = Test-LegacyAppUpdatePathOccupied -Path $pendingPackageRoot
+        if ($pendingRootOccupied -and (-not $pendingRootInfo.Exists -or ($pendingRootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { return $false }
+        $pendingLeaf = [IO.Path]::GetFileName($pendingPackageRoot)
+        $pendingParentPath = Split-Path -Parent $pendingPackageRoot
+        if ([string]::IsNullOrWhiteSpace($pendingLeaf) -or [string]::IsNullOrWhiteSpace($pendingParentPath) -or -not [IO.Directory]::Exists($pendingParentPath)) { return $false }
+        $pendingParent = [IO.DirectoryInfo]::new($pendingParentPath)
+        $pendingParent.Refresh()
+        if (-not $pendingParent.Exists -or ($pendingParent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        $rollbackRoot = Join-Path $pendingParent.FullName ("." + $pendingLeaf + ".update-backup")
+        if (Test-LegacyAppUpdatePathOccupied -Path $rollbackRoot) { return $false }
+        if ($hasCandidateId) {
+            $cleanupRoot = Join-Path $pendingParent.FullName ("." + $pendingLeaf + ".update-cleanup-" + [string]$Pending.candidateId)
+            $failedRoot = Join-Path $pendingParent.FullName ("." + $pendingLeaf + ".update-failed-" + [string]$Pending.candidateId)
+            foreach ($evidenceRoot in @($cleanupRoot, $failedRoot)) {
+                if (Test-LegacyAppUpdatePathOccupied -Path $evidenceRoot) { return $false }
+            }
+        } else {
+            # Early protocol-1 pending records did not carry candidateId. They
+            # can still be retired once the current install is at or above the
+            # staged version, but only if no candidate-bound apply evidence for
+            # that foreign package exists under any identifier.
+            $stagePrefix = "." + $pendingLeaf + ".update-stage-"
+            $cleanupPrefix = "." + $pendingLeaf + ".update-cleanup-"
+            $failedPrefix = "." + $pendingLeaf + ".update-failed-"
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($pendingParent.FullName)) {
+                $entryName = [IO.Path]::GetFileName($entry)
+                if (
+                    $entryName.StartsWith($stagePrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                    $entryName.StartsWith($cleanupPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                    $entryName.StartsWith($failedPrefix, [StringComparison]::OrdinalIgnoreCase)
+                ) { return $false }
+            }
+        }
+
+        $version = Read-AppUpdateJson -Path (Join-Path $normalizedExpectedRoot "app\version.json") -MaximumBytes 8192
+        if (
+            -not (Test-AppUpdateObjectShape $version @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -or
+            $version.schemaVersion -ne 1 -or $version.product -cne "tarkov-helper-web" -or
+            -not (Test-AppUpdateVersion $version.version) -or
+            (Compare-AppUpdateVersion -Left ([string]$version.version) -Right ([string]$Pending.latestVersion)) -lt 0
+        ) { return $false }
+
         $stateDirectory = [IO.Path]::GetFullPath((Initialize-StateDirectory))
         $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmssfff", [Globalization.CultureInfo]::InvariantCulture)
         $candidate = ([string]$Pending.candidateId -replace '[^A-Za-z0-9_-]', '')
@@ -4018,13 +4147,36 @@ function Try-ArchiveStalePendingAppUpdate {
         if ($candidate.Length -gt 12) { $candidate = $candidate.Substring(0, 12) }
         $backupDirectory = Join-Path $stateDirectory ("app-update-stale-backup-$stamp-$candidate")
         if ([IO.Directory]::Exists($backupDirectory)) { $backupDirectory = Join-Path $stateDirectory ("app-update-stale-backup-$stamp-$candidate-$([Guid]::NewGuid().ToString('N'))") }
-        [IO.Directory]::Move($sourceDirectory, $backupDirectory)
+        # Preserve operational logs and worker.lock in place. Move only bounded
+        # authoritative leaves, with pending.json last as the transaction trigger.
+        $archiveNames = @("candidate.json", "status.json", "worker.json")
+        if ($Pending.brokerSha256 -is [string] -and $Pending.brokerSha256 -match '^[0-9a-f]{64}$') { $archiveNames += ("broker-" + [string]$Pending.brokerSha256 + ".ps1") }
+        $archivePaths = New-Object 'Collections.Generic.List[object]'
+        foreach ($archiveName in $archiveNames) {
+            $sourcePath = Join-Path $sourceDirectory $archiveName
+            if (-not (Test-LegacyAppUpdatePathOccupied -Path $sourcePath)) { continue }
+            $sourceInfo = [IO.FileInfo]::new($sourcePath); $sourceInfo.Refresh()
+            if (-not $sourceInfo.Exists -or ($sourceInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+            if ($sourceInfo.Length -gt 4194304) { return $false }
+            $archivePaths.Add([pscustomobject]@{ Source = $sourcePath; Name = $archiveName })
+        }
+        [IO.Directory]::CreateDirectory($backupDirectory) | Out-Null
+        foreach ($archivePath in $archivePaths) {
+            [IO.File]::Move([string]$archivePath.Source, (Join-Path $backupDirectory ([string]$archivePath.Name)))
+        }
+        [IO.File]::Move($pendingPath, (Join-Path $backupDirectory "pending.json"))
         Write-PortableLog "Archived stale staged update state from package '$pendingPackageRoot' as '$backupDirectory'; current version '$($version.version)' is already at or above staged version '$($Pending.latestVersion)'."
         [Console]::Error.WriteLine("An old staged update from another installation was archived; the current installation is already up to date.")
         return $true
     } catch {
         Write-PortableLog "A stale staged update could not be archived safely: $($_.Exception.Message)"
         return $false
+    } finally {
+        if ($null -ne $portReservation) { try { $portReservation.Stop() } catch { } }
+        if ($null -ne $workerLock) { try { $workerLock.Dispose() } catch { } }
+        if ($hasLegacyMutex) { try { $legacyMutex.ReleaseMutex() } catch { } }
+        if ($null -ne $legacyMutex) { try { $legacyMutex.Dispose() } catch { } }
+        Exit-AppUpdateTransactionLock -Lock $transactionLock
     }
 }
 
@@ -4059,6 +4211,7 @@ function Get-AppUpdateStatus {
 
 function Start-AppUpdateWorker {
     param([ValidateSet("Check", "Stage")][string]$WorkerAction, [object]$Context, [string]$ReviewedCandidate, [ValidateRange(1, 65535)][int]$BoundPort)
+    if ($DisablePackageUpdates) { throw [InvalidOperationException]::new("Package updates are disabled in isolated recovery mode.") }
     $updateDirectory = Get-AppUpdateDirectory
     foreach ($transactionName in @("pending.json", "apply-journal.json")) {
         $transactionPath = Join-Path $updateDirectory $transactionName
@@ -4091,7 +4244,35 @@ function Read-PortableInstance {
     try {
         $instancePath = Get-InstancePath
         if (-not [IO.File]::Exists($instancePath)) { return $null }
-        $instance = Get-Content -LiteralPath $instancePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $info = [IO.FileInfo]::new($instancePath)
+        if (
+            ($info.Attributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -ne 0 -or
+            $info.Length -lt 2 -or
+            $info.Length -gt 32768
+        ) {
+            return $null
+        }
+        $stream = [IO.FileStream]::new(
+            $instancePath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        try {
+            if ($stream.Length -lt 2 -or $stream.Length -gt 32768) { return $null }
+            $bytes = New-Object byte[] ([int]$stream.Length)
+            $offset = 0
+            while ($offset -lt $bytes.Length) {
+                $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+                if ($read -le 0) { return $null }
+                $offset += $read
+            }
+            if ($stream.Length -ne $bytes.Length) { return $null }
+        } finally {
+            $stream.Dispose()
+        }
+        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
+        $instance = ConvertFrom-Json -InputObject $strictUtf8.GetString($bytes) -ErrorAction Stop
         if (
             $null -eq $instance -or
             $instance.protocolVersion -ne 1 -or
@@ -4130,6 +4311,64 @@ function Get-FileSha256Hex {
         }
     } finally {
         $stream.Dispose()
+    }
+}
+
+function Test-AppUpdateTreeDigest {
+    param(
+        [Parameter(Mandatory = $true)][string]$RootPath,
+        [Parameter(Mandatory = $true)][int]$ExpectedFileCount,
+        [Parameter(Mandatory = $true)][long]$ExpectedBytes,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+
+    try {
+        $root = [IO.Path]::GetFullPath($RootPath).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        $rootInfo = [IO.DirectoryInfo]::new($root)
+        $rootInfo.Refresh()
+        if (-not $rootInfo.Exists -or ($rootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+
+        $directories = New-Object 'Collections.Generic.Stack[string]'
+        $files = New-Object 'Collections.Generic.List[string]'
+        $directories.Push($root)
+        while ($directories.Count -gt 0) {
+            $directory = $directories.Pop()
+            $directoryAttributes = [IO.File]::GetAttributes($directory)
+            if (($directoryAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+                $attributes = [IO.File]::GetAttributes($entry)
+                if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+                if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) { $directories.Push($entry) }
+                else { $files.Add($entry.Substring($root.Length + 1).Replace("\", "/")) }
+            }
+        }
+        if ($files.Count -ne $ExpectedFileCount) { return $false }
+        $files.Sort([StringComparer]::Ordinal)
+
+        [long]$totalBytes = 0
+        $manifest = New-Object Text.StringBuilder
+        foreach ($relative in $files) {
+            $file = Join-Path $root $relative.Replace("/", [string][IO.Path]::DirectorySeparatorChar)
+            $attributes = [IO.File]::GetAttributes($file)
+            if (($attributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -ne 0) { return $false }
+            $info = [IO.FileInfo]::new($file)
+            $info.Refresh()
+            $totalBytes += [long]$info.Length
+            if ($totalBytes -gt $ExpectedBytes) { return $false }
+            $null = $manifest.Append((Get-FileSha256Hex -Path $file)).Append("  ").Append($info.Length.ToString([Globalization.CultureInfo]::InvariantCulture)).Append("  ").Append($relative).Append("`n")
+        }
+        if ($totalBytes -ne $ExpectedBytes) { return $false }
+
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $bytes = (New-Object Text.UTF8Encoding($false, $true)).GetBytes($manifest.ToString())
+            $digest = ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $hasher.Dispose()
+        }
+        return $digest -ceq $ExpectedSha256
+    } catch {
+        return $false
     }
 }
 
@@ -4296,15 +4535,58 @@ function Test-LegacyAppUpdateTreeNoReparse {
     }
 }
 
+function Test-LegacyAppUpdateTreeBoundedNoReparse {
+    param(
+        [Parameter(Mandatory = $true)][string]$RootPath,
+        [ValidateRange(1, 10000)][int]$MaximumEntries = 10000,
+        [ValidateRange(1, 1073741824)][long]$MaximumBytes = 1073741824
+    )
+
+    try {
+        $root = [IO.Path]::GetFullPath($RootPath)
+        if (-not (Test-LegacyAppUpdateTopDirectory -Path $root)) { return $false }
+        $pending = New-Object 'Collections.Generic.Stack[string]'
+        $pending.Push($root)
+        [int]$entryCount = 0
+        [long]$totalBytes = 0
+        while ($pending.Count -gt 0) {
+            $directory = $pending.Pop()
+            if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+                $entryCount += 1
+                if ($entryCount -gt $MaximumEntries) { return $false }
+                $attributes = [IO.File]::GetAttributes($entry)
+                if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+                if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+                    $pending.Push($entry)
+                } else {
+                    $length = [long]([IO.FileInfo]::new($entry).Length)
+                    if ($length -lt 0 -or $length -gt ($MaximumBytes - $totalBytes)) { return $false }
+                    $totalBytes += $length
+                }
+            }
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Remove-LegacyAppUpdateTreeNoReparse {
-    param([Parameter(Mandatory = $true)][string]$RootPath)
+    param(
+        [Parameter(Mandatory = $true)][string]$RootPath,
+        [ValidateRange(1, 10000)][int]$MaximumEntries = 10000,
+        [ValidateRange(1, 1073741824)][long]$MaximumBytes = 1073741824
+    )
 
     $root = [IO.Path]::GetFullPath($RootPath)
-    if (-not (Test-LegacyAppUpdateTreeNoReparse -RootPath $root)) {
-        throw [IO.IOException]::new("Refusing to remove a legacy cleanup tree containing an unsafe path.")
+    if (-not (Test-LegacyAppUpdateTreeBoundedNoReparse -RootPath $root -MaximumEntries $MaximumEntries -MaximumBytes $MaximumBytes)) {
+        throw [IO.IOException]::new("Refusing to remove a cleanup tree containing an unsafe or unbounded path.")
     }
     $pending = New-Object 'Collections.Generic.Stack[string]'
     $directories = New-Object 'Collections.Generic.List[string]'
+    [int]$entryCount = 0
+    [long]$totalBytes = 0
     $pending.Push($root)
     while ($pending.Count -gt 0) {
         $directory = $pending.Pop()
@@ -4314,6 +4596,10 @@ function Remove-LegacyAppUpdateTreeNoReparse {
         }
         $directories.Add($directory)
         foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+            $entryCount += 1
+            if ($entryCount -gt $MaximumEntries) {
+                throw [IO.IOException]::new("A cleanup tree exceeded its entry limit during removal.")
+            }
             $entryAttributes = [IO.File]::GetAttributes($entry)
             if (($entryAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
                 throw [IO.IOException]::new("A legacy cleanup entry changed during removal.")
@@ -4321,6 +4607,11 @@ function Remove-LegacyAppUpdateTreeNoReparse {
             if (($entryAttributes -band [IO.FileAttributes]::Directory) -ne 0) {
                 $pending.Push($entry)
             } else {
+                $length = [long]([IO.FileInfo]::new($entry).Length)
+                if ($length -lt 0 -or $length -gt ($MaximumBytes - $totalBytes)) {
+                    throw [IO.IOException]::new("A cleanup tree exceeded its byte limit during removal.")
+                }
+                $totalBytes += $length
                 if (($entryAttributes -band [IO.FileAttributes]::ReadOnly) -ne 0) {
                     [IO.File]::SetAttributes($entry, ($entryAttributes -band (-bnot [IO.FileAttributes]::ReadOnly)))
                 }
@@ -4395,6 +4686,8 @@ function Test-LegacyAppUpdateReceipt {
 
 function Invoke-LegacyAppUpdateBackupCleanup {
     param([Parameter(Mandatory = $true)][string]$AppRoot)
+
+    if ($DisablePackageUpdates) { return "DONE" }
 
     try {
         $updateDirectory = Get-AppUpdateDirectory
@@ -4880,6 +5173,11 @@ function Invoke-PendingAppUpdate {
         [string]$ExpectedCandidate = ""
     )
 
+    if ($DisablePackageUpdates) {
+        Write-PortableLog "A staged app update was preserved because package updates are disabled for isolated recovery."
+        return 2
+    }
+
     $pendingPath = Get-AppUpdatePendingPath
     if (-not [IO.File]::Exists($pendingPath)) { return $null }
     if ($Port -eq 0) {
@@ -4893,6 +5191,10 @@ function Invoke-PendingAppUpdate {
     if ([string]::IsNullOrWhiteSpace($ExpectedCandidate) -and (Try-ArchiveStalePendingAppUpdate -Pending $pending -ExpectedPackageRoot $expectedPackageRoot)) {
         return $null
     }
+    # The archive decision is made under cross-session transaction locks. Read
+    # the trigger again after that critical section so strict apply validation
+    # never continues with a stale pre-lock object.
+    $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
     if (
         -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
         $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
@@ -4908,7 +5210,48 @@ function Invoke-PendingAppUpdate {
         return 2
     }
     $source = Join-Path $expectedPackageRoot "app-update-broker.ps1"
-    if (-not [IO.File]::Exists($source) -or (Get-FileSha256Hex -Path $source) -cne [string]$pending.brokerSha256) {
+    $sourceTrusted = $false
+    if (Test-LegacyAppUpdateRegularFile -Path $source) {
+        try { $sourceTrusted = (Get-FileSha256Hex -Path $source) -ceq [string]$pending.brokerSha256 } catch { $sourceTrusted = $false }
+    }
+    if (-not $sourceTrusted) {
+        # The broker that owns a first-hop swap is copied from the installed
+        # (old) package. After NEW_MOVED, the current root contains the new
+        # broker, so a crash recovery must authenticate that old broker from
+        # the broker-created fixed rollback tree. Never trust the state copy by
+        # itself and never search arbitrary paths.
+        try {
+            $packageInfo = [IO.DirectoryInfo]::new($expectedPackageRoot)
+            $packageInfo.Refresh()
+            if ($packageInfo.Exists -and ($packageInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and $null -ne $packageInfo.Parent) {
+                $packageInfo.Parent.Refresh()
+                $backupRoot = Join-Path $packageInfo.Parent.FullName ("." + $packageInfo.Name + ".update-backup")
+                $backupSource = Join-Path $backupRoot "app-update-broker.ps1"
+                if (
+                    ($packageInfo.Parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and
+                    (Test-LegacyAppUpdateTopDirectory -Path $backupRoot) -and
+                    (Test-LegacyAppUpdateRegularFile -Path $backupSource)
+                ) {
+                    $backupVersion = Read-AppUpdateJson -Path (Join-Path $backupRoot "app\version.json") -MaximumBytes 8192
+                    if (
+                        (Test-AppUpdateObjectShape $backupVersion @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -and
+                        $backupVersion.schemaVersion -eq 1 -and $backupVersion.product -ceq "tarkov-helper-web" -and
+                        $backupVersion.version -ceq $pending.currentVersion -and
+                        $backupVersion.commit -ceq $pending.currentCommit -and
+                        $backupVersion.updaterProtocolVersion -eq 1 -and
+                        (Get-FileSha256Hex -Path $backupSource) -ceq [string]$pending.brokerSha256
+                    ) {
+                        $source = $backupSource
+                        $sourceTrusted = $true
+                        Write-PortableLog "Recovered the pinned update broker from the authenticated rollback package."
+                    }
+                }
+            }
+        } catch {
+            $sourceTrusted = $false
+        }
+    }
+    if (-not $sourceTrusted) {
         [Console]::Error.WriteLine("The trusted app update broker does not match the staged update state.")
         Write-PortableLog "Staged update apply was refused because the trusted broker digest did not match."
         return 2
@@ -4927,6 +5270,12 @@ function Invoke-PendingAppUpdate {
         } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
     }
     if ($ValidateOnly) { return 0 }
+    # The broker performs the same full signed-tree hash pass as the live
+    # handoff. A fixed one-minute wait killed healthy work on slow disks or
+    # while antivirus scanned a large staged package, causing every restart to
+    # repeat the same failure. Use the already validated size/file-count budget
+    # so both apply entry points share one bounded liveness contract.
+    $brokerTimeoutSeconds = Get-AppUpdateApplyTimeoutSeconds -Pending $pending
     $powershell = Join-Path $PSHOME "powershell.exe"; if (-not [IO.File]::Exists($powershell)) { $powershell = "powershell.exe" }
     $arguments = @(
         "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $broker,
@@ -4936,6 +5285,17 @@ function Invoke-PendingAppUpdate {
     if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_HEALTH -ceq "1") { $arguments += "-TestFailHealth" }
     if ($env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE -in @("PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK", "ROLLED_BACK")) {
         $arguments += @("-TestCrashAfterPhase", [string]$env:TARKOV_HELPER_UPDATE_TEST_CRASH_PHASE)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:TARKOV_HELPER_UPDATE_TEST_APPLY_VERIFY_DELAY_MS)) {
+        $applyVerifyDelay = 0
+        if (
+            -not [int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_APPLY_VERIFY_DELAY_MS, [ref]$applyVerifyDelay) -or
+            $applyVerifyDelay -lt 0 -or
+            $applyVerifyDelay -gt 120000
+        ) {
+            throw [ArgumentOutOfRangeException]::new("TARKOV_HELPER_UPDATE_TEST_APPLY_VERIFY_DELAY_MS")
+        }
+        $arguments += @("-TestApplyVerifyDelayMilliseconds", [string]$applyVerifyDelay)
     }
     $argumentLine = ($arguments | ForEach-Object { ConvertTo-ProcessArgument ([string]$_) }) -join " "
     # Explorer may start this launcher with the package directory as the process
@@ -4951,7 +5311,7 @@ function Invoke-PendingAppUpdate {
     # Windows PowerShell's Start-Process -Wait follows the entire descendant tree.
     # A successful broker intentionally leaves the replacement server running, so
     # wait on the broker Process object itself instead of its long-lived child.
-    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    $deadline = [DateTime]::UtcNow.AddSeconds($brokerTimeoutSeconds)
     while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 100
         $process.Refresh()
@@ -4959,7 +5319,7 @@ function Invoke-PendingAppUpdate {
     if (-not $process.HasExited) {
         try { $process.Kill(); $null = $process.WaitForExit(5000) } catch { }
         [Console]::Error.WriteLine("The staged update broker did not finish within the safety timeout.")
-        Write-PortableLog "App update broker exceeded its 60 second safety timeout."
+        Write-PortableLog "App update broker exceeded its bounded package-verification safety timeout."
         return 2
     }
     $process.WaitForExit()
@@ -4979,6 +5339,8 @@ function Invoke-PendingAppUpdate {
 function Test-PendingAppUpdateCommittedCleanupRecovery {
     param([Parameter(Mandatory = $true)][string]$AppRoot)
 
+    if ($DisablePackageUpdates) { return $false }
+
     try {
         $pendingPath = Get-AppUpdatePendingPath
         if (-not [IO.File]::Exists($pendingPath)) { return $false }
@@ -4986,36 +5348,23 @@ function Test-PendingAppUpdateCommittedCleanupRecovery {
         if (
             -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
             $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
-            $pending.latestCommit -isnot [string] -or $pending.latestCommit -notmatch '^[0-9a-f]{40}$' -or
             -not (Test-AppUpdateVersion $pending.currentVersion) -or -not (Test-AppUpdateVersion $pending.latestVersion) -or
-            (Compare-AppUpdateVersion -Left ([string]$pending.currentVersion) -Right ([string]$pending.latestVersion)) -ge 0 -or
-            $pending.stageRoot -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$pending.stageRoot)
+            (Compare-AppUpdateVersion -Left ([string]$pending.currentVersion) -Right ([string]$pending.latestVersion)) -ge 0
         ) { return $false }
-
         $context = Get-AppUpdateContext -AppRoot $AppRoot
-        $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
-        if (
-            -not $context.Enabled -or
-            -not ([string]$pending.packageRoot).Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
-            -not ([string]$pending.stateDirectory).Equals([IO.Path]::GetFullPath($StateDirectory), [StringComparison]::OrdinalIgnoreCase) -or
-            $pending.port -ne $Port -or
-            $context.CurrentVersion -cne [string]$pending.latestVersion -or
-            $context.CurrentCommit -cne [string]$pending.latestCommit
-        ) { return $false }
-
         $status = Get-AppUpdateStatus -Context $context
         if (
-            $status.state -cne "UPDATED" -or
-            $status.currentVersion -cne [string]$pending.latestVersion -or
+            -not $context.Enabled -or
+            $context.CurrentVersion -cne [string]$pending.latestVersion -or $context.CurrentCommit -cne [string]$pending.latestCommit -or
+            $status.state -cne "UPDATED" -or $status.currentVersion -cne [string]$pending.latestVersion -or
             $status.previousVersion -cne [string]$pending.currentVersion
         ) { return $false }
-
+        $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
         $parent = Split-Path -Parent $expectedPackageRoot
         $leaf = [IO.Path]::GetFileName($expectedPackageRoot)
-        $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
         foreach ($path in @(
             [string]$pending.stageRoot,
-            $backupRoot,
+            (Join-Path $parent ("." + $leaf + ".update-backup")),
             (Get-AppUpdateCandidatePath),
             (Join-Path (Get-AppUpdateDirectory) "apply-journal.json")
         )) {
@@ -5024,6 +5373,270 @@ function Test-PendingAppUpdateCommittedCleanupRecovery {
         return $true
     } catch {
         return $false
+    }
+}
+
+function Complete-PendingAppUpdateCommittedCleanupRecovery {
+    param(
+        [Parameter(Mandatory = $true)][string]$AppRoot,
+        [object]$ExpectedInstance = $null
+    )
+
+    if ($DisablePackageUpdates) { return $false }
+
+    $transactionLock = $null
+    $legacyMutex = $null
+    $hasLegacyMutex = $false
+    $workerLock = $null
+    $portReservation = $null
+    try {
+        $transactionLock = Enter-AppUpdateTransactionLock
+        $legacyMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "UpdateApply"))
+        try { $hasLegacyMutex = $legacyMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasLegacyMutex = $true }
+        if (-not $hasLegacyMutex) { return $false }
+
+        $updateDirectory = Get-AppUpdateDirectory
+        $workerLockPath = Join-Path $updateDirectory "worker.lock"
+        if ((Test-LegacyAppUpdatePathOccupied -Path $workerLockPath) -and -not (Test-LegacyAppUpdateRegularFile -Path $workerLockPath)) { return $false }
+        try { $workerLock = [IO.FileStream]::new($workerLockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+        catch [IO.IOException] { return $false }
+        if (-not (Test-LegacyAppUpdateRegularFile -Path $workerLockPath) -or (Test-AppUpdateWorkerAlive)) { return $false }
+
+        $pendingPath = Join-Path $updateDirectory "pending.json"
+        if (-not (Test-LegacyAppUpdateRegularFile -Path $pendingPath)) { return $false }
+        $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
+        if (
+            -not (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -or
+            $pending.schemaVersion -isnot [int] -or $pending.schemaVersion -ne 1 -or $pending.state -cne "READY_TO_RESTART" -or
+            $pending.candidateId -isnot [string] -or $pending.candidateId -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+            $pending.packageRoot -isnot [string] -or $pending.stateDirectory -isnot [string] -or
+            $pending.stageRoot -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$pending.stageRoot) -or
+            $pending.port -isnot [int] -or $pending.port -lt 1 -or $pending.port -gt 65535 -or $pending.port -ne $Port -or
+            -not (Test-AppUpdateVersion $pending.currentVersion) -or -not (Test-AppUpdateVersion $pending.latestVersion) -or
+            (Compare-AppUpdateVersion -Left ([string]$pending.currentVersion) -Right ([string]$pending.latestVersion)) -ge 0 -or
+            $pending.currentCommit -isnot [string] -or $pending.currentCommit -notmatch '^[0-9a-f]{40}$' -or
+            $pending.latestCommit -isnot [string] -or $pending.latestCommit -notmatch '^[0-9a-f]{40}$' -or
+            $pending.treeSha256 -isnot [string] -or $pending.treeSha256 -notmatch '^[0-9a-f]{64}$' -or
+            $pending.fileCount -isnot [int] -or $pending.fileCount -lt 1 -or $pending.fileCount -gt 10000 -or
+            (-not (($pending.unpackedBytes -is [int]) -or ($pending.unpackedBytes -is [long]))) -or
+            [long]$pending.unpackedBytes -lt 1 -or [long]$pending.unpackedBytes -gt 1073741824 -or
+            $pending.brokerSha256 -isnot [string] -or $pending.brokerSha256 -notmatch '^[0-9a-f]{64}$' -or
+            $pending.healthNonce -isnot [string] -or $pending.healthNonce -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+            $pending.stagedAt -isnot [string]
+        ) { return $false }
+
+        $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        $expectedStateRoot = [IO.Path]::GetFullPath($StateDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        $expectedAppRoot = [IO.Path]::GetFullPath($AppRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+        if (
+            -not ([string]$pending.packageRoot).Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            -not ([string]$pending.stateDirectory).Equals($expectedStateRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            -not $expectedAppRoot.Equals((Join-Path $expectedPackageRoot "app"), [StringComparison]::OrdinalIgnoreCase)
+        ) { return $false }
+        if ($null -eq $ExpectedInstance) {
+            if (Test-LegacyAppUpdatePathOccupied -Path (Get-InstancePath)) { return $false }
+        }
+
+        $packageInfo = [IO.DirectoryInfo]::new($expectedPackageRoot)
+        $packageInfo.Refresh()
+        if (-not $packageInfo.Exists -or ($packageInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -eq $packageInfo.Parent) { return $false }
+        $packageInfo.Parent.Refresh()
+        if (($packageInfo.Parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        $parent = $packageInfo.Parent.FullName
+        $leaf = $packageInfo.Name
+        $stageRoot = [IO.Path]::GetFullPath([string]$pending.stageRoot)
+        $stageNamePattern = "^\." + [Regex]::Escape($leaf) + "\.update-stage-[A-Za-z0-9_-]{40,64}$"
+        if (
+            -not (Split-Path -Parent $stageRoot).Equals($parent, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($stageRoot) -notmatch $stageNamePattern
+        ) { return $false }
+        $backupRoot = Join-Path $parent ("." + $leaf + ".update-backup")
+        $cleanupRoot = Join-Path $parent ("." + $leaf + ".update-cleanup-" + [string]$pending.candidateId)
+        $failedRoot = Join-Path $parent ("." + $leaf + ".update-failed-" + [string]$pending.candidateId)
+        foreach ($tree in @($stageRoot, $backupRoot, $failedRoot)) {
+            if (Test-LegacyAppUpdatePathOccupied -Path $tree) { return $false }
+        }
+        $cleanupOccupied = Test-LegacyAppUpdatePathOccupied -Path $cleanupRoot
+        if ($cleanupOccupied -and -not (Test-LegacyAppUpdateTreeBoundedNoReparse -RootPath $cleanupRoot -MaximumEntries 10000 -MaximumBytes 1073741824)) {
+            return $false
+        }
+
+        $installedIdentity = Get-LegacyAppUpdatePackageIdentity -PackageRoot $expectedPackageRoot
+        if (
+            $null -eq $installedIdentity -or
+            $installedIdentity.Version -cne [string]$pending.latestVersion -or
+            $installedIdentity.Commit -cne [string]$pending.latestCommit
+        ) { return $false }
+
+        $journalPath = Join-Path $updateDirectory "apply-journal.json"
+        $journalOccupied = Test-LegacyAppUpdatePathOccupied -Path $journalPath
+        $journal = $null
+        if ($journalOccupied) {
+            if (-not (Test-LegacyAppUpdateRegularFile -Path $journalPath)) { return $false }
+            $journal = Read-AppUpdateJson -Path $journalPath -MaximumBytes 65536
+            if (
+                -not (Test-AppUpdateObjectShape $journal @("schemaVersion", "candidateId", "phase", "packageRoot", "stageRoot", "backupRoot", "failedRoot", "currentVersion", "latestVersion", "port", "serverPid", "serverProcessStartTimeUtc", "updatedAt")) -or
+                $journal.schemaVersion -isnot [int] -or $journal.schemaVersion -ne 1 -or $journal.candidateId -cne $pending.candidateId -or $journal.phase -cne "COMMITTED" -or
+                -not ([string]$journal.packageRoot).Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                -not ([string]$journal.stageRoot).Equals($stageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                -not ([string]$journal.backupRoot).Equals($backupRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                -not ([string]$journal.failedRoot).Equals($failedRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                $journal.currentVersion -cne $pending.currentVersion -or $journal.latestVersion -cne $pending.latestVersion -or
+                $journal.port -isnot [int] -or $journal.port -ne $pending.port -or $journal.serverPid -isnot [int] -or $journal.serverPid -lt 0 -or
+                $journal.serverProcessStartTimeUtc -isnot [string] -or
+                -not (($journal.serverPid -eq 0 -and $journal.serverProcessStartTimeUtc.Length -eq 0) -or ($journal.serverPid -gt 0 -and $journal.serverProcessStartTimeUtc -match '^\d{4}-\d{2}-\d{2}T')) -or
+                $journal.updatedAt -isnot [string]
+            ) { return $false }
+        } else {
+            if ($cleanupOccupied) { return $false }
+            $statusPath = Get-AppUpdateStatusPath
+            if (-not (Test-LegacyAppUpdateRegularFile -Path $statusPath)) { return $false }
+            $status = Read-AppUpdateJson -Path $statusPath -MaximumBytes 65536
+            if (
+                -not (Test-AppUpdateObjectShape $status @("state", "currentVersion", "previousVersion", "updatedAt")) -or
+                $status.state -cne "UPDATED" -or $status.currentVersion -cne $pending.latestVersion -or
+                $status.previousVersion -cne $pending.currentVersion -or $status.updatedAt -isnot [string] -or
+                $status.updatedAt -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$'
+            ) { return $false }
+        }
+
+        $expectedBuildIdentity = Get-AppBuildIdentity -AppRoot $expectedAppRoot
+        $instance = $null
+        if ($null -ne $ExpectedInstance) {
+            $instance = Read-PortableInstance
+            if (
+                -not (Test-AppUpdateObjectShape $instance @("protocolVersion", "pid", "processStartTimeUtc", "port", "controlToken", "buildIdentity", "rootPath", "updateNonce", "startedAt")) -or
+                $instance.protocolVersion -ne 1 -or $instance.pid -isnot [int] -or $instance.pid -le 0 -or
+                $instance.pid -ne $ExpectedInstance.pid -or $instance.processStartTimeUtc -cne $ExpectedInstance.processStartTimeUtc -or
+                $instance.port -ne $pending.port -or $instance.controlToken -isnot [string] -or $instance.controlToken -notmatch '^[A-Za-z0-9_-]{40,64}$' -or
+                $instance.buildIdentity -cne $expectedBuildIdentity -or
+                -not ([string]$instance.rootPath).Equals($expectedAppRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                $instance.updateNonce -cne $pending.healthNonce -or $instance.startedAt -isnot [string] -or
+                ($journalOccupied -and ($journal.serverPid -ne $instance.pid -or $journal.serverProcessStartTimeUtc -cne $instance.processStartTimeUtc)) -or
+                -not (Test-PortableInstance -Instance $instance)
+            ) { return $false }
+        }
+
+        if (-not (Test-AppUpdateTreeDigest -RootPath $expectedPackageRoot -ExpectedFileCount ([int]$pending.fileCount) -ExpectedBytes ([long]$pending.unpackedBytes) -ExpectedSha256 ([string]$pending.treeSha256))) { return $false }
+        if ($null -ne $ExpectedInstance) {
+            $instanceAfterVerification = Read-PortableInstance
+            if (
+                $null -eq $instanceAfterVerification -or
+                $instanceAfterVerification.pid -ne $instance.pid -or
+                $instanceAfterVerification.processStartTimeUtc -cne $instance.processStartTimeUtc -or
+                -not (Test-PortableInstance -Instance $instanceAfterVerification)
+            ) { return $false }
+        } elseif (Test-LegacyAppUpdatePathOccupied -Path (Get-InstancePath)) {
+            return $false
+        }
+
+        if ($null -eq $ExpectedInstance -and $journalOccupied -and $journal.serverPid -gt 0) {
+            # A terminal broker may have durably recorded its replacement child
+            # before instance.json was published. The reserved loopback port
+            # proves that no server is reachable, but metadata cannot be retired
+            # while that exact PID/start identity may still mutate state. Stop
+            # only the recorded child, wait for a bounded exit, and fail closed
+            # on every inspection or termination error.
+            $terminalChild = $null
+            try {
+                if ($env:TARKOV_HELPER_UPDATE_TEST_TERMINAL_CHILD_INSPECTION_FAILURE -ceq "1") {
+                    throw [UnauthorizedAccessException]::new("Injected terminal child inspection failure.")
+                }
+                try {
+                    $terminalChild = [Diagnostics.Process]::GetProcessById([int]$journal.serverPid)
+                } catch [ArgumentException] {
+                    $terminalChild = $null
+                }
+                if ($null -ne $terminalChild -and -not $terminalChild.HasExited) {
+                    $recordedStart = [DateTime]::Parse(
+                        [string]$journal.serverProcessStartTimeUtc,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::RoundtripKind
+                    ).ToUniversalTime()
+                    $actualStart = $terminalChild.StartTime.ToUniversalTime()
+                    if ([Math]::Abs(($actualStart - $recordedStart).TotalMilliseconds) -lt 1000) {
+                        if ($env:TARKOV_HELPER_UPDATE_TEST_TERMINAL_CHILD_STOP_FAILURE -ceq "1") {
+                            throw [UnauthorizedAccessException]::new("Injected terminal child stop failure.")
+                        }
+                        $terminalChild.Kill()
+                        if (-not $terminalChild.WaitForExit(5000)) { return $false }
+                        $terminalChild.Refresh()
+                        if (-not $terminalChild.HasExited) { return $false }
+                    }
+                }
+            } catch {
+                return $false
+            } finally {
+                if ($null -ne $terminalChild) { try { $terminalChild.Dispose() } catch { } }
+            }
+        }
+
+        if ($null -eq $ExpectedInstance) {
+            # Recheck instance.json after any exact journal child exit, then
+            # reserve the port and hold it through cleanup. Reserving before the
+            # exact-child proof would make a live COMMITTED child impossible to
+            # retire after its instance record was lost.
+            if (Test-LegacyAppUpdatePathOccupied -Path (Get-InstancePath)) { return $false }
+            $portReservation = Enter-AppUpdateLoopbackPortReservation -PendingPort ([int]$pending.port)
+            if ($null -eq $portReservation) { return $false }
+        }
+
+        if ($cleanupOccupied) {
+            $cleanupDeleteFailuresRemaining = 0
+            if (
+                -not [int]::TryParse([string]$env:TARKOV_HELPER_UPDATE_TEST_TERMINAL_CLEANUP_DELETE_FAILURES, [ref]$cleanupDeleteFailuresRemaining) -or
+                $cleanupDeleteFailuresRemaining -lt 0
+            ) { $cleanupDeleteFailuresRemaining = 0 }
+            $cleanupDeleted = $false
+            for ($attempt = 0; $attempt -lt 8; $attempt += 1) {
+                try {
+                    # Revalidate the complete exact sibling on every attempt;
+                    # locks and antivirus races must never turn retry into an
+                    # unbounded or reparse-following recursive delete.
+                    if (-not (Test-LegacyAppUpdateTreeBoundedNoReparse -RootPath $cleanupRoot -MaximumEntries 10000 -MaximumBytes 1073741824)) {
+                        return $false
+                    }
+                    if ($cleanupDeleteFailuresRemaining -gt 0) {
+                        $cleanupDeleteFailuresRemaining -= 1
+                        throw [IO.IOException]::new("Injected transient terminal cleanup failure.")
+                    }
+                    Remove-LegacyAppUpdateTreeNoReparse -RootPath $cleanupRoot -MaximumEntries 10000 -MaximumBytes 1073741824
+                    if (Test-LegacyAppUpdatePathOccupied -Path $cleanupRoot) { throw [IO.IOException]::new("The terminal cleanup tree remains occupied.") }
+                    $cleanupDeleted = $true
+                    break
+                } catch [IO.IOException] {
+                    if ($attempt -lt 7) { Start-Sleep -Milliseconds ([Math]::Min(250, [int](25 * [Math]::Pow(2, $attempt)))) }
+                } catch [UnauthorizedAccessException] {
+                    if ($attempt -lt 7) { Start-Sleep -Milliseconds ([Math]::Min(250, [int](25 * [Math]::Pow(2, $attempt)))) }
+                } catch {
+                    return $false
+                }
+            }
+            if (-not $cleanupDeleted -or (Test-LegacyAppUpdatePathOccupied -Path $cleanupRoot)) { return $false }
+        }
+
+        $candidatePath = Get-AppUpdateCandidatePath
+        if (Test-LegacyAppUpdatePathOccupied -Path $candidatePath) {
+            if (-not (Test-LegacyAppUpdateRegularFile -Path $candidatePath)) { return $false }
+            [IO.File]::Delete($candidatePath)
+        }
+        if ($journalOccupied) { [IO.File]::Delete($journalPath) }
+        try {
+            $runOnceName = "TarkovHelperWebUpdate-" + ([string]$pending.candidateId).Substring(0, 12)
+            Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce" -Name $runOnceName -Force -ErrorAction SilentlyContinue
+        } catch { }
+        [IO.File]::Delete($pendingPath)
+        Write-PortableLog "Retired authenticated terminal app update state without executing the previous-version broker."
+        return $true
+    } catch {
+        Write-PortableLog "Terminal app update cleanup recovery was refused or deferred: $($_.Exception.GetType().Name)"
+        return $false
+    } finally {
+        if ($null -ne $portReservation) { try { $portReservation.Stop() } catch { } }
+        if ($null -ne $workerLock) { try { $workerLock.Dispose() } catch { } }
+        if ($hasLegacyMutex) { try { $legacyMutex.ReleaseMutex() } catch { } }
+        if ($null -ne $legacyMutex) { try { $legacyMutex.Dispose() } catch { } }
+        Exit-AppUpdateTransactionLock -Lock $transactionLock
     }
 }
 
@@ -5108,12 +5721,24 @@ function Get-AppUpdateHandoffAckTimeoutSeconds {
     return [int][Math]::Min(2700.0, [Math]::Max(30.0, 30.0 + (2.0 * $sizeMiB) + $fileBatches))
 }
 
+function Get-AppUpdateApplyTimeoutSeconds {
+    param([object]$Pending)
+
+    $verificationSeconds = Get-AppUpdateHandoffAckTimeoutSeconds -Pending $Pending
+    # A non-live apply verifies the staged tree, verifies the installed tree a
+    # second time, starts and authenticates the replacement server, then removes
+    # the rollback tree. Keep that whole durable transaction within the browser's
+    # 90-minute reconnect window while leaving bounded room for AV/file cleanup.
+    return [int][Math]::Min(5100.0, [Math]::Max(120.0, (2.0 * $verificationSeconds) + 300.0))
+}
+
 function Start-AppUpdateHandoff {
     param(
         [Parameter(Mandatory = $true)][string]$CandidateId,
         [ValidateRange(1, 65535)][int]$BoundPort
     )
 
+    if ($DisablePackageUpdates) { throw [InvalidOperationException]::new("Package updates are disabled in isolated recovery mode.") }
     if ((Invoke-PendingAppUpdate -ValidateOnly -ExpectedCandidate $CandidateId) -ne 0) {
         throw [IO.InvalidDataException]::new("The staged update could not be prepared for live handoff.")
     }
@@ -5315,15 +5940,28 @@ function Start-PortableBroker {
                 Write-PortableLog "Startup was refused because the recorded running instance could not be authenticated."
                 return 2
             }
+            if ($DisablePackageUpdates) {
+                # The v1 instance record authenticates the process and build but
+                # does not attest whether its update API was disabled. Never
+                # reuse an older or directly-started Serve process as read-only.
+                [Console]::Error.WriteLine("A Tarkov Helper server is already running, but its read-only isolated recovery mode cannot be verified. Stop it before starting isolated recovery.")
+                Write-PortableLog "Read-only recovery refused to reuse a server whose package-update mode was not attested."
+                return 2
+            }
 
-            $pendingRecoveryPath = Get-AppUpdatePendingPath
-            $journalRecoveryPath = Join-Path (Get-AppUpdateDirectory) "apply-journal.json"
-            if (
-                [IO.File]::Exists($pendingRecoveryPath) -and
-                ([IO.File]::Exists($journalRecoveryPath) -or (Test-PendingAppUpdateCommittedCleanupRecovery -AppRoot $expectedRootPath))
-            ) {
-                $recoveryResult = Invoke-PendingAppUpdate
-                if ($null -ne $recoveryResult) { return [int]$recoveryResult }
+            if (-not $DisablePackageUpdates) {
+                $pendingRecoveryPath = Get-AppUpdatePendingPath
+                $journalRecoveryPath = Join-Path (Get-AppUpdateDirectory) "apply-journal.json"
+                if (
+                    [IO.File]::Exists($pendingRecoveryPath) -and
+                    ([IO.File]::Exists($journalRecoveryPath) -or (Test-PendingAppUpdateCommittedCleanupRecovery -AppRoot $expectedRootPath))
+                ) {
+                    $terminalCleanupRecovered = Complete-PendingAppUpdateCommittedCleanupRecovery -AppRoot $expectedRootPath -ExpectedInstance $existing
+                    if (-not $terminalCleanupRecovered) {
+                        $recoveryResult = Invoke-PendingAppUpdate
+                        if ($null -ne $recoveryResult) { return [int]$recoveryResult }
+                    }
+                }
             }
 
             $existingRootPath = [string]($existing.rootPath)
@@ -5346,9 +5984,20 @@ function Start-PortableBroker {
             Remove-Item -LiteralPath $instancePath -Force -ErrorAction SilentlyContinue
         }
 
-        $updateResult = Invoke-PendingAppUpdate
-        if ($null -ne $updateResult) { return [int]$updateResult }
-        $null = Invoke-LegacyAppUpdateBackupCleanup -AppRoot $expectedRootPath
+        if (-not $DisablePackageUpdates) {
+            $pendingRecoveryPath = Get-AppUpdatePendingPath
+            $journalRecoveryPath = Join-Path (Get-AppUpdateDirectory) "apply-journal.json"
+            if (
+                [IO.File]::Exists($pendingRecoveryPath) -and
+                ([IO.File]::Exists($journalRecoveryPath) -or (Test-PendingAppUpdateCommittedCleanupRecovery -AppRoot $expectedRootPath))
+            ) {
+                $null = Complete-PendingAppUpdateCommittedCleanupRecovery -AppRoot $expectedRootPath
+            }
+
+            $updateResult = Invoke-PendingAppUpdate
+            if ($null -ne $updateResult) { return [int]$updateResult }
+            $null = Invoke-LegacyAppUpdateBackupCleanup -AppRoot $expectedRootPath
+        }
 
         $powershellPath = Join-Path $PSHOME "powershell.exe"
         if (-not [IO.File]::Exists($powershellPath)) { $powershellPath = "powershell.exe" }
@@ -5363,6 +6012,9 @@ function Start-PortableBroker {
         )
         if (-not [string]::IsNullOrWhiteSpace($expectedScreenshotFolder)) {
             $serveArguments += @("-ScreenshotFolder", $expectedScreenshotFolder)
+        }
+        if ($DisablePackageUpdates) {
+            $serveArguments += "-DisablePackageUpdates"
         }
         $argumentLine = ($serveArguments | ForEach-Object { ConvertTo-ProcessArgument -Value ([string]$_) }) -join " "
         $child = Start-Process -FilePath $powershellPath -ArgumentList $argumentLine `
@@ -5469,11 +6121,450 @@ function Stop-PortableBroker {
     }
 }
 
+function Repair-PortableState {
+    $mutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Control"))
+    $hasMutex = $false
+    $serveMutex = $null
+    $hasServeMutex = $false
+    $transactionLock = $null
+    $legacyUpdateMutex = $null
+    $hasLegacyUpdateMutex = $false
+    $workerLock = $null
+    $repairPortReservation = $null
+    $repairTransactionLockDirectory = $false
+    $transactionLockPath = $null
+    $repairJournal = $false
+    $repairPreparedTransaction = $false
+    $journalIsDirectory = $false
+    $journalPath = $null
+    $journalQuarantinePath = $null
+    try {
+        try {
+            $hasMutex = $mutex.WaitOne(15000)
+        } catch [Threading.AbandonedMutexException] {
+            $hasMutex = $true
+        }
+        if (-not $hasMutex) {
+            [Console]::Error.WriteLine("Tarkov Helper startup or shutdown is already in progress; state repair was refused.")
+            Write-PortableLog "State repair was refused because another control operation is in progress."
+            return 2
+        }
+
+        $serveMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "Serve"))
+        try { $hasServeMutex = $serveMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasServeMutex = $true }
+        if (-not $hasServeMutex) {
+            [Console]::Error.WriteLine("A Tarkov Helper server is still running; state repair was refused.")
+            Write-PortableLog "State repair was refused because the serve mutex is owned."
+            return 2
+        }
+
+        if ($Port -lt 1) {
+            [Console]::Error.WriteLine("State repair requires the fixed local port used by this installation.")
+            Write-PortableLog "State repair was refused because no fixed local port was supplied."
+            return 2
+        }
+        try {
+            $repairPortReservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+            $repairPortReservation.Server.ExclusiveAddressUse = $true
+            $repairPortReservation.Start()
+        } catch {
+            if ($null -ne $repairPortReservation) { try { $repairPortReservation.Stop() } catch { }; $repairPortReservation = $null }
+            [Console]::Error.WriteLine("A server still owns the requested local port, or the port could not be reserved; state repair was refused.")
+            Write-PortableLog "State repair refused all mutation because the requested loopback port could not be reserved exclusively."
+            return 2
+        }
+
+        $stateRoot = [IO.Path]::GetFullPath((Initialize-StateDirectory))
+        $transactionLockPath = Join-Path $stateRoot "app-update.transaction.lock"
+        if (Test-LegacyAppUpdatePathOccupied -Path $transactionLockPath) {
+            $lockAttributes = [IO.File]::GetAttributes($transactionLockPath)
+            if (($lockAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                [Console]::Error.WriteLine("The update transaction lock path is a reparse point and cannot be repaired safely.")
+                Write-PortableLog "Update state repair refused a transaction lock reparse point."
+                return 2
+            }
+            $repairTransactionLockDirectory = ($lockAttributes -band [IO.FileAttributes]::Directory) -ne 0
+        }
+        if (-not $repairTransactionLockDirectory) {
+            try { $transactionLock = Enter-AppUpdateTransactionLock }
+            catch {
+                [Console]::Error.WriteLine("Update state repair was refused because the transaction lock is busy or unsafe.")
+                Write-PortableLog "Update state repair refused an unavailable transaction lock: $($_.Exception.GetType().Name)"
+                return 2
+            }
+        }
+        $legacyUpdateMutex = [Threading.Mutex]::new($false, (Get-StateMutexName -Purpose "UpdateApply"))
+        try { $hasLegacyUpdateMutex = $legacyUpdateMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasLegacyUpdateMutex = $true }
+        if (-not $hasLegacyUpdateMutex) {
+            [Console]::Error.WriteLine("An update apply process is still running; state repair was refused.")
+            Write-PortableLog "Update state repair was refused because the legacy apply mutex is owned."
+            return 2
+        }
+
+        $updateDirectory = Get-AppUpdateDirectory
+        $workerLockPath = Join-Path $updateDirectory "worker.lock"
+        try { $workerLock = [IO.FileStream]::new($workerLockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+        catch [IO.IOException] {
+            [Console]::Error.WriteLine("An update worker is still running or its lock path is unsafe; state repair was refused.")
+            Write-PortableLog "Update state repair was refused because worker.lock could not be acquired."
+            return 2
+        }
+        if (Test-AppUpdateWorkerAlive) {
+            [Console]::Error.WriteLine("An update worker is still running; state repair was refused.")
+            Write-PortableLog "Update state repair was refused because a recorded worker is alive."
+            return 2
+        }
+
+        $instancePath = Get-InstancePath
+        $instanceOccupied = Test-LegacyAppUpdatePathOccupied -Path $instancePath
+        $instanceIsDirectory = $false
+        if ($instanceOccupied) {
+            $instanceAttributes = [IO.File]::GetAttributes($instancePath)
+            if (($instanceAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                [Console]::Error.WriteLine("The Tarkov Helper instance state is a reparse point and cannot be repaired safely.")
+                Write-PortableLog "State repair refused an instance state reparse point."
+                return 2
+            }
+            $instanceIsDirectory = ($instanceAttributes -band [IO.FileAttributes]::Directory) -ne 0
+
+            $existing = Read-PortableInstance
+            if ($null -ne $existing -and (Test-RecordedProcessIdentity -Instance $existing)) {
+                [Console]::Error.WriteLine("A recorded Tarkov Helper process is still running. Use Tarkov Helper Stop before repairing state.")
+                Write-PortableLog "State repair was refused because a recorded process is still running."
+                return 2
+            }
+        }
+
+        $pendingPath = Join-Path $updateDirectory "pending.json"
+        $pendingOccupied = Test-LegacyAppUpdatePathOccupied -Path $pendingPath
+        $repairPending = $false
+        if ($pendingOccupied) {
+            $pendingAttributes = [IO.File]::GetAttributes($pendingPath)
+            if (($pendingAttributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -ne 0) {
+                [Console]::Error.WriteLine("The pending update state is not a regular file and was preserved; update repair was refused.")
+                Write-PortableLog "Update state repair refused a nonregular or reparse pending path."
+                return 2
+            }
+            $pendingInfo = [IO.FileInfo]::new($pendingPath)
+            if ($pendingInfo.Length -lt 2 -or $pendingInfo.Length -gt 65536) {
+                [Console]::Error.WriteLine("The pending update state cannot be safely attributed to this installation and was preserved.")
+                Write-PortableLog "Update state repair refused an unbounded pending file."
+                return 2
+            }
+            $pending = Read-AppUpdateJson -Path $pendingPath -MaximumBytes 65536
+            $expectedPackageRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            $expectedStateRoot = [IO.Path]::GetFullPath((Initialize-StateDirectory)).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            if (
+                $null -eq $pending -or
+                $pending.packageRoot -isnot [string] -or
+                $pending.stateDirectory -isnot [string] -or
+                -not (Test-AppUpdateInteger -Value $pending.port -Minimum 1 -Maximum 65535) -or
+                $pending.port -ne $Port -or
+                [string]::IsNullOrWhiteSpace([string]$pending.packageRoot) -or
+                [string]::IsNullOrWhiteSpace([string]$pending.stateDirectory)
+            ) {
+                [Console]::Error.WriteLine("The pending update state cannot be safely attributed to this installation and was preserved.")
+                Write-PortableLog "Update state repair refused an unparseable or unbound pending file."
+                return 2
+            }
+            try {
+                $boundPackageRoot = [IO.Path]::GetFullPath([string]$pending.packageRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+                $boundStateRoot = [IO.Path]::GetFullPath([string]$pending.stateDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar)
+            } catch {
+                [Console]::Error.WriteLine("The pending update state contains unsafe paths and was preserved.")
+                Write-PortableLog "Update state repair refused invalid pending paths."
+                return 2
+            }
+            if (
+                -not $boundPackageRoot.Equals($expectedPackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                -not $boundStateRoot.Equals($expectedStateRoot, [StringComparison]::OrdinalIgnoreCase)
+            ) {
+                [Console]::Error.WriteLine("The pending update belongs to another installation and was preserved.")
+                Write-PortableLog "Update state repair refused pending state bound to another installation."
+                return 2
+            }
+            $boundRootInfo = [IO.DirectoryInfo]::new($boundPackageRoot); $boundRootInfo.Refresh()
+            if (-not $boundRootInfo.Exists -or ($boundRootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -eq $boundRootInfo.Parent) {
+                [Console]::Error.WriteLine("The package root recorded by the pending update is missing or unsafe; evidence was preserved.")
+                Write-PortableLog "Update state repair refused a missing or unsafe bound package root."
+                return 2
+            }
+            $boundRootInfo.Parent.Refresh()
+            if (($boundRootInfo.Parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                [Console]::Error.WriteLine("The package parent recorded by the pending update is unsafe; evidence was preserved.")
+                Write-PortableLog "Update state repair refused an unsafe bound package parent."
+                return 2
+            }
+            $backupRoot = Join-Path $boundRootInfo.Parent.FullName ("." + $boundRootInfo.Name + ".update-backup")
+            if (Test-LegacyAppUpdatePathOccupied -Path $backupRoot) {
+                [Console]::Error.WriteLine("A rollback package still exists; the update may be mid-swap and all evidence was preserved.")
+                Write-PortableLog "Update state repair refused to abandon pending state while a rollback package exists."
+                return 2
+            }
+            if ($pending.candidateId -is [string] -and $pending.candidateId -match '^[A-Za-z0-9_-]{40,64}$') {
+                $cleanupRoot = Join-Path $boundRootInfo.Parent.FullName ("." + $boundRootInfo.Name + ".update-cleanup-" + [string]$pending.candidateId)
+                $failedRoot = Join-Path $boundRootInfo.Parent.FullName ("." + $boundRootInfo.Name + ".update-failed-" + [string]$pending.candidateId)
+                foreach ($evidenceRoot in @($cleanupRoot, $failedRoot)) {
+                    if (Test-LegacyAppUpdatePathOccupied -Path $evidenceRoot) {
+                        [Console]::Error.WriteLine("Candidate-bound cleanup or failed package evidence still exists; update repair was refused and all evidence was preserved.")
+                        Write-PortableLog "Update state repair preserved a candidate-bound cleanup or failed package tree."
+                        return 2
+                    }
+                }
+            }
+
+            $pendingIsStrict = (
+                (Test-AppUpdateObjectShape $pending @("schemaVersion", "state", "candidateId", "packageRoot", "stageRoot", "stateDirectory", "port", "currentVersion", "currentCommit", "latestVersion", "latestCommit", "treeSha256", "fileCount", "unpackedBytes", "brokerSha256", "healthNonce", "stagedAt")) -and
+                $pending.schemaVersion -eq 1 -and $pending.state -ceq "READY_TO_RESTART" -and
+                $pending.candidateId -is [string] -and $pending.candidateId -match '^[A-Za-z0-9_-]{40,64}$' -and
+                $pending.stageRoot -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$pending.stageRoot) -and
+                (Test-AppUpdateVersion $pending.currentVersion) -and (Test-AppUpdateVersion $pending.latestVersion) -and
+                (Compare-AppUpdateVersion -Left ([string]$pending.currentVersion) -Right ([string]$pending.latestVersion)) -lt 0 -and
+                $pending.currentCommit -is [string] -and $pending.currentCommit -match '^[0-9a-f]{40}$' -and
+                $pending.latestCommit -is [string] -and $pending.latestCommit -match '^[0-9a-f]{40}$' -and
+                $pending.treeSha256 -is [string] -and $pending.treeSha256 -match '^[0-9a-f]{64}$' -and
+                $pending.fileCount -is [int] -and $pending.fileCount -ge 1 -and $pending.fileCount -le 10000 -and
+                (($pending.unpackedBytes -is [int]) -or ($pending.unpackedBytes -is [long])) -and
+                [long]$pending.unpackedBytes -ge 1 -and [long]$pending.unpackedBytes -le 1073741824 -and
+                $pending.brokerSha256 -is [string] -and $pending.brokerSha256 -match '^[0-9a-f]{64}$' -and
+                $pending.healthNonce -is [string] -and $pending.healthNonce -match '^[A-Za-z0-9_-]{40,64}$' -and
+                $pending.stagedAt -is [string]
+            )
+            $stageRoot = $null
+            if ($pendingIsStrict) {
+                try {
+                    $stageRoot = [IO.Path]::GetFullPath([string]$pending.stageRoot)
+                    $stageNamePattern = "^\." + [Regex]::Escape($boundRootInfo.Name) + "\.update-stage-[A-Za-z0-9_-]{40,64}$"
+                    $pendingIsStrict = (
+                        (Split-Path -Parent $stageRoot).Equals($boundRootInfo.Parent.FullName, [StringComparison]::OrdinalIgnoreCase) -and
+                        [IO.Path]::GetFileName($stageRoot) -match $stageNamePattern
+                    )
+                } catch { $pendingIsStrict = $false }
+            }
+            $stageOccupied = $false
+            $stageIsSafeDirectory = $false
+            $installedBrokerTrusted = $false
+            if ($pendingIsStrict) {
+                $stageOccupied = Test-LegacyAppUpdatePathOccupied -Path $stageRoot
+                if ($stageOccupied) {
+                    $stageAttributes = [IO.File]::GetAttributes($stageRoot)
+                    $stageIsSafeDirectory = ($stageAttributes -band ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -eq [IO.FileAttributes]::Directory
+                    if (-not $stageIsSafeDirectory) {
+                        [Console]::Error.WriteLine("The staged update path is nonregular or a reparse point; all evidence was preserved.")
+                        Write-PortableLog "Update state repair refused an unsafe occupied stage path."
+                        return 2
+                    }
+                }
+                $installedBrokerPath = Join-Path $boundPackageRoot "app-update-broker.ps1"
+                if ((Test-LegacyAppUpdatePathOccupied -Path $installedBrokerPath) -and -not (Test-LegacyAppUpdateRegularFile -Path $installedBrokerPath)) {
+                    [Console]::Error.WriteLine("The installed update broker path is nonregular or a reparse point; all evidence was preserved.")
+                    Write-PortableLog "Update state repair refused an unsafe installed broker path."
+                    return 2
+                }
+                if (Test-LegacyAppUpdateRegularFile -Path $installedBrokerPath) {
+                    try { $installedBrokerTrusted = (Get-FileSha256Hex -Path $installedBrokerPath) -ceq [string]$pending.brokerSha256 } catch { $installedBrokerTrusted = $false }
+                }
+            }
+            $rootIdentity = Read-AppUpdateJson -Path (Join-Path $boundPackageRoot "app\version.json") -MaximumBytes 8192
+            $rootIdentityIsStrict = (
+                (Test-AppUpdateObjectShape $rootIdentity @("schemaVersion", "product", "version", "commit", "updaterProtocolVersion")) -and
+                $rootIdentity.schemaVersion -eq 1 -and $rootIdentity.product -ceq "tarkov-helper-web" -and
+                (Test-AppUpdateVersion $rootIdentity.version) -and $rootIdentity.commit -is [string] -and
+                $rootIdentity.commit -match '^[0-9a-f]{40}$' -and $rootIdentity.updaterProtocolVersion -eq 1
+            )
+            $rootIsCurrent = $rootIdentityIsStrict -and $rootIdentity.version -ceq $pending.currentVersion -and $rootIdentity.commit -ceq $pending.currentCommit
+            $rootIsLatest = $rootIdentityIsStrict -and $rootIdentity.version -ceq $pending.latestVersion -and $rootIdentity.commit -ceq $pending.latestCommit
+            $authenticatedRootIdentity = Get-LegacyAppUpdatePackageIdentity -PackageRoot $boundPackageRoot
+            $rootIsAuthenticatedCurrent = (
+                $rootIsCurrent -and $null -ne $authenticatedRootIdentity -and
+                $authenticatedRootIdentity.Version -ceq $pending.currentVersion -and
+                $authenticatedRootIdentity.Commit -ceq $pending.currentCommit
+            )
+            $pendingIsRecoverable = $pendingIsStrict -and $installedBrokerTrusted -and (($rootIsCurrent -and $stageIsSafeDirectory) -or ($rootIsLatest -and -not $stageOccupied))
+
+            $journalPath = Join-Path $updateDirectory "apply-journal.json"
+            if (Test-LegacyAppUpdatePathOccupied -Path $journalPath) {
+                $journalAttributes = [IO.File]::GetAttributes($journalPath)
+                if (($journalAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    [Console]::Error.WriteLine("The apply journal is a reparse point and was preserved; update repair was refused.")
+                    Write-PortableLog "Update state repair refused an apply journal reparse point."
+                    return 2
+                }
+                if (-not $pendingIsStrict) {
+                    [Console]::Error.WriteLine("An apply journal still exists; the update may be recoverable and all evidence was preserved.")
+                    Write-PortableLog "Update state repair refused to abandon invalid pending state while an apply journal exists."
+                    return 2
+                }
+                $journalIsDirectory = ($journalAttributes -band [IO.FileAttributes]::Directory) -ne 0
+                $journal = if ($journalIsDirectory) { $null } else { Read-AppUpdateJson -Path $journalPath -MaximumBytes 65536 }
+                $failedRoot = Join-Path $boundRootInfo.Parent.FullName ("." + $boundRootInfo.Name + ".update-failed-" + [string]$pending.candidateId)
+                $journalIsStrict = (
+                    -not $journalIsDirectory -and
+                    (Test-AppUpdateObjectShape $journal @("schemaVersion", "candidateId", "phase", "packageRoot", "stageRoot", "backupRoot", "failedRoot", "currentVersion", "latestVersion", "port", "serverPid", "serverProcessStartTimeUtc", "updatedAt")) -and
+                    $journal.schemaVersion -eq 1 -and $journal.candidateId -ceq $pending.candidateId -and
+                    $journal.phase -is [string] -and $journal.phase -in @("PREPARED", "OLD_MOVED", "NEW_MOVED", "NEW_STARTED", "HEALTHY", "COMMITTED", "ROLLING_BACK", "ROLLED_BACK") -and
+                    ([string]$journal.packageRoot).Equals($boundPackageRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                    ([string]$journal.stageRoot).Equals($stageRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                    ([string]$journal.backupRoot).Equals([IO.Path]::GetFullPath($backupRoot), [StringComparison]::OrdinalIgnoreCase) -and
+                    ([string]$journal.failedRoot).Equals([IO.Path]::GetFullPath($failedRoot), [StringComparison]::OrdinalIgnoreCase) -and
+                    $journal.currentVersion -ceq $pending.currentVersion -and $journal.latestVersion -ceq $pending.latestVersion -and
+                    $journal.port -eq $pending.port -and $journal.serverPid -is [int] -and $journal.serverPid -ge 0 -and
+                    $journal.serverProcessStartTimeUtc -is [string] -and
+                    (($journal.serverPid -eq 0 -and $journal.serverProcessStartTimeUtc.Length -eq 0) -or ($journal.serverPid -gt 0 -and $journal.serverProcessStartTimeUtc -match '^\d{4}-\d{2}-\d{2}T')) -and
+                    $journal.updatedAt -is [string]
+                )
+                if ($journalIsStrict) {
+                    $repairPreparedTransaction = (
+                        $journal.phase -ceq "PREPARED" -and
+                        $rootIsAuthenticatedCurrent -and
+                        $stageIsSafeDirectory -and
+                        -not $installedBrokerTrusted -and
+                        -not (Test-LegacyAppUpdatePathOccupied -Path $failedRoot)
+                    )
+                    if ($repairPreparedTransaction) {
+                        # PREPARED is the only durable phase before either
+                        # package root has moved. If the authenticated current
+                        # package can no longer supply the hash-pinned broker,
+                        # neither the journal nor the pending trigger can make
+                        # progress. Explicit Repair may abandon this exact
+                        # pre-swap pair while leaving the verified stage and all
+                        # other evidence untouched.
+                        $repairJournal = $true
+                    } else {
+                        [Console]::Error.WriteLine("A valid apply journal still exists; the update remains recoverable or may be mid-swap and was preserved.")
+                        Write-PortableLog "Update state repair preserved a valid apply journal outside the provably pre-swap unrecoverable case."
+                        return 2
+                    }
+                }
+
+                if (-not $journalIsStrict -and ((Test-LegacyAppUpdatePathOccupied -Path $failedRoot) -or -not $pendingIsRecoverable)) {
+                    [Console]::Error.WriteLine("The package topology does not prove that the corrupt apply journal can be reconstructed; evidence was preserved.")
+                    Write-PortableLog "Update state repair refused corrupt journal quarantine because package topology was ambiguous."
+                    return 2
+                }
+                if (-not $journalIsStrict) { $repairJournal = $true }
+            }
+
+            if ($pendingIsRecoverable -and -not $repairJournal -and -not $repairTransactionLockDirectory) {
+                [Console]::Error.WriteLine("The pending update may still be valid or recoverable and was preserved.")
+                Write-PortableLog "Update state repair refused to abandon a strict pending transaction."
+                return 2
+            }
+            $repairPending = $repairPreparedTransaction -or (-not $pendingIsRecoverable -and -not $repairJournal)
+        }
+
+        if (-not $instanceOccupied -and -not $repairPending -and -not $repairJournal -and -not $repairTransactionLockDirectory) {
+            [Console]::Out.WriteLine("No Tarkov Helper instance or update state needs repair.")
+            return 0
+        }
+
+        $timestamp = [DateTime]::UtcNow.ToString("yyyyMMdd'T'HHmmss", [Globalization.CultureInfo]::InvariantCulture)
+        if ($repairTransactionLockDirectory) {
+            $lockQuarantineName = "app-update.transaction-lock-corrupt-$timestamp-$([Guid]::NewGuid().ToString('N')).directory"
+            $lockQuarantinePath = Join-Path $stateRoot $lockQuarantineName
+            [IO.Directory]::Move($transactionLockPath, $lockQuarantinePath)
+            Write-PortableLog "A directory occupying the update transaction lock path was quarantined by an explicit repair request."
+            try { $transactionLock = Enter-AppUpdateTransactionLock }
+            catch {
+                [Console]::Error.WriteLine("The damaged update lock was quarantined, but another update transaction started; remaining state was preserved.")
+                Write-PortableLog "Update state repair stopped after lock-path quarantine because the transaction lock became busy."
+                return 2
+            }
+        }
+        if ($repairJournal) {
+            $journalQuarantineExtension = if ($journalIsDirectory) { ".directory" } else { ".json" }
+            $journalQuarantinePrefix = if ($repairPreparedTransaction) { "app-update.apply-journal-abandoned-prepared" } else { "app-update.apply-journal-corrupt" }
+            $journalQuarantineName = "$journalQuarantinePrefix-$timestamp-$([Guid]::NewGuid().ToString('N'))$journalQuarantineExtension"
+            $journalQuarantinePath = Join-Path $stateRoot $journalQuarantineName
+            if ($journalIsDirectory) { [IO.Directory]::Move($journalPath, $journalQuarantinePath) }
+            else { [IO.File]::Move($journalPath, $journalQuarantinePath) }
+            if ($repairPreparedTransaction) { Write-PortableLog "An unrecoverable authenticated PREPARED journal was quarantined before its pending trigger." }
+            else { Write-PortableLog "A corrupt apply journal was quarantined while its strict pending plan was preserved." }
+        }
+        if ($repairPending) {
+            # Leave stage, candidate, status, and logs untouched as recovery
+            # evidence. When both repairs are requested, retire the update
+            # trigger before instance.json so a failed pending move can never
+            # erase the only surviving server identity.
+            $pendingQuarantinePrefix = if ($repairPreparedTransaction) { "app-update.pending-abandoned-prepared" } else { "app-update.pending-corrupt" }
+            $pendingQuarantineName = "$pendingQuarantinePrefix-$timestamp-$([Guid]::NewGuid().ToString('N')).json"
+            $pendingQuarantinePath = Join-Path (Initialize-StateDirectory) $pendingQuarantineName
+            try {
+                if ($env:TARKOV_HELPER_UPDATE_TEST_FAIL_REPAIR_PENDING_MOVE -ceq "1") {
+                    throw [IO.IOException]::new("Injected pending repair quarantine failure.")
+                }
+                [IO.File]::Move($pendingPath, $pendingQuarantinePath)
+            } catch {
+                # For paired PREPARED abandonment, pending.json is the update
+                # trigger and therefore moves last. If that atomic move fails,
+                # restore the already-moved journal so the original transaction
+                # identity and all evidence remain together for a later retry.
+                if (
+                    $repairPreparedTransaction -and
+                    $null -ne $journalQuarantinePath -and
+                    (Test-LegacyAppUpdateRegularFile -Path $journalQuarantinePath) -and
+                    -not (Test-LegacyAppUpdatePathOccupied -Path $journalPath)
+                ) {
+                    try {
+                        [IO.File]::Move($journalQuarantinePath, $journalPath)
+                        Write-PortableLog "PREPARED transaction repair restored its journal after pending quarantine failed."
+                    } catch {
+                        Write-PortableLog "PREPARED transaction repair could not restore its journal after pending quarantine failed."
+                        throw [IO.IOException]::new("The pending trigger and apply journal could not be kept together during repair.")
+                    }
+                }
+                throw
+            }
+            if ($repairPreparedTransaction) { Write-PortableLog "The pending trigger for an unrecoverable authenticated PREPARED transaction was quarantined last." }
+            else { Write-PortableLog "A bound invalid pending update was quarantined by an explicit repair request." }
+        }
+        if ($instanceOccupied) {
+            $quarantineExtension = if ($instanceIsDirectory) { ".directory" } else { ".json" }
+            $quarantineName = "instance.corrupt-$timestamp-$([Guid]::NewGuid().ToString('N'))$quarantineExtension"
+            $quarantinePath = Join-Path (Initialize-StateDirectory) $quarantineName
+            if ($instanceIsDirectory) {
+                [IO.Directory]::Move($instancePath, $quarantinePath)
+            } else {
+                [IO.File]::Move($instancePath, $quarantinePath)
+            }
+            Write-PortableLog "Unusable instance state was quarantined by an explicit repair request."
+        }
+        if ($instanceOccupied -and ($repairPending -or $repairJournal -or $repairTransactionLockDirectory)) { [Console]::Out.WriteLine("The unusable instance and update state were quarantined for recovery. Start Tarkov Helper again.") }
+        elseif ($instanceOccupied) { [Console]::Out.WriteLine("The unusable instance state was quarantined for recovery. Start Tarkov Helper again.") }
+        elseif ($repairPreparedTransaction) { [Console]::Out.WriteLine("The unrecoverable PREPARED update transaction was quarantined before any package swap. Start Tarkov Helper again.") }
+        elseif ($repairJournal) { [Console]::Out.WriteLine("The corrupt apply journal was quarantined; the staged update remains ready for recovery. Start Tarkov Helper again.") }
+        elseif ($repairTransactionLockDirectory -and -not $repairPending) { [Console]::Out.WriteLine("The unusable update transaction lock was quarantined for recovery. Start Tarkov Helper again.") }
+        else { [Console]::Out.WriteLine("The unusable update state was quarantined for recovery. Start Tarkov Helper again.") }
+        return 0
+    } catch {
+        [Console]::Error.WriteLine("Tarkov Helper instance state could not be repaired safely.")
+        Write-PortableLog "State repair failed: $($_.Exception.GetType().Name)"
+        return 2
+    } finally {
+        if ($null -ne $repairPortReservation) { try { $repairPortReservation.Stop() } catch { } }
+        if ($null -ne $workerLock) { try { $workerLock.Dispose() } catch { } }
+        if ($hasLegacyUpdateMutex) { try { $legacyUpdateMutex.ReleaseMutex() } catch { } }
+        if ($null -ne $legacyUpdateMutex) { try { $legacyUpdateMutex.Dispose() } catch { } }
+        Exit-AppUpdateTransactionLock -Lock $transactionLock
+        if ($hasServeMutex) { try { $serveMutex.ReleaseMutex() } catch { } }
+        if ($null -ne $serveMutex) { try { $serveMutex.Dispose() } catch { } }
+        if ($hasMutex) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
+
 if ($Action -eq "Start") {
     exit (Start-PortableBroker)
 }
 if ($Action -eq "Stop") {
     exit (Stop-PortableBroker)
+}
+if ($Action -eq "Repair") {
+    if ($DisablePackageUpdates) {
+        [Console]::Error.WriteLine("State repair is not available in read-only isolated recovery mode.")
+        exit 2
+    }
+    exit (Repair-PortableState)
 }
 
 $serverCompletedNormally = $false
@@ -5527,6 +6618,7 @@ try {
     if (-not $hasServeMutex) {
         $existing = Read-PortableInstance
         if (
+            -not $DisablePackageUpdates -and
             $Port -ne 0 -and
             $null -ne $existing -and
             $existing.port -eq $Port -and
@@ -5570,6 +6662,7 @@ try {
         $existingServerMatches = $false
         $reuseFailure = "The listener could not be authenticated."
         try {
+            if ($DisablePackageUpdates) { throw "Read-only isolated recovery cannot reuse a server whose package-update mode was not attested." }
             $existing = Read-PortableInstance
             if ($null -eq $existing) { throw "No valid instance state was found." }
             if ($existing.port -ne $Port) { throw "The recorded instance uses a different port." }
@@ -5641,12 +6734,14 @@ try {
             Update-ScreenshotWatcher
             Update-NativeOverlayBridge
             if (
+                -not $DisablePackageUpdates -and
                 -not $script:legacyAppUpdateCleanupFinished -and
                 -not [string]::IsNullOrWhiteSpace($UpdateNonce) -and
                 [DateTime]::UtcNow -ge $script:legacyAppUpdateCleanupDeadlineUtc
             ) {
                 $script:legacyAppUpdateCleanupFinished = $true
             } elseif (
+                -not $DisablePackageUpdates -and
                 -not $script:legacyAppUpdateCleanupFinished -and
                 -not [string]::IsNullOrWhiteSpace($UpdateNonce) -and
                 [DateTime]::UtcNow -ge $script:legacyAppUpdateCleanupNextAttemptUtc

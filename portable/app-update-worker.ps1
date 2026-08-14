@@ -787,6 +787,29 @@ function Get-UpdateDirectory {
     return $directory
 }
 
+function Enter-AppUpdateTransactionLock {
+    $stateRoot = [IO.Path]::GetFullPath($StateDirectory)
+    if (([IO.File]::GetAttributes($stateRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The runtime state directory is unsafe for update locking.") }
+    $lockPath = Join-Path ($stateRoot) "app-update.transaction.lock"
+    $existingLockEntry = $null
+    foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($stateRoot)) {
+        if ([IO.Path]::GetFileName($entry).Equals("app-update.transaction.lock", [StringComparison]::OrdinalIgnoreCase)) { $existingLockEntry = $entry; break }
+    }
+    if ($null -ne $existingLockEntry) {
+        $lockAttributes = [IO.File]::GetAttributes($existingLockEntry)
+        if (($lockAttributes -band [IO.FileAttributes]::Directory) -ne 0) { throw [IO.IOException]::new("The update transaction lock path is occupied by a directory; run state repair.") }
+        if (($lockAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update transaction lock path must not be a reparse point.") }
+    }
+    $stream = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::WriteThrough)
+    if (([IO.File]::GetAttributes($lockPath) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $stream.Dispose(); throw [IO.IOException]::new("The update transaction lock path must not be a reparse point.") }
+    return $stream
+}
+
+function Exit-AppUpdateTransactionLock {
+    param([object]$Lock)
+    if ($null -ne $Lock) { try { $Lock.Dispose() } catch { } }
+}
+
 function Get-StatusPath { return Join-Path (Get-UpdateDirectory) "status.json" }
 function Get-CandidatePath { return Join-Path (Get-UpdateDirectory) "candidate.json" }
 function Get-PendingPath { return Join-Path (Get-UpdateDirectory) "pending.json" }
@@ -1327,7 +1350,7 @@ function Assert-InternalChecksums {
 
 function Assert-StagedPackage {
     param([string]$StageRoot, [object]$Manifest, [object]$CurrentConfiguration)
-    foreach ($required in @("launcher.ps1", "app-update-worker.ps1", "app-update-broker.ps1", "Tarkov Helper.exe", "TarkovHelper.ico", "start-menu.ps1", "Tarkov Helper 실행.vbs", "Tarkov Helper 시작 메뉴 등록.vbs", "Tarkov Helper 시작 메뉴 제거.vbs", "UPDATE_CONFIG.json", "PACKAGE_INFO.txt", "SHA256SUMS.txt", "app\index.html", "app\version.json")) {
+    foreach ($required in @("launcher.ps1", "app-update-worker.ps1", "app-update-broker.ps1", "Tarkov Helper.exe", "TarkovHelper.ico", "start-menu.ps1", "Tarkov Helper 실행.vbs", "Tarkov Helper 시작 메뉴 등록.vbs", "Tarkov Helper 시작 메뉴 제거.vbs", "Tarkov Helper 종료.vbs", "문제 해결용 실행.cmd", "Tarkov Helper 상태 복구.cmd", "Tarkov Helper 격리 복구 실행.cmd", "사용 안내.txt", "UPDATE_CONFIG.json", "PACKAGE_INFO.txt", "SHA256SUMS.txt", "app\index.html", "app\version.json")) {
         if (-not [IO.File]::Exists((Join-Path $StageRoot $required))) { throw [IO.InvalidDataException]::new("The staged package is missing a required file.") }
     }
     Assert-InternalChecksums -StageRoot $StageRoot
@@ -1563,7 +1586,14 @@ function Invoke-Stage {
         Assert-StagedPackage -StageRoot $stageRoot -Manifest $verified.Manifest -CurrentConfiguration $Configuration
         $brokerHash = Get-FileSha256Hex (Join-Path $packagePath "app-update-broker.ps1")
         $healthNonce = Get-RandomIdentifier
-        Write-AtomicJson -Path (Get-PendingPath) -Value ([ordered]@{
+        $transactionLock = $null
+        try {
+            $transactionLock = Enter-AppUpdateTransactionLock
+            $updateDirectory = Get-UpdateDirectory
+            foreach ($transactionName in @("pending.json", "apply-journal.json")) {
+                if (Test-Path -LiteralPath (Join-Path $updateDirectory $transactionName)) { throw [InvalidOperationException]::new("A prior app update transaction still requires cleanup.") }
+            }
+            Write-AtomicJson -Path (Get-PendingPath) -Value ([ordered]@{
             schemaVersion = 1
             state = "READY_TO_RESTART"
             candidateId = $CandidateId
@@ -1579,14 +1609,18 @@ function Invoke-Stage {
             fileCount = [int]$direct.unpacked.fileCount
             unpackedBytes = [long]$direct.unpacked.bytes
             brokerSha256 = $brokerHash
-            healthNonce = $healthNonce
-            stagedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
-        })
-        Write-Status ([ordered]@{
-            state = "READY_TO_RESTART"; currentVersion = [string]$CurrentVersion.version; latestVersion = [string]$verified.Manifest.version
-            candidateId = $CandidateId; stagedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
-        })
-        $stageCreated = $false
+                healthNonce = $healthNonce
+                stagedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+            })
+            # Ownership transfers durably with pending.json. Keep this state
+            # transition inside the same cross-session publication guard so a
+            # stale-state archiver can never remove the trigger first.
+            $stageCreated = $false
+            Write-Status ([ordered]@{
+                state = "READY_TO_RESTART"; currentVersion = [string]$CurrentVersion.version; latestVersion = [string]$verified.Manifest.version
+                candidateId = $CandidateId; stagedAt = [DateTime]::UtcNow.ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+            })
+        } finally { Exit-AppUpdateTransactionLock -Lock $transactionLock }
     } finally {
         if ([IO.File]::Exists($downloadPath)) { [IO.File]::Delete($downloadPath) }
         if ($stageCreated) { Remove-OwnedStageDirectory -Path $stageRoot -ExpectedParent $parent }

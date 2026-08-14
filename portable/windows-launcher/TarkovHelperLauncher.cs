@@ -9,7 +9,7 @@ namespace TarkovHelperLauncher
 {
     internal static class Program
     {
-        private const string LauncherScriptName = "Tarkov Helper 실행.vbs";
+        private const string LauncherScriptName = "launcher.ps1";
         private const string WindowTitle = "Tarkov Helper";
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
@@ -29,8 +29,7 @@ namespace TarkovHelperLauncher
 
                 string systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
                 string powerShellPath = Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
-                string wscriptPath = Path.Combine(systemDirectory, "wscript.exe");
-                if (!File.Exists(powerShellPath) || !File.Exists(wscriptPath))
+                if (!File.Exists(powerShellPath))
                 {
                     return Fail(3, "Tarkov Helper에 필요한 Windows 구성 요소를 찾을 수 없습니다.");
                 }
@@ -54,12 +53,12 @@ namespace TarkovHelperLauncher
                 }
 
                 string bootstrapLog = Path.Combine(workingDirectory, "TarkovHelperWeb", "launcher-bootstrap.log");
-                string encodedCommand = BuildEncodedCommand(parentId, parentStartUtcTicks, wscriptPath, launcherScript, bootstrapLog);
+                string encodedCommand = BuildEncodedCommand(parentId, parentStartUtcTicks, launcherScript, bootstrapLog);
 
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     FileName = powerShellPath,
-                    Arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encodedCommand,
+                    Arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand " + encodedCommand,
                     WorkingDirectory = workingDirectory,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -82,11 +81,9 @@ namespace TarkovHelperLauncher
         private static string BuildEncodedCommand(
             int parentId,
             long parentStartUtcTicks,
-            string wscriptPath,
             string launcherScript,
             string bootstrapLog)
         {
-            string encodedWscriptPath = Convert.ToBase64String(Encoding.UTF8.GetBytes(wscriptPath));
             string encodedLauncherScript = Convert.ToBase64String(Encoding.UTF8.GetBytes(launcherScript));
             string encodedBootstrapLog = Convert.ToBase64String(Encoding.UTF8.GetBytes(bootstrapLog));
             string command =
@@ -94,20 +91,46 @@ namespace TarkovHelperLauncher
                 "$parentId = " + parentId.ToString(CultureInfo.InvariantCulture) + "; " +
                 "$parentStartUtcTicks = " + parentStartUtcTicks.ToString(CultureInfo.InvariantCulture) + "; " +
                 "$bootstrapLog = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encodedBootstrapLog + "')); " +
+                "$launcherScript = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encodedLauncherScript + "')); " +
+                "$exitCode = 0; " +
                 "try { " +
                 "$parent = [Diagnostics.Process]::GetProcessById($parentId); " +
                 "try { if ($parent.StartTime.ToUniversalTime().Ticks -eq $parentStartUtcTicks) { " +
                 "if (-not $parent.WaitForExit(30000)) { " +
-                "$logDirectory = [IO.Path]::GetDirectoryName($bootstrapLog); " +
-                "[void][IO.Directory]::CreateDirectory($logDirectory); " +
-                "[IO.File]::AppendAllText($bootstrapLog, 'Launcher parent process did not exit within 30 seconds.' + [Environment]::NewLine, [Text.UTF8Encoding]::new($false)); " +
-                "exit 70 } } } " +
+                "$exitCode = 70 } } } " +
                 "finally { $parent.Dispose() } " +
                 "} catch [ArgumentException] { } " +
-                "$wscriptPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encodedWscriptPath + "')); " +
-                "$launcherScript = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encodedLauncherScript + "')); " +
-                "& $wscriptPath '//Nologo' $launcherScript; " +
-                "if ($null -eq $LASTEXITCODE) { exit 0 } else { exit $LASTEXITCODE }";
+                "catch { $exitCode = 70 } " +
+                "if ($exitCode -eq 0) { " +
+                "try { " +
+                "& $launcherScript -Action Start; " +
+                "$exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }; " +
+                "if ($exitCode -ne 0) { " +
+                "& $launcherScript -Action Stop; " +
+                "$stopExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }; " +
+                "if ($stopExitCode -eq 0) { " +
+                "& $launcherScript -Action Start; " +
+                "$exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE } " +
+                "} } " +
+                "} catch { $exitCode = 71 } " +
+                "} " +
+                "if ($exitCode -ne 0) { " +
+                "try { " +
+                "$logDirectory = [IO.Path]::GetDirectoryName($bootstrapLog); " +
+                "[void][IO.Directory]::CreateDirectory($logDirectory); " +
+                "$message = 'Launcher bootstrap failed with exit code ' + $exitCode + '.' + [Environment]::NewLine; " +
+                "[IO.File]::AppendAllText($bootstrapLog, $message, [Text.UTF8Encoding]::new($false)) " +
+                "} catch { } " +
+                "try { " +
+                "Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop; " +
+                "[void][System.Windows.Forms.MessageBox]::Show(" +
+                "'Tarkov Helper를 시작하지 못했습니다. 문제 해결용 실행.cmd를 실행해 자세한 오류를 확인하세요.', " +
+                "'Tarkov Helper', " +
+                "[System.Windows.Forms.MessageBoxButtons]::OK, " +
+                "[System.Windows.Forms.MessageBoxIcon]::Error) " +
+                "} catch { } " +
+                "} " +
+                "exit $exitCode";
             return Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
         }
 

@@ -133,9 +133,6 @@ jobs:
           $directRoot = Join-Path $env:RUNNER_TEMP "direct-release-input"
           node scripts/create-direct-release.mjs --output $directRoot
           if ($LASTEXITCODE -ne 0) { throw "Direct release creation failed" }
-          $env:TARKOV_HELPER_DIRECT_ROOT = $directRoot
-          pnpm test:e2e:direct
-          if ($LASTEXITCODE -ne 0) { throw "Direct release headless test failed" }
 
       - name: Create and verify deterministic prepared ZIPs
         shell: pwsh
@@ -151,6 +148,46 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Prepared release creation failed" }
           node scripts/verify-release-bundle.mjs --bundle $seedRoot --tag $env:RELEASE_TAG --commit $env:RELEASE_COMMIT --repository $env:RELEASE_REPOSITORY --prepared-only
           if ($LASTEXITCODE -ne 0) { throw "Prepared release verification failed" }
+
+      - name: Extract and test the verified prepared Direct ZIP
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $version = $env:RELEASE_TAG.Substring(1)
+          $seedRoot = Join-Path $env:RUNNER_TEMP "release-seed"
+          $directZip = Join-Path $seedRoot "tarkov-helper-web-direct-v$version.zip"
+          if (-not (Test-Path -LiteralPath $directZip -PathType Leaf)) { throw "Prepared Direct ZIP is missing" }
+          $extractRoot = Join-Path $env:RUNNER_TEMP "prepared-direct-e2e-$([Guid]::NewGuid().ToString('N'))"
+          [IO.Directory]::CreateDirectory($extractRoot) | Out-Null
+          [IO.Compression.ZipFile]::ExtractToDirectory($directZip, $extractRoot)
+          $directRoot = Join-Path $extractRoot "Tarkov Helper 바로 실행 v$version"
+          $rootEntries = @(Get-ChildItem -LiteralPath $extractRoot -Force)
+          if (
+            $rootEntries.Count -ne 1 -or -not (Test-Path -LiteralPath $directRoot -PathType Container) -or
+            -not [string]::Equals($rootEntries[0].FullName, $directRoot, [StringComparison]::Ordinal)
+          ) { throw "Prepared Direct ZIP did not extract to the exact release root" }
+          $port = 0
+          for ($attempt = 1; $attempt -le 10; $attempt += 1) {
+            $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+            try {
+              $listener.Start()
+              $candidatePort = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+            } finally {
+              $listener.Stop()
+            }
+            $connections = & (Join-Path $env:SystemRoot "System32\netstat.exe") -ano -p tcp
+            if ($LASTEXITCODE -ne 0) { throw "Unable to inspect Direct E2E port availability" }
+            $listeningPattern = "^\s*TCP\s+\S+:$candidatePort\s+\S+\s+LISTENING\s+\d+\s*$"
+            if (-not ($connections | Select-String -Pattern $listeningPattern)) {
+              $port = $candidatePort
+              break
+            }
+          }
+          if ($port -lt 1 -or $port -gt 65535) { throw "Unable to reserve a Direct E2E port" }
+          $env:TARKOV_HELPER_DIRECT_ROOT = $directRoot
+          $env:TARKOV_HELPER_E2E_PORT = [string]$port
+          pnpm test:e2e:direct
+          if ($LASTEXITCODE -ne 0) { throw "Prepared Direct ZIP browser E2E failed" }
 
       - name: Transfer only prepared ZIPs to the protected publish job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -266,9 +303,16 @@ jobs:
             gh release upload $env:RELEASE_TAG $file.FullName --repo $env:RELEASE_REPOSITORY | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "Release asset upload failed: $($file.Name)" }
           }
+          $recoveryNotes = @'
+          ### 업데이트 복구 안내
+
+          v1.0.2 이하 버전을 사용 중이거나 업데이트가 반복해서 실패하면, 기존 Tarkov Helper를 먼저 종료하고 기존 폴더에 덮어쓰지 말고 최신 Direct ZIP을 새 짧은 폴더에 압축을 풀어 `Tarkov Helper.exe`를 실행하세요.
+
+          새 폴더도 공유 상태 오류 때문에 시작하지 못하고 `Tarkov Helper 상태 복구.cmd`가 거부하면 기존 앱과 41753 포트를 완전히 종료한 뒤 새 폴더의 `Tarkov Helper 격리 복구 실행.cmd`를 사용하세요. 일반 상태는 보존되며, 종료할 때는 같은 파일을 `stop` 인수와 함께 실행합니다.
+          '@
           $release = Find-Draft
           if ($null -eq $release) {
-            gh release create $env:RELEASE_TAG ($zipAssets | ForEach-Object FullName) --draft --generate-notes --title "Tarkov Helper $env:RELEASE_TAG" --verify-tag
+            gh release create $env:RELEASE_TAG ($zipAssets | ForEach-Object FullName) --draft --generate-notes --notes $recoveryNotes --title "Tarkov Helper $env:RELEASE_TAG" --verify-tag
             if ($LASTEXITCODE -ne 0) { throw "Draft release creation failed" }
             for ($attempt = 1; $attempt -le 6; $attempt += 1) {
               $release = Find-Draft
@@ -478,6 +522,11 @@ jobs:
               "Tarkov Helper 실행.vbs",
               "Tarkov Helper 시작 메뉴 등록.vbs",
               "Tarkov Helper 시작 메뉴 제거.vbs",
+              "Tarkov Helper 종료.vbs",
+              "문제 해결용 실행.cmd",
+              "Tarkov Helper 상태 복구.cmd",
+              "Tarkov Helper 격리 복구 실행.cmd",
+              "사용 안내.txt",
               "UPDATE_CONFIG.json",
               "PACKAGE_INFO.txt",
               "SHA256SUMS.txt",

@@ -414,7 +414,7 @@ export async function loadReleaseConfig(filename) {
     "requireImmutableRelease",
     "signing",
   ], "release config updater");
-  exactObjectKeys(config.updater.signing, ["algorithm", "minimumRsaBits"], "release config signing");
+  exactObjectKeys(config.updater.signing, ["algorithm", "minimumRsaBits", "trustedKeyId"], "release config signing");
   if (config.schemaVersion !== 1) throw new Error("release config schemaVersion must be 1");
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(config.product)) throw new Error("release config product is invalid");
   if (config.channel !== "stable") throw new Error("release config channel must be stable");
@@ -428,7 +428,9 @@ export async function loadReleaseConfig(filename) {
     config.updater?.signatureAsset !== "update-manifest-v1.sig" ||
     config.updater?.requireImmutableRelease !== true ||
     config.updater?.signing?.algorithm !== "RSA-SHA256" ||
-    config.updater?.signing?.minimumRsaBits !== 3072
+    config.updater?.signing?.minimumRsaBits !== 3072 ||
+    typeof config.updater?.signing?.trustedKeyId !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(config.updater.signing.trustedKeyId)
   ) {
     throw new Error("release config updater contract is invalid");
   }
@@ -458,17 +460,24 @@ function publicKeyDetails(key) {
   };
 }
 
-export function loadPublicSigningKey(publicKeyPem) {
+function assertTrustedSigningKey(signing, trustedKeyId) {
+  if (trustedKeyId !== undefined && signing.keyId !== trustedKeyId) {
+    throw new Error(`Update signing trust root mismatch: expected ${trustedKeyId}, received ${signing.keyId}`);
+  }
+  return signing;
+}
+
+export function loadPublicSigningKey(publicKeyPem, trustedKeyId) {
   if (!publicKeyPem?.trim()) throw new Error("UPDATE_SIGNING_PUBLIC_KEY is required for a public release");
   try {
-    return publicKeyDetails(createPublicKey(publicKeyPem));
+    return assertTrustedSigningKey(publicKeyDetails(createPublicKey(publicKeyPem)), trustedKeyId);
   } catch (error) {
-    if (/UPDATE_SIGNING_PUBLIC_KEY|^Update signing (?:key|RSA)/.test(error?.message ?? "")) throw error;
+    if (/UPDATE_SIGNING_PUBLIC_KEY|^Update signing (?:key|RSA|trust root)/.test(error?.message ?? "")) throw error;
     throw new Error(`UPDATE_SIGNING_PUBLIC_KEY is invalid: ${error?.message ?? error}`);
   }
 }
 
-export function loadSigningKeyPair(privateKeyPem, publicKeyPem) {
+export function loadSigningKeyPair(privateKeyPem, publicKeyPem, trustedKeyId) {
   if (!privateKeyPem?.trim()) throw new Error("UPDATE_SIGNING_PRIVATE_KEY is required for a public release");
   let privateKey;
   try {
@@ -477,7 +486,7 @@ export function loadSigningKeyPair(privateKeyPem, publicKeyPem) {
     throw new Error(`UPDATE_SIGNING_PRIVATE_KEY is invalid: ${error?.message ?? error}`);
   }
   const derived = publicKeyDetails(createPublicKey(privateKey));
-  const supplied = loadPublicSigningKey(publicKeyPem);
+  const supplied = loadPublicSigningKey(publicKeyPem, trustedKeyId);
   if (derived.keyId !== supplied.keyId || derived.publicKeySpkiPem !== supplied.publicKeySpkiPem) {
     throw new Error("UPDATE_SIGNING_PRIVATE_KEY and UPDATE_SIGNING_PUBLIC_KEY do not match");
   }

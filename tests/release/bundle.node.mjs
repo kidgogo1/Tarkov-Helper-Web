@@ -14,6 +14,9 @@ const verifyScript = path.join(repositoryRoot, "scripts", "verify-release-bundle
 const signingKeys = generateKeyPairSync("rsa", { modulusLength: 3072 });
 const signingPrivateKey = signingKeys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 const signingPublicKey = signingKeys.publicKey.export({ format: "pem", type: "spki" }).toString();
+const signingKeyId = `sha256:${createHash("sha256")
+  .update(signingKeys.publicKey.export({ format: "der", type: "spki" }))
+  .digest("hex")}`;
 
 function sha256(contents) {
   return createHash("sha256").update(contents).digest("hex");
@@ -40,6 +43,7 @@ function sums(files) {
 
 async function createFixture() {
   const parent = await mkdtemp(path.join(os.tmpdir(), "tarkov-release-bundle-"));
+  const config = path.join(parent, "release.config.json");
   const project = path.join(parent, "project");
   const direct = path.join(parent, "direct");
   const staticDirectory = path.join(parent, "static");
@@ -47,6 +51,10 @@ async function createFixture() {
   await mkdir(path.join(project, "portable"), { recursive: true });
   await mkdir(path.join(direct, "app", "data"), { recursive: true });
   await mkdir(path.join(staticDirectory, "data"), { recursive: true });
+
+  const releaseConfig = JSON.parse(await readFile(path.join(repositoryRoot, "release.config.example.json"), "utf8"));
+  releaseConfig.updater.signing.trustedKeyId = signingKeyId;
+  await writeFile(config, `${JSON.stringify(releaseConfig, null, 2)}\n`);
 
   await writeFile(path.join(project, "package.json"), `${JSON.stringify({ name: "tarkov-helper-web", version: "1.2.3" }, null, 2)}\n`);
   await writeFile(path.join(project, "src", "main.js"), "export const fixture = true;\n");
@@ -74,8 +82,13 @@ async function createFixture() {
   });
   await writeFile(path.join(direct, "start-menu.ps1"), "# fixture Start menu tool\n");
   await writeFile(path.join(direct, "Tarkov Helper 실행.vbs"), "' fixture launcher\n");
+  await writeFile(path.join(direct, "Tarkov Helper 종료.vbs"), "' fixture stop launcher\n");
   await writeFile(path.join(direct, "Tarkov Helper 시작 메뉴 등록.vbs"), "' fixture registration\n");
   await writeFile(path.join(direct, "Tarkov Helper 시작 메뉴 제거.vbs"), "' fixture removal\n");
+  await writeFile(path.join(direct, "문제 해결용 실행.cmd"), "@rem fixture diagnostics\r\n");
+  await writeFile(path.join(direct, "Tarkov Helper 상태 복구.cmd"), "@rem fixture state repair\r\n");
+  await writeFile(path.join(direct, "Tarkov Helper 격리 복구 실행.cmd"), "@rem fixture isolated recovery\r\n");
+  await writeFile(path.join(direct, "사용 안내.txt"), "fixture guide\n");
 
   const appFiles = await collect(path.join(direct, "app"));
   const appManifest = sums(appFiles);
@@ -91,7 +104,7 @@ async function createFixture() {
   ].join("\n"));
   await writeFile(path.join(direct, "SHA256SUMS.txt"), sums(await collect(direct)));
 
-  return { commit, direct, parent, project, staticDirectory };
+  return { commit, config, direct, parent, project, staticDirectory };
 }
 
 function run(script, args, environment = {}) {
@@ -108,8 +121,34 @@ const signingEnvironment = {
   UPDATE_SIGNING_PUBLIC_KEY: signingPublicKey,
 };
 
+test("production release config rejects an accidental update trust-root rotation", async () => {
+  const fixture = await createFixture();
+  const output = path.join(fixture.parent, "rotated-trust-root");
+  try {
+    const result = run(createScript, [
+      "--project-root", fixture.project,
+      "--direct", fixture.direct,
+      "--static", fixture.staticDirectory,
+      "--output", output,
+      "--tag", "v1.2.3",
+      "--commit", fixture.commit,
+      "--repository", "example-owner/example-repository",
+      "--release-id", "101",
+      "--direct-asset-id", "201",
+      "--static-asset-id", "202",
+      "--source-asset-id", "203",
+    ], signingEnvironment);
+
+    assert.notEqual(result.status, 0, "a newly generated key must not replace the public key pinned by old clients");
+    assert.match(`${result.stdout}\n${result.stderr}`, /trust root|trusted signing key|key id/i);
+  } finally {
+    await rm(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 function createArguments(fixture, output, extra = []) {
   return [
+    "--config", fixture.config,
     "--project-root", fixture.project,
     "--direct", fixture.direct,
     "--static", fixture.staticDirectory,
@@ -219,6 +258,7 @@ test("creates a deterministic public release bundle and verifies its provenance"
     });
 
     const verification = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", first,
       "--tag", "v1.2.3",
@@ -262,6 +302,7 @@ test("supports an explicit updater-disabled local bundle without repository iden
     });
 
     const verification = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", output,
       "--tag", "v1.2.3",
@@ -292,6 +333,7 @@ test("prepares ZIPs without a private key and finalizes them on a separate signi
     ]);
 
     const preparedVerification = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", prepared,
       "--tag", "v1.2.3",
@@ -302,6 +344,7 @@ test("prepares ZIPs without a private key and finalizes them on a separate signi
     assert.equal(preparedVerification.status, 0, `${preparedVerification.stdout}\n${preparedVerification.stderr}`);
 
     const finalize = run(createScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--prepared", prepared,
       "--output", finalized,
@@ -345,6 +388,7 @@ test("finalizes an unsigned release manifest without exposing a private key", as
 
     for (const output of [unsigned, unsignedSecond]) {
       const finalize = run(createScript, [
+        "--config", fixture.config,
         "--project-root", fixture.project,
         "--prepared", prepared,
         "--finalize-unsigned",
@@ -376,6 +420,7 @@ test("finalizes an unsigned release manifest without exposing a private key", as
     }
 
     const verification = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", unsigned,
       "--tag", "v1.2.3",
@@ -396,6 +441,7 @@ test("finalizes an unsigned release manifest without exposing a private key", as
     forgedTree.artifacts.direct.unpacked.treeSha256 = "0".repeat(64);
     await writeFile(manifestPath, `${JSON.stringify(forgedTree, null, 2)}\n`);
     const rejectedTreeClaim = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", unsigned,
       "--tag", "v1.2.3",
@@ -414,6 +460,7 @@ test("finalizes an unsigned release manifest without exposing a private key", as
     forgedPackage.artifacts.direct.package.appFiles += 1;
     await writeFile(manifestPath, `${JSON.stringify(forgedPackage, null, 2)}\n`);
     const rejectedPackageClaim = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", unsigned,
       "--tag", "v1.2.3",
@@ -430,6 +477,7 @@ test("finalizes an unsigned release manifest without exposing a private key", as
 
     await writeFile(manifestPath, manifestText.replace(repository, "attacker/forged-release"));
     const tampered = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", unsigned,
       "--tag", "v1.2.3",
@@ -467,6 +515,7 @@ test("verification rejects a tampered release asset", async () => {
     await writeFile(archivePath, tampered);
 
     const verification = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", output,
       "--tag", "v1.2.3",
@@ -519,6 +568,7 @@ test("a rewritten checksum file cannot bypass the pinned manifest signature", as
     await writeFile(path.join(output, "SHA256SUMS.txt"), sums(outputFiles));
 
     const verification = run(verifyScript, [
+      "--config", fixture.config,
       "--project-root", fixture.project,
       "--bundle", output,
       "--tag", "v1.2.3",

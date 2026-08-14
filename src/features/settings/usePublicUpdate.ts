@@ -60,6 +60,12 @@ function updateErrorMessage(error: unknown): string {
   return "업데이트 서비스에서 예상하지 못한 오류가 발생했습니다.";
 }
 
+function updateInitializationErrorMessage(error: PublicUpdateApiError): string {
+  return error.code === "INVALID_RESPONSE"
+    ? "로컬 업데이트 서비스의 응답이 올바르지 않습니다. 앱을 다시 실행한 뒤 진단 기록을 확인해 주세요."
+    : "로컬 업데이트 서비스에 연결하지 못했습니다. 앱을 다시 실행한 뒤 진단 기록과 server.log를 확인해 주세요.";
+}
+
 function updateTargetVersion(status: PublicUpdateStatus | null): string | undefined {
   return status && "latestVersion" in status ? status.latestVersion : undefined;
 }
@@ -81,14 +87,16 @@ function recordUpdateClientError(
   });
 }
 
-function recordUpdateInitializationError(error: PublicUpdateApiError): void {
+function recordUpdateInitializationError(error: PublicUpdateApiError): string {
+  const message = updateInitializationErrorMessage(error);
   recordClientDiagnostic({
     source: "update",
     code: error.code,
     error,
-    message: "The local update service could not be initialized.",
+    message,
     operation: "INITIALIZE",
   });
+  return message;
 }
 
 function isPendingStatus(status: PublicUpdateStatus): boolean {
@@ -226,6 +234,23 @@ async function waitForRestartedSession(
         throw new PublicUpdateApiError("APPLY_NOT_ACCEPTED", "로컬 서버가 업데이트 적용 요청을 받지 못했습니다.");
       }
       continue;
+    }
+    if (
+      retryCandidateId &&
+      restarted.status.state === "READY_TO_RESTART" &&
+      restarted.status.currentVersion === rollbackVersion &&
+      restarted.status.latestVersion === expectedVersion &&
+      restarted.status.candidateId === retryCandidateId
+    ) {
+      // The broker can restart the unchanged app after a pre-swap file lock
+      // while preserving the verified stage. This is a terminal, retryable
+      // outcome for this attempt; continuing the generic reconnect loop would
+      // leave the UI in APPLYING for the full reconnect timeout.
+      onSession?.(restarted);
+      throw new PublicUpdateApiError(
+        "APPLY_DEFERRED",
+        "파일 잠금으로 이번 업데이트 적용이 미뤄졌습니다. 실행 중인 관련 창을 닫고 준비된 업데이트를 다시 적용해 주세요.",
+      );
     }
     const restartedVersion = restarted.status.currentVersion;
     if (restartedVersion !== expectedVersion && restartedVersion !== rollbackVersion) {
@@ -383,7 +408,7 @@ export function usePublicUpdate(
     let active = true;
 
     void fetchPublicUpdateSession(controller.signal, request, (error) => {
-      if (active) recordUpdateInitializationError(error);
+      if (active) setClientError(recordUpdateInitializationError(error));
     }).then(async (loadedSession) => {
       if (!active) return;
       setSession(loadedSession);

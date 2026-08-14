@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,15 @@ import test from "node:test";
 
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const launcherPath = path.join(projectRoot, "portable", "launcher.ps1");
+
+async function waitFor(check, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Timed out waiting for portable launcher test state.");
+}
 const commandPath = path.join(projectRoot, "portable", "문제 해결용 실행.cmd");
 
 test("portable Start allows slow machines to finish authenticated readiness", async () => {
@@ -17,6 +26,42 @@ test("portable Start allows slow machines to finish authenticated readiness", as
     /\$deadline = \[DateTime\]::UtcNow\.AddSeconds\(30\)/,
     "Start readiness must allow Defender/slow-disk initialization to complete",
   );
+});
+
+test("read-only recovery never reuses a server whose update mode is not attested", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-read-only-reuse-"));
+  const appRoot = path.join(temporaryRoot, "app");
+  const stateDirectory = path.join(temporaryRoot, "state");
+  const portProbe = net.createServer();
+  await new Promise((resolve, reject) => {
+    portProbe.once("error", reject);
+    portProbe.listen(0, "127.0.0.1", resolve);
+  });
+  const port = portProbe.address().port;
+  await new Promise((resolve, reject) => portProbe.close((error) => error ? reject(error) : resolve()));
+  await mkdir(appRoot, { recursive: true });
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>unattested update mode</title>", "utf8");
+  const server = spawn("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcherPath,
+    "-Action", "Serve", "-Root", appRoot, "-Port", String(port), "-NoBrowser", "-StateDirectory", stateDirectory,
+  ], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  t.after(async () => {
+    spawnSync("powershell.exe", [
+      "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcherPath,
+      "-Action", "Stop", "-StateDirectory", stateDirectory,
+    ], { encoding: "utf8", windowsHide: true });
+    if (server.exitCode === null) server.kill();
+    await rm(temporaryRoot, { recursive: true, force: true });
+  });
+  await waitForUrl(server);
+
+  const refused = spawnSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcherPath,
+    "-Action", "Start", "-Root", appRoot, "-Port", String(port), "-NoBrowser", "-StateDirectory", stateDirectory,
+    "-DisablePackageUpdates",
+  ], { encoding: "utf8", windowsHide: true });
+  assert.equal(refused.status, 2, `${refused.stdout}\n${refused.stderr}`);
+  assert.match(`${refused.stdout}\n${refused.stderr}`, /read-only|isolated recovery|stop/i);
 });
 
 test("portable logs use a bounded mutex and never persist raw child output", async () => {
@@ -86,6 +131,7 @@ test("portable logger sanitizes legacy server current and previous logs before a
 test("portable Start archives a stale staged update from another completed installation", { skip: process.platform !== "win32" }, async (t) => {
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-stale-update-"));
   const packageRoot = path.join(temporaryParent, "Tarkov Helper 바로 실행 v1.0.20");
+  const oldPackageRoot = path.join(temporaryParent, "old-install-v1.0.14");
   const appRoot = path.join(packageRoot, "app");
   const stateDirectory = path.join(temporaryParent, "state");
   const appUpdateDirectory = path.join(stateDirectory, "app-update");
@@ -111,15 +157,94 @@ test("portable Start archives a stale staged update from another completed insta
     }),
     "utf8",
   );
-  await writeFile(
-    path.join(appUpdateDirectory, "pending.json"),
-    JSON.stringify({
-      state: "READY_TO_RESTART",
-      packageRoot: path.join(temporaryParent, "old-install-v1.0.14"),
-      latestVersion: "1.0.20",
-    }),
-    "utf8",
+  const legacyPending = {
+    state: "READY_TO_RESTART",
+    packageRoot: oldPackageRoot,
+    latestVersion: "1.0.20",
+  };
+  const pendingPath = path.join(appUpdateDirectory, "pending.json");
+
+  // Pre-tag builds emitted this minimal shape. A missing optional field is a
+  // compatibility case, while a present-but-invalid value must remain fail-closed.
+  await mkdir(path.join(oldPackageRoot, "app"), { recursive: true });
+  const invalidPortPending = { ...legacyPending, port: "not-a-port" };
+  await writeFile(pendingPath, JSON.stringify(invalidPortPending), "utf8");
+  const refusedInvalidPort = spawnSync(
+    "powershell.exe",
+    [
+      "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(packageRoot, "launcher.ps1"),
+      "-Action", "Start", "-Root", appRoot, "-Port", String(testPort), "-NoBrowser", "-StateDirectory", stateDirectory,
+    ],
+    { encoding: "utf8", windowsHide: true },
   );
+  assert.equal(refusedInvalidPort.status, 2, `${refusedInvalidPort.stdout}\n${refusedInvalidPort.stderr}`);
+  assert.deepEqual(JSON.parse(await readFile(pendingPath, "utf8")), invalidPortPending);
+  assert.equal((await readdir(stateDirectory)).some((entry) => entry.startsWith("app-update-stale-backup-")), false);
+
+  await rm(oldPackageRoot, { recursive: true, force: true });
+  await writeFile(pendingPath, JSON.stringify(legacyPending), "utf8");
+
+  const transactionLockPath = path.join(stateDirectory, "app-update.transaction.lock");
+  const lockReadyPath = path.join(stateDirectory, "transaction-lock-ready");
+  const lockHolder = spawn("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+    "$stream = [IO.FileStream]::new($env:TARKOV_LOCK_PATH, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None); [IO.File]::WriteAllText($env:TARKOV_LOCK_READY, 'ready'); try { [Console]::In.ReadLine() | Out-Null } finally { $stream.Dispose() }",
+  ], {
+    stdio: ["pipe", "ignore", "pipe"],
+    windowsHide: true,
+    env: { ...process.env, TARKOV_LOCK_PATH: transactionLockPath, TARKOV_LOCK_READY: lockReadyPath },
+  });
+  await waitFor(async () => readFile(lockReadyPath, "utf8").then(() => true).catch(() => false));
+
+  const refusedWhileLocked = spawnSync(
+    "powershell.exe",
+    [
+      "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(packageRoot, "launcher.ps1"),
+      "-Action", "Start", "-Root", appRoot, "-Port", String(testPort), "-NoBrowser", "-StateDirectory", stateDirectory,
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(refusedWhileLocked.status, 2, `${refusedWhileLocked.stdout}\n${refusedWhileLocked.stderr}`);
+  assert.equal((await readdir(stateDirectory)).some((entry) => entry.startsWith("app-update-stale-backup-")), false);
+  assert.deepEqual(JSON.parse(await readFile(pendingPath, "utf8")), legacyPending);
+  lockHolder.stdin.end("\n");
+  await new Promise((resolve) => lockHolder.once("exit", resolve));
+
+  const occupiedProbe = net.createServer();
+  await new Promise((resolve, reject) => {
+    occupiedProbe.once("error", reject);
+    occupiedProbe.listen(testPort, "127.0.0.1", resolve);
+  });
+  const refusedWhilePortOccupied = spawnSync(
+    "powershell.exe",
+    [
+      "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(packageRoot, "launcher.ps1"),
+      "-Action", "Start", "-Root", appRoot, "-Port", String(testPort), "-NoBrowser", "-StateDirectory", stateDirectory,
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(refusedWhilePortOccupied.status, 2, `${refusedWhilePortOccupied.stdout}\n${refusedWhilePortOccupied.stderr}`);
+  assert.equal((await readdir(stateDirectory)).some((entry) => entry.startsWith("app-update-stale-backup-")), false);
+  assert.deepEqual(JSON.parse(await readFile(pendingPath, "utf8")), legacyPending);
+  await new Promise((resolve, reject) => occupiedProbe.close((error) => error ? reject(error) : resolve()));
+
+  const legacyCleanupEvidence = path.join(
+    path.dirname(oldPackageRoot),
+    `.${path.basename(oldPackageRoot)}.update-cleanup-${"A".repeat(40)}`,
+  );
+  await mkdir(legacyCleanupEvidence);
+  const refusedWithLegacyEvidence = spawnSync(
+    "powershell.exe",
+    [
+      "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(packageRoot, "launcher.ps1"),
+      "-Action", "Start", "-Root", appRoot, "-Port", String(testPort), "-NoBrowser", "-StateDirectory", stateDirectory,
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(refusedWithLegacyEvidence.status, 2, `${refusedWithLegacyEvidence.stdout}\n${refusedWithLegacyEvidence.stderr}`);
+  assert.deepEqual(JSON.parse(await readFile(pendingPath, "utf8")), legacyPending);
+  assert.equal((await stat(legacyCleanupEvidence)).isDirectory(), true);
+  await rm(legacyCleanupEvidence, { recursive: true });
 
   const child = spawn(
     "powershell.exe",
@@ -160,6 +285,38 @@ test("portable Start archives a stale staged update from another completed insta
     { encoding: "utf8", windowsHide: true },
   );
   assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+});
+
+test("portable Start preserves a stale transaction once apply topology exists", { skip: process.platform !== "win32" }, async (t) => {
+  const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-stale-active-update-"));
+  const packageRoot = path.join(temporaryParent, "current-install");
+  const oldPackageRoot = path.join(temporaryParent, "old-install");
+  const appRoot = path.join(packageRoot, "app");
+  const stateDirectory = path.join(temporaryParent, "state");
+  const updateDirectory = path.join(stateDirectory, "app-update");
+  const pendingPath = path.join(updateDirectory, "pending.json");
+  const journalPath = path.join(updateDirectory, "apply-journal.json");
+  await mkdir(appRoot, { recursive: true });
+  await mkdir(path.join(oldPackageRoot, "app"), { recursive: true });
+  await mkdir(updateDirectory, { recursive: true });
+  await copyFile(launcherPath, path.join(packageRoot, "launcher.ps1"));
+  await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>preserve active update</title>", "utf8");
+  await writeFile(path.join(appRoot, "version.json"), JSON.stringify({
+    schemaVersion: 1, product: "tarkov-helper-web", version: "1.0.20", commit: "a".repeat(40), updaterProtocolVersion: 1,
+  }), "utf8");
+  const pending = { state: "READY_TO_RESTART", packageRoot: oldPackageRoot, latestVersion: "1.0.20" };
+  await writeFile(pendingPath, JSON.stringify(pending), "utf8");
+  await writeFile(journalPath, JSON.stringify({ phase: "OLD_MOVED" }), "utf8");
+  t.after(async () => rm(temporaryParent, { recursive: true, force: true }));
+
+  const result = spawnSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(packageRoot, "launcher.ps1"),
+    "-Action", "Start", "-Root", appRoot, "-Port", "41753", "-NoBrowser", "-StateDirectory", stateDirectory,
+  ], { encoding: "utf8", windowsHide: true });
+  assert.equal(result.status, 2, `${result.stdout}\n${result.stderr}`);
+  assert.deepEqual(JSON.parse(await readFile(pendingPath, "utf8")), pending);
+  assert.equal(JSON.parse(await readFile(journalPath, "utf8")).phase, "OLD_MOVED");
+  assert.equal((await readdir(stateDirectory)).some((entry) => entry.startsWith("app-update-stale-backup-")), false);
 });
 
 function waitForUrl(child) {

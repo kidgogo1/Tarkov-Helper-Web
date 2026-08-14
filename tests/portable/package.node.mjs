@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -10,6 +11,7 @@ const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const packagingScript = path.join(projectRoot, "scripts", "create-direct-release.mjs");
 const launcherBuildScript = path.join(projectRoot, "scripts", "build-windows-launcher.mjs");
 const launcherSourceDirectory = path.join(projectRoot, "portable", "windows-launcher");
+const isolatedRecoveryCommand = path.join(projectRoot, "portable", "Tarkov Helper 격리 복구 실행.cmd");
 const packageVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
 
 async function listFiles(directory, prefix = "") {
@@ -151,6 +153,116 @@ async function waitForFile(filename, attempts = 200, delayMs = 50) {
   }
 }
 
+async function listenOnEphemeralPort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert(address && typeof address === "object");
+  return { port: address.port, server };
+}
+
+test("isolated recovery command starts and stops only its deterministic state and refuses an occupied port", {
+  skip: process.platform !== "win32",
+  timeout: 15_000,
+}, async () => {
+  const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-isolated-recovery-"));
+  const packageRoot = path.join(temporaryParent, "새 복구 패키지");
+  const localAppData = path.join(temporaryParent, "Local App Data");
+  const marker = path.join(temporaryParent, "launcher-invocation.txt");
+  const command = path.join(packageRoot, "Tarkov Helper 격리 복구 실행.cmd");
+  await mkdir(packageRoot, { recursive: true });
+
+  try {
+    const commandSource = await readFile(isolatedRecoveryCommand, "ascii");
+    assert.match(commandSource, /set "TARKOV_HELPER_ISOLATED_PORT=41753"/);
+    assert.doesNotMatch(commandSource, /TEST_(?:MODE|PORT)/);
+    const freeProbe = await listenOnEphemeralPort();
+    const freePort = freeProbe.port;
+    await new Promise((resolve, reject) => freeProbe.server.close((error) => error ? reject(error) : resolve()));
+    await writeFile(
+      command,
+      commandSource.replace(
+        'set "TARKOV_HELPER_ISOLATED_PORT=41753"',
+        `set "TARKOV_HELPER_ISOLATED_PORT=${freePort}"`,
+      ),
+      "ascii",
+    );
+    await writeFile(path.join(packageRoot, "launcher.ps1"), String.raw`param(
+  [ValidateSet("Start", "Stop")][string]$Action,
+  [string]$StateDirectory,
+  [int]$Port,
+  [switch]$DisablePackageUpdates
+)
+[IO.File]::WriteAllText(
+  $env:TARKOV_HELPER_ISOLATED_RECOVERY_TEST_MARKER,
+  ($Action + [Environment]::NewLine + $StateDirectory + [Environment]::NewLine + $Port + [Environment]::NewLine + $DisablePackageUpdates.IsPresent),
+  [Text.UTF8Encoding]::new($false)
+)
+exit 0
+`, "utf8");
+
+    const environment = {
+      ...process.env,
+      LOCALAPPDATA: localAppData,
+      TARKOV_HELPER_ISOLATED_RECOVERY_TEST_MARKER: marker,
+    };
+
+    const started = spawnSync("cmd.exe", ["/d", "/c", command], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: environment,
+      windowsHide: true,
+    });
+    assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+    assert.deepEqual((await readFile(marker, "utf8")).trim().split(/\r?\n/), [
+      "Start",
+      path.join(localAppData, "TarkovHelperWeb-Isolated-Recovery"),
+      String(freePort),
+      "True",
+    ]);
+
+    const stopped = spawnSync("cmd.exe", ["/d", "/c", command, "stop"], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: environment,
+      windowsHide: true,
+    });
+    assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+    assert.deepEqual((await readFile(marker, "utf8")).trim().split(/\r?\n/), [
+      "Stop",
+      path.join(localAppData, "TarkovHelperWeb-Isolated-Recovery"),
+      String(freePort),
+      "True",
+    ]);
+
+    const occupied = await listenOnEphemeralPort();
+    await writeFile(
+      command,
+      commandSource.replace(
+        'set "TARKOV_HELPER_ISOLATED_PORT=41753"',
+        `set "TARKOV_HELPER_ISOLATED_PORT=${occupied.port}"`,
+      ),
+      "ascii",
+    );
+    await rm(marker, { force: true });
+    const refused = spawnSync("cmd.exe", ["/d", "/c", command, "start"], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: environment,
+      windowsHide: true,
+    });
+    await new Promise((resolve, reject) => occupied.server.close((error) => error ? reject(error) : resolve()));
+    assert.equal(refused.status, 2, `${refused.stdout}\n${refused.stderr}`);
+    assert.match(`${refused.stdout}\n${refused.stderr}`, /already in use|stop the existing/i);
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+  } finally {
+    await rm(temporaryParent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
 test("direct release contains the built app, launchers, guide, and notices", async () => {
   const temporaryParent = await mkdtemp(path.join(os.tmpdir(), "tarkov-helper-package-"));
   const output = path.join(temporaryParent, "Tarkov Helper 바로 실행");
@@ -183,6 +295,7 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.equal(launcherPe.fileVersion, `${packageVersion}.0`);
     assert.equal(launcherPe.productVersion, `${packageVersion}.0`);
     assert.match(launcherPe.manifest, /requestedExecutionLevel\s+level="asInvoker"/);
+    assert.match(launcherPe.manifest, /<ws2:longPathAware>true<\/ws2:longPathAware>/);
     assert.equal((await stat(path.join(output, "start-menu.ps1"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 시작 메뉴 등록.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 시작 메뉴 제거.vbs"))).isFile(), true);
@@ -190,6 +303,8 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.equal((await stat(path.join(output, "Tarkov Helper 실행.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "Tarkov Helper 종료.vbs"))).isFile(), true);
     assert.equal((await stat(path.join(output, "문제 해결용 실행.cmd"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "Tarkov Helper 상태 복구.cmd"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "Tarkov Helper 격리 복구 실행.cmd"))).isFile(), true);
     assert.equal((await stat(path.join(output, "사용 안내.txt"))).isFile(), true);
     assert.equal((await stat(path.join(output, "LICENSE"))).isFile(), true);
     assert.equal((await stat(path.join(output, "README.md"))).isFile(), true);
@@ -215,12 +330,30 @@ test("direct release contains the built app, launchers, guide, and notices", asy
     assert.match(versionDocument.commit, /^[0-9a-f]{40}$/);
     assert.equal(versionDocument.updaterProtocolVersion, 1);
     const guide = await readFile(path.join(output, "사용 안내.txt"), "utf8");
+    const repairCommand = await readFile(path.join(output, "Tarkov Helper 상태 복구.cmd"), "utf8");
+    const isolatedRecovery = await readFile(path.join(output, "Tarkov Helper 격리 복구 실행.cmd"), "utf8");
     assert.match(guide, /시작 메뉴/);
     assert.match(guide, /등록/);
     assert.match(guide, /제거/);
     assert.match(guide, /실행\.vbs/);
     assert.match(guide, /종료\.vbs/);
     assert.match(guide, /백그라운드/);
+    assert.match(guide, /v1\.0\.3과 v1\.0\.4/);
+    assert.match(guide, /v1\.0\.1과 v1\.0\.2/);
+    assert.match(guide, /v1\.0\.20 이하.*회사 프록시/);
+    assert.match(guide, /기존 폴더 위에 덮어쓰지/);
+    assert.match(guide, /%USERPROFILE%\\TarkovHelper/);
+    assert.match(guide, /Tarkov Helper 상태 복구\.cmd/);
+    assert.match(guide, /Tarkov Helper 격리 복구 실행\.cmd/);
+    assert.match(repairCommand, /-Action Repair/i);
+    assert.match(isolatedRecovery, /TarkovHelperWeb-Isolated-Recovery/);
+    assert.match(isolatedRecovery, /set "TARKOV_HELPER_ISOLATED_PORT=41753"/);
+    assert.match(isolatedRecovery, /TcpListener/);
+    assert.match(isolatedRecovery, /ExclusiveAddressUse\s*=\s*\$true/);
+    assert.match(isolatedRecovery, /-Action %TARKOV_HELPER_ISOLATED_ACTION%/i);
+    assert.match(isolatedRecovery, /-StateDirectory "%TARKOV_HELPER_ISOLATED_STATE%"/i);
+    assert.match(isolatedRecovery, /-DisablePackageUpdates/i);
+    assert.doesNotMatch(isolatedRecovery, /\b(?:del|erase|rd|rmdir)\b/i);
 
     assert.equal(
       await readFile(path.join(output, "app", "index.html"), "utf8"),
@@ -319,7 +452,7 @@ test("launcher source builds byte-for-byte identically from different build root
   }
 });
 
-test("launcher source uses an exact parent identity gate and encoded absolute system executables", async () => {
+test("launcher source uses an exact parent identity gate and starts launcher.ps1 without Windows Script Host", async () => {
   const source = await readFile(path.join(launcherSourceDirectory, "TarkovHelperLauncher.cs"), "utf8");
   assert.match(source, /Process\.GetCurrentProcess\(\)/);
   assert.match(source, /StartTime\.ToUniversalTime\(\)\.Ticks/);
@@ -333,16 +466,23 @@ test("launcher source uses an exact parent identity gate and encoded absolute sy
   assert.match(source, /UseShellExecute\s*=\s*false/);
   assert.match(source, /SpecialFolder\.LocalApplicationData/);
   assert.match(source, /WindowsPowerShell/);
-  assert.match(source, /wscript\.exe/);
+  assert.match(source, /LauncherScriptName\s*=\s*"launcher\.ps1"/);
+  assert.match(source, /-Action Start/);
+  assert.match(source, /-Action Stop/);
+  assert.match(source, /System\.Windows\.Forms\.MessageBox/);
+  assert.match(source, /문제 해결용 실행\.cmd/);
+  assert.match(source, /Launcher bootstrap failed with exit code/);
+  assert.doesNotMatch(source, /AppendAllText\(\$bootstrapLog,\s*\$_/);
+  assert.doesNotMatch(source, /wscript\.exe/i);
   assert.match(source, /launcher-bootstrap\.log/);
   assert.match(source, /MessageBoxW/);
   assert.match(source, /CharSet\.Unicode/);
-  assert.doesNotMatch(source, /ExecutionPolicy/);
+  assert.match(source, /-ExecutionPolicy Bypass/);
   assert.doesNotMatch(source, /cmd\.exe/i);
   assert.doesNotMatch(source, /TARKOV_HELPER_PACKAGE_ROOT/);
 });
 
-test("the branded launcher starts the existing VBS from a literal Unicode path and releases the package root", {
+test("the branded launcher starts launcher.ps1 without VBS from a literal Unicode path and releases the package root", {
   skip: process.platform !== "win32",
   timeout: 20_000,
 }, async () => {
@@ -360,6 +500,7 @@ test("the branded launcher starts the existing VBS from a literal Unicode path a
       encoding: "utf8",
     });
     assert.equal(packaged.status, 0, `${packaged.stdout}\n${packaged.stderr}`);
+    await rm(path.join(packageRoot, "Tarkov Helper 실행.vbs"));
 
     await writeFile(path.join(packageRoot, "launcher.ps1"), String.raw`param([ValidateSet("Start", "Stop")][string]$Action)
 [IO.File]::AppendAllText($env:TARKOV_HELPER_TEST_ACTION_LOG, $Action + [Environment]::NewLine, [Text.Encoding]::UTF8)

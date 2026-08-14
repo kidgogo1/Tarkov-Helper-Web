@@ -15,7 +15,8 @@ param(
     [string]$HandoffNonce = "",
     [string]$HandoffAckPath = "",
     [string]$HandoffCancelPath = "",
-    [ValidateRange(0, 120000)][int]$TestHandoffVerifyDelayMilliseconds = 0
+    [ValidateRange(0, 120000)][int]$TestHandoffVerifyDelayMilliseconds = 0,
+    [ValidateRange(0, 120000)][int]$TestApplyVerifyDelayMilliseconds = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -209,6 +210,29 @@ function Get-UpdateDirectory {
     [IO.Directory]::CreateDirectory($directory) | Out-Null
     if (([IO.File]::GetAttributes($directory) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update state directory is unsafe.") }
     return $directory
+}
+
+function Enter-AppUpdateTransactionLock {
+    $stateRoot = [IO.Path]::GetFullPath($StateDirectory)
+    if (([IO.File]::GetAttributes($stateRoot) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The runtime state directory is unsafe for update locking.") }
+    $lockPath = Join-Path ($stateRoot) "app-update.transaction.lock"
+    $existingLockEntry = $null
+    foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($stateRoot)) {
+        if ([IO.Path]::GetFileName($entry).Equals("app-update.transaction.lock", [StringComparison]::OrdinalIgnoreCase)) { $existingLockEntry = $entry; break }
+    }
+    if ($null -ne $existingLockEntry) {
+        $lockAttributes = [IO.File]::GetAttributes($existingLockEntry)
+        if (($lockAttributes -band [IO.FileAttributes]::Directory) -ne 0) { throw [IO.IOException]::new("The update transaction lock path is occupied by a directory; run state repair.") }
+        if (($lockAttributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw [IO.IOException]::new("The update transaction lock path must not be a reparse point.") }
+    }
+    $stream = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::WriteThrough)
+    if (([IO.File]::GetAttributes($lockPath) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $stream.Dispose(); throw [IO.IOException]::new("The update transaction lock path must not be a reparse point.") }
+    return $stream
+}
+
+function Exit-AppUpdateTransactionLock {
+    param([object]$Lock)
+    if ($null -ne $Lock) { try { $Lock.Dispose() } catch { } }
 }
 
 $treeVerifierSource = @'
@@ -697,7 +721,7 @@ function Start-Server {
 }
 
 function Wait-Healthy {
-    param([Diagnostics.Process]$Process, [string]$Root, [string]$Nonce, [int]$Seconds = 20, [switch]$IgnoreInjectedFailure)
+    param([Diagnostics.Process]$Process, [string]$Root, [string]$Nonce, [int]$Seconds = 30, [switch]$IgnoreInjectedFailure)
     if ($TestFailHealth -and -not $IgnoreInjectedFailure) { return $false }
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     while ([DateTime]::UtcNow -lt $deadline) {
@@ -1010,6 +1034,78 @@ function Complete-Commit {
     }
 }
 
+function Restore-RetryablePreSwapState {
+    param(
+        [object]$Plan,
+        [object]$Journal,
+        [string]$PackageRoot,
+        [string]$StageRoot,
+        [string]$BackupRoot,
+        [string]$FailedRoot
+    )
+
+    if ($null -eq $Journal -or [string]$Journal.phase -cne "PREPARED") {
+        throw [IO.InvalidDataException]::new("The update is no longer at the retryable pre-swap boundary.")
+    }
+    $rootIdentity = Get-IdentityIfPresent $PackageRoot
+    if (-not (Test-Identity -Identity $rootIdentity -Version ([string]$Plan.currentVersion) -Commit ([string]$Plan.currentCommit))) {
+        throw [IO.InvalidDataException]::new("The installed package changed before the deferred update could be preserved.")
+    }
+    if (
+        [IO.Directory]::Exists($BackupRoot) -or [IO.File]::Exists($BackupRoot) -or
+        [IO.Directory]::Exists($FailedRoot) -or [IO.File]::Exists($FailedRoot) -or
+        -not [IO.Directory]::Exists($StageRoot)
+    ) {
+        throw [IO.InvalidDataException]::new("The update directory topology changed before the deferred update could be preserved.")
+    }
+    $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify(
+        $StageRoot,
+        [int]$Plan.fileCount,
+        [long]$Plan.unpackedBytes,
+        [string]$Plan.treeSha256
+    )
+    if ($null -ne (Read-Instance)) {
+        throw [InvalidOperationException]::new("An unexpected portable instance appeared before the deferred update restart.")
+    }
+
+    $oldServer = $null
+    try {
+        $oldServer = Start-Server -Root $PackageRoot -Nonce ([string]$Plan.healthNonce) -Label "update-deferred"
+        $oldServerStart = Get-ProcessStartTimeText $oldServer
+        if (-not (Wait-Healthy -Process $oldServer -Root $PackageRoot -Nonce ([string]$Plan.healthNonce) -IgnoreInjectedFailure)) {
+            throw [InvalidOperationException]::new("The unchanged server failed its health check after the update was deferred.")
+        }
+        $instance = Read-Instance
+        if (
+            $null -eq $instance -or
+            $instance.pid -ne $oldServer.Id -or
+            $instance.processStartTimeUtc -cne $oldServerStart -or
+            -not (Invoke-Health -Instance $instance -ExpectedRoot $PackageRoot -ExpectedNonce ([string]$Plan.healthNonce))
+        ) {
+            throw [Security.SecurityException]::new("The unchanged server identity is invalid after the update was deferred.")
+        }
+    } catch {
+        if ($null -ne $oldServer) {
+            try { Stop-ExactRecordedProcess -ProcessId $oldServer.Id -ProcessStartTimeUtc (Get-ProcessStartTimeText $oldServer) } catch { }
+        }
+        throw
+    }
+
+    try {
+        Write-Status ([ordered]@{
+            state = "READY_TO_RESTART"
+            currentVersion = [string]$Plan.currentVersion
+            latestVersion = [string]$Plan.latestVersion
+            candidateId = [string]$Plan.candidateId
+            stagedAt = [string]$Plan.stagedAt
+        })
+    } catch {
+        # The signed stage, pending trigger, and PREPARED journal are the durable
+        # retry contract. A UI-status write failure must not destroy that state.
+        Write-BrokerLog "The retryable staged-update status could not be restored: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    }
+}
+
 function Complete-Rollback {
     param(
         [object]$Plan,
@@ -1054,6 +1150,7 @@ function Complete-Rollback {
 
 $mutex = [Threading.Mutex]::new($false, (Get-MutexName))
 $hasMutex = $false
+$transactionLock = $null
 $newServer = $null
 $plan = $null
 $backupRoot = $null
@@ -1064,7 +1161,11 @@ $parent = $null
 $escapedLeaf = $null
 $canReconcile = $false
 $commitIsIrreversible = $false
+$oldRootMoveAttempted = $false
+$oldRootMoveCompleted = $false
 try {
+    try { $transactionLock = Enter-AppUpdateTransactionLock }
+    catch [IO.IOException] { Write-BrokerLog "Broker exited with code 12 because another process owns or obstructs the shared update transaction lock."; exit 12 }
     try { $hasMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $hasMutex = $true }
     if (-not $hasMutex) { Write-BrokerLog "Broker exited with code 12 because another apply process owns the update mutex."; exit 12 }
     $plan = Read-BoundedJson -Path $PlanPath -MaximumBytes 65536
@@ -1143,6 +1244,9 @@ try {
     }
 
     if ([IO.Directory]::Exists($stageRoot)) {
+        if ($TestApplyVerifyDelayMilliseconds -gt 0) {
+            Start-Sleep -Milliseconds $TestApplyVerifyDelayMilliseconds
+        }
         $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($stageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
     } elseif ($rootIsNew) {
         $null = [TarkovHelperUpdateBrokerSupport.TreeVerifier]::Verify($packageRoot, [int]$plan.fileCount, [long]$plan.unpackedBytes, [string]$plan.treeSha256)
@@ -1272,7 +1376,9 @@ try {
 
     if ($rootIsOld -and [IO.Directory]::Exists($stageRoot)) {
         Remove-SafeTree -Path $backupRoot -Parent $parent -Pattern ("^\." + $escapedLeaf + "\.update-backup$")
+        $oldRootMoveAttempted = $true
         Move-UpdateDirectory -Source $packageRoot -Destination $backupRoot
+        $oldRootMoveCompleted = $true
         Write-Journal -Plan $plan -Phase "OLD_MOVED" -BackupRoot $backupRoot -FailedRoot $failedRoot
         $rootIdentity = $null; $rootIsOld = $false; $backupIsOld = $true
     }
@@ -1307,6 +1413,16 @@ try {
         Write-BrokerLog "The authenticated commit boundary was reached; rollback is permanently disabled for this transaction."
         Write-BrokerLog "Broker exited with code 20 after the irreversible commit boundary."
         exit 20
+    }
+    if ($oldRootMoveAttempted -and -not $oldRootMoveCompleted -and $null -ne $plan -and $canReconcile) {
+        try {
+            Restore-RetryablePreSwapState -Plan $plan -Journal $journal -PackageRoot $packageRoot -StageRoot $stageRoot -BackupRoot $backupRoot -FailedRoot $failedRoot
+            Write-BrokerLog "The authenticated package swap was deferred before its first rename; the verified stage remains ready for retry."
+            Write-BrokerLog "Broker exited with code 13 after preserving the retryable staged update."
+            exit 13
+        } catch {
+            Write-BrokerLog "The pre-swap staged update could not be preserved safely: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        }
     }
     if ($null -eq $plan -or -not $canReconcile) { Write-BrokerLog "Broker exited with code 20 before rollback reconciliation was safe."; exit 20 }
     try {
@@ -1384,4 +1500,5 @@ try {
 } finally {
     if ($hasMutex) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
+    Exit-AppUpdateTransactionLock -Lock $transactionLock
 }

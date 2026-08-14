@@ -25,6 +25,7 @@ jobs:
       - name: Check out the exact revision
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -66,3 +67,90 @@ jobs:
 
       - name: Headless direct-release tests
         run: pnpm test:e2e:direct
+
+  windows-2022-compatibility:
+    name: Windows Server 2022 packaged Direct compatibility
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.2
+
+      - name: Set up exact .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.301
+
+      - name: Activate the locked pnpm version
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.16.0 --activate
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and verify the local final release bundle
+        shell: pwsh
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "Static build failed on Windows Server 2022" }
+          $directInput = Join-Path $env:RUNNER_TEMP "windows-2022-direct-input"
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "windows-2022-release-bundle"
+          node scripts/create-direct-release.mjs --output $directInput
+          if ($LASTEXITCODE -ne 0) { throw "Direct release creation failed on Windows Server 2022" }
+          node scripts/create-release-bundle.mjs --direct $directInput --static dist --output $bundleRoot --updater-disabled
+          if ($LASTEXITCODE -ne 0) { throw "Final local release bundle creation failed on Windows Server 2022" }
+          node scripts/verify-release-bundle.mjs --bundle $bundleRoot --updater-disabled
+          if ($LASTEXITCODE -ne 0) { throw "Final local release bundle verification failed on Windows Server 2022" }
+
+      - name: Extract and test the verified final Direct ZIP
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $package = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $version = [string]$package.version
+          $bundleRoot = Join-Path $env:RUNNER_TEMP "windows-2022-release-bundle"
+          $directZip = Join-Path $bundleRoot "tarkov-helper-web-direct-v$version.zip"
+          if (-not (Test-Path -LiteralPath $directZip -PathType Leaf)) { throw "Final Direct ZIP is missing" }
+          $extractRoot = Join-Path $env:RUNNER_TEMP "windows-2022-direct-e2e-$([Guid]::NewGuid().ToString('N'))"
+          [IO.Directory]::CreateDirectory($extractRoot) | Out-Null
+          [IO.Compression.ZipFile]::ExtractToDirectory($directZip, $extractRoot)
+          $directRoot = Join-Path $extractRoot "Tarkov Helper 바로 실행 v$version"
+          $rootEntries = @(Get-ChildItem -LiteralPath $extractRoot -Force)
+          if (
+            $rootEntries.Count -ne 1 -or -not (Test-Path -LiteralPath $directRoot -PathType Container) -or
+            -not [string]::Equals($rootEntries[0].FullName, $directRoot, [StringComparison]::Ordinal)
+          ) { throw "Final Direct ZIP did not extract to the exact release root" }
+          $port = 0
+          for ($attempt = 1; $attempt -le 10; $attempt += 1) {
+            $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+            try {
+              $listener.Start()
+              $candidatePort = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+            } finally {
+              $listener.Stop()
+            }
+            $connections = & (Join-Path $env:SystemRoot "System32\netstat.exe") -ano -p tcp
+            if ($LASTEXITCODE -ne 0) { throw "Unable to inspect Direct E2E port availability" }
+            $listeningPattern = "^\s*TCP\s+\S+:$candidatePort\s+\S+\s+LISTENING\s+\d+\s*$"
+            if (-not ($connections | Select-String -Pattern $listeningPattern)) {
+              $port = $candidatePort
+              break
+            }
+          }
+          if ($port -lt 1 -or $port -gt 65535) { throw "Unable to reserve a Direct E2E port" }
+          $env:TARKOV_HELPER_DIRECT_ROOT = $directRoot
+          $env:TARKOV_HELPER_E2E_PORT = [string]$port
+          pnpm test:e2e:direct
+          if ($LASTEXITCODE -ne 0) { throw "Extracted final Direct ZIP browser E2E failed on Windows Server 2022" }

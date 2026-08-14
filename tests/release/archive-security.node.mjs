@@ -15,6 +15,9 @@ import {
   readZipArchive,
 } from "../../scripts/release-utils.mjs";
 
+const repositoryRoot = path.resolve(import.meta.dirname, "..", "..");
+const historicalDirectTrustRoot = "sha256:874185c4bdb08ef0804728c39220082d07bd68b7af9af6f3f4f030b7fad7d915";
+
 function rsaPublicKeyPem({ exponent, modulusBytes }) {
   const modulus = Buffer.alloc(modulusBytes, 0x55);
   modulus[0] = 0x80;
@@ -237,12 +240,24 @@ test("release config and checksum contracts reject schema drift and ambiguous JS
       manifestAsset: "update-manifest-v1.json",
       signatureAsset: "update-manifest-v1.sig",
       requireImmutableRelease: true,
-      signing: { algorithm: "RSA-SHA256", minimumRsaBits: 3072 },
+      signing: {
+        algorithm: "RSA-SHA256",
+        minimumRsaBits: 3072,
+        trustedKeyId: `sha256:${"0".repeat(64)}`,
+      },
     },
   };
   try {
     await writeFile(filename, `${JSON.stringify({ ...valid, unexpected: true })}\n`);
     await assert.rejects(loadReleaseConfig(filename), /unknown or missing keys/i);
+    const missingTrustRoot = structuredClone(valid);
+    delete missingTrustRoot.updater.signing.trustedKeyId;
+    await writeFile(filename, `${JSON.stringify(missingTrustRoot)}\n`);
+    await assert.rejects(loadReleaseConfig(filename), /unknown or missing keys/i);
+    const invalidTrustRoot = structuredClone(valid);
+    invalidTrustRoot.updater.signing.trustedKeyId = `sha256:${"A".repeat(64)}`;
+    await writeFile(filename, `${JSON.stringify(invalidTrustRoot)}\n`);
+    await assert.rejects(loadReleaseConfig(filename), /updater contract is invalid/i);
     await writeFile(filename, `${JSON.stringify(valid).slice(0, -1)},"product":"forged"}\n`);
     await assert.rejects(loadReleaseConfig(filename), /duplicate JSON key/i);
     assert.throws(() => parseChecksumText(`${"0".repeat(64)}  2  z.txt\n${"0".repeat(64)}  1  a.txt\n`), /canonical ascending order/i);
@@ -252,11 +267,22 @@ test("release config and checksum contracts reject schema drift and ambiguous JS
   }
 });
 
+test("production releases keep the trust root pinned by every historical Direct client", async () => {
+  const config = await loadReleaseConfig(path.join(repositoryRoot, "release.config.example.json"));
+  assert.equal(config.updater.signing.trustedKeyId, historicalDirectTrustRoot);
+});
+
 test("release signing keys exactly match the portable verifier RSA policy", () => {
-  assert.doesNotThrow(() => loadPublicSigningKey(rsaPublicKeyPem({
+  const acceptedPem = rsaPublicKeyPem({
     exponent: [0x01, 0x00, 0x01],
     modulusBytes: 384,
-  })));
+  });
+  const accepted = loadPublicSigningKey(acceptedPem);
+  assert.doesNotThrow(() => loadPublicSigningKey(acceptedPem, accepted.keyId));
+  assert.throws(
+    () => loadPublicSigningKey(acceptedPem, `sha256:${"0".repeat(64)}`),
+    /trust root mismatch/i,
+  );
   assert.doesNotThrow(() => loadPublicSigningKey(rsaPublicKeyPem({
     exponent: [0x01, 0x00, 0x01],
     modulusBytes: 2048,
