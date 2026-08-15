@@ -324,8 +324,15 @@ async function previousUpdaterTag() {
     }
     return 0;
   });
-  assert.ok(candidates.length > 0, `No previous updater tag exists before v${currentVersion}`);
-  return candidates[0].tag;
+  return candidates.length > 0 ? candidates[0].tag : null;
+}
+
+async function requirePreviousUpdaterTag(t) {
+  const previousTag = await previousUpdaterTag();
+  if (!previousTag) {
+    t.skip(`No previous updater tag exists before v${JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version}`);
+  }
+  return previousTag;
 }
 
 async function installTaggedUpdaterCode(packageRoot, tag) {
@@ -2098,7 +2105,8 @@ test("a slow pre-swap verification is not killed by the former fixed one-minute 
 });
 
 test("the previous stable updater code performs the first hop with its own pinned broker", { skip: process.platform !== "win32", timeout: 120_000 }, async (t) => {
-  const previousTag = await previousUpdaterTag();
+  const previousTag = await requirePreviousUpdaterTag(t);
+  if (!previousTag) return;
   const currentReleaseVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
   const fixture = await createUpdateFixture({
     candidateAppSource: path.join(projectRoot, "public"),
@@ -2150,7 +2158,8 @@ test("the previous stable updater code performs the first hop with its own pinne
 });
 
 test("the current launcher resumes a previous stable broker after a first-hop NEW_MOVED crash", { skip: process.platform !== "win32", timeout: 120_000 }, async (t) => {
-  const previousTag = await previousUpdaterTag();
+  const previousTag = await requirePreviousUpdaterTag(t);
+  if (!previousTag) return;
   const currentReleaseVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
   const fixture = await createUpdateFixture({ currentVersion: previousTag.slice(1), candidateVersion: currentReleaseVersion });
   const port = await getFreePort();
@@ -2194,7 +2203,8 @@ test("the current launcher resumes a previous stable broker after a first-hop NE
 });
 
 test("isolated read-only recovery preserves a normal first-hop NEW_MOVED transaction", { skip: process.platform !== "win32", timeout: 150_000 }, async (t) => {
-  const previousTag = await previousUpdaterTag();
+  const previousTag = await requirePreviousUpdaterTag(t);
+  if (!previousTag) return;
   const currentReleaseVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
   const fixture = await createUpdateFixture({ currentVersion: previousTag.slice(1), candidateVersion: currentReleaseVersion });
   const port = await getFreePort();
@@ -2295,7 +2305,8 @@ test("isolated read-only recovery preserves a normal first-hop NEW_MOVED transac
 });
 
 test("the current launcher retires previous-version terminal state after post-COMMITTED cleanup crashes", { skip: process.platform !== "win32", timeout: 240_000 }, async (t) => {
-  const previousTag = await previousUpdaterTag();
+  const previousTag = await requirePreviousUpdaterTag(t);
+  if (!previousTag) return;
   const currentReleaseVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
 
   for (const boundary of ["BACKUP", "JOURNAL", "RUNONCE"]) {
@@ -2407,7 +2418,8 @@ test("the current launcher retires previous-version terminal state after post-CO
 });
 
 test("historical terminal cleanup recovery preserves state unless the installed tree and COMMITTED proof are exact", { skip: process.platform !== "win32", timeout: 180_000 }, async (t) => {
-  const previousTag = await previousUpdaterTag();
+  const previousTag = await requirePreviousUpdaterTag(t);
+  if (!previousTag) return;
   const currentReleaseVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
 
   for (const damage of ["tampered-tree", "non-committed-journal", "unsafe-cleanup-root"]) {
