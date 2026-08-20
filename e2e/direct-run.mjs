@@ -308,7 +308,10 @@ try {
     globalThis.document.querySelector("#map-picker")?.value === "Customs",
   );
   await page.locator(".map-player-marker").waitFor({ timeout: 10_000 });
-  await page.getByRole("button", { name: "Customs 자동 감지 연결됨" }).waitFor();
+  assert(
+    await page.getByRole("button", { name: /자동 위치 연결/ }).count() === 0,
+    "The legacy automatic-location confirmation control should not be rendered",
+  );
   const playerMarkerLabel = await page.locator(".map-player-marker").getAttribute("aria-label");
   assert(
     playerMarkerLabel?.includes("X 100") && playerMarkerLabel.includes("Y 1") && playerMarkerLabel.includes("Z 200"),
