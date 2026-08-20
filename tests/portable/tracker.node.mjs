@@ -556,14 +556,19 @@ test("local tracker starts watching when a missing configured folder appears", {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "tarkov-tracker-missing-"));
   const appRoot = path.join(temporaryRoot, "app");
   const screenshotFolder = path.join(temporaryRoot, "missing");
+  const gameLogRoot = path.join(temporaryRoot, "GameLogs");
+  const gameLogSession = path.join(gameLogRoot, "log_watcher_test");
   const stateDirectory = path.join(temporaryRoot, "state");
   await mkdir(appRoot);
+  await mkdir(gameLogSession, { recursive: true });
   await writeFile(path.join(appRoot, "index.html"), "<!doctype html><title>Tracker test</title>", "utf8");
+  await writeFile(path.join(gameLogSession, "watcher application_000.log"), "menu heartbeat\n", "utf8");
 
   const server = startServer({
     appRoot,
     screenshotFolder,
     stateDirectory,
+    gameLogRoot,
   });
   t.after(async () => {
     await stopServer(server);

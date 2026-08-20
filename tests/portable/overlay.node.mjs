@@ -929,7 +929,17 @@ test("native v2 keeps minimap and nonce-bound quest overlays independent", { ski
   let sequence = 0;
   async function command(action, ...values) {
     sequence += 1;
-    await writeFile(controlPath, `${sequence}:${action}:${values.join(":")}`, "utf8");
+    const payload = `${sequence}:${action}:${values.join(":")}`;
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      try {
+        await writeFile(controlPath, payload, "utf8");
+        return;
+      } catch (error) {
+        if (!(["EBUSY", "EPERM"].includes(error?.code)) || Date.now() >= deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
   }
   async function statusWhere(predicate) {
     return waitFor(async () => {
