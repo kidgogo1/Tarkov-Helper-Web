@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "source": "https://escapefromtarkov.fandom.com/wiki/Quests",
-  "fetchedAt": "2026-08-21T00:34:02.135Z",
-  "questCount": 501,
+  "fetchedAt": "2026-08-21T03:30:30.676Z",
+  "questCount": 517,
   "entries": {
     "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9BX0Z1ZWxfTWF0dGVy": {
       "wikiTitle": "A Fuel Matter",
@@ -11349,18 +11349,7 @@
       ]
     },
     "tarkovdata-arena-business-pvp-zone": {
-      "wikiTitle": "Arena Business",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Arena_Business",
-      "wikiLocation": [
-        "Arena"
-      ],
-      "wikiObjectives": [
-        "Complete the task Professional Fitness - Part 2",
-        "Complete the task To Great Heights! - Part 6",
-        "Complete the task Hold the Lead"
-      ],
-      "guideSummary": "",
-      "images": []
+      "error": "HTTP_429"
     },
     "tarkovdata-hold-the-lead-pvp-zone": {
       "wikiTitle": "Hold the Lead",
@@ -11611,6 +11600,54 @@
       ],
       "guideSummary": "",
       "images": []
+    },
+    "tarkovdata-69c277f3ea6da9c23e07f8d2": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69ce1cfb298a6529b30d712b": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69ce213a298a6529b30d7134": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-6a5cd2178fd7c2b201032f3f": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-6a5424ae135497b9df0c68be": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69ce21e990144e437802b1e0": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69c2a2d004de49c8f0055a3d": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-6a5c1578f2689567c30eb0f3": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69ce1de03e15cd80bd06f6c9": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69ce1f84ebbdbf36a200627c": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-6a5ccda873f06065630d61b0": {
+      "error": "NO_WIKI_LINK"
+    },
+    "tarkovdata-68ee1c18b4e5bc9a68018cd7": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-6a4532e48e82d8ffea0c3eae": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-67a09673972c11a3f507731d": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69ce204c8702b378f9091e4b": {
+      "error": "HTTP_429"
+    },
+    "tarkovdata-69e5583240c3e6c8ba0edbd5": {
+      "error": "HTTP_429"
     }
   }
 }

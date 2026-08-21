@@ -20,6 +20,9 @@ describe("Wiki quest guide index", () => {
     expect(Object.keys(guides.entries)).toHaveLength(data.quests.length);
     const verified = Object.values(guides.entries).filter((entry) => !entry.error);
     expect(verified.length).toBeGreaterThan(400);
+    expect(Object.values(guides.entries).filter((entry) =>
+      ["PAGE_NOT_FOUND", "INVALID_WIKI_LINK"].includes(entry.error),
+    )).toEqual([]);
     for (const entry of verified) {
       expect(entry.wikiPageLink).toMatch(/^https:\/\/escapefromtarkov\.fandom\.com\/wiki\//);
       for (const image of entry.images) {
