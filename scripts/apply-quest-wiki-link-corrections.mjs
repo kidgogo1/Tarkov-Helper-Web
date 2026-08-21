@@ -22,7 +22,10 @@ const output = {
     ...data.meta,
     sources: {
       ...(data.meta?.sources ?? {}),
-      wikiLinkCorrections: corrections,
+      wikiLinkCorrections: Math.max(
+        Number(data.meta?.sources?.wikiLinkCorrections ?? 0),
+        corrections,
+      ),
       wikiLinkUnverifiedQuests: unverified,
     },
   },
