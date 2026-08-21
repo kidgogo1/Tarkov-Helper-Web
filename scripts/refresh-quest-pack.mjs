@@ -4,12 +4,20 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import { extractWikiQuestMeta, mergeQuestSources } from "./quest-pack.mjs";
+import {
+  extractWikiQuestMeta,
+  mergeQuestSources,
+  normalizeTarkovDevTasks,
+} from "./quest-pack.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const defaultInput = path.join(projectRoot, "public", "data", "tarkov-data.json");
 const defaultOutput = defaultInput;
 const tarkovDataUrl = "https://raw.githubusercontent.com/TarkovLab/TarkovData/master/data/quests.json";
+const liveTasksUrl = "https://json.tarkov.dev/regular/tasks";
+const liveTasksEnglishUrl = "https://json.tarkov.dev/regular/tasks_en";
+const liveTasksKoreanUrl = "https://json.tarkov.dev/regular/tasks_ko";
+const liveMapsEnglishUrl = "https://json.tarkov.dev/regular/maps_en";
 const wikiApiUrl = "https://escapefromtarkov.fandom.com/api.php";
 
 function option(name, fallback) {
@@ -35,12 +43,35 @@ async function loadWikiMeta() {
 async function main() {
   const inputPath = path.resolve(option("--input", defaultInput));
   const outputPath = path.resolve(option("--output", defaultOutput));
-  const [localPack, tarkovData, wikiMeta] = await Promise.all([
+  const [localPack, tarkovData, wikiMeta, liveTasks, liveTasksEnglish, liveTasksKorean, liveMapsEnglish] = await Promise.all([
     readFile(inputPath, "utf8").then(JSON.parse),
     fetchJson(tarkovDataUrl),
     loadWikiMeta(),
+    fetchJson(liveTasksUrl),
+    fetchJson(liveTasksEnglishUrl),
+    fetchJson(liveTasksKoreanUrl),
+    fetchJson(liveMapsEnglishUrl),
   ]);
-  const refreshed = mergeQuestSources(localPack, tarkovData, wikiMeta);
+  const liveQuests = normalizeTarkovDevTasks({
+    data: liveTasks.data ?? liveTasks,
+    english: liveTasksEnglish.data ?? liveTasksEnglish,
+    korean: liveTasksKorean.data ?? liveTasksKorean,
+    maps: liveMapsEnglish.data ?? liveMapsEnglish,
+    traders: localPack.traders ?? [],
+  });
+  const refreshed = mergeQuestSources(
+    localPack,
+    {
+      ...tarkovData,
+      meta: {
+        ...(tarkovData.meta ?? {}),
+        liveTaskCount: liveQuests.length,
+        liveTaskSource: liveTasksUrl,
+      },
+      quests: [...(tarkovData.quests ?? []), ...liveQuests],
+    },
+    wikiMeta,
+  );
   const temporaryPath = `${outputPath}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(refreshed, null, 2)}\n`, "utf8");
   await rename(temporaryPath, outputPath);

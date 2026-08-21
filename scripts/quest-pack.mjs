@@ -115,6 +115,7 @@ const WIKI_QUEST_REDIRECT_TITLES = [
   ["The Bunker - Part 1", "The Bunker"],
   ["The Huntsman Path - Eraser - Part 1", "The Huntsman Path - Eraser"],
   ["The Huntsman Path - Eraser - Part 2", "The Huntsman Path - Liberation"],
+  ["The Huntsman Path - Control", "The Huntsman Path - Controller"],
   ["Vitamins - Part 1", "Vitamins"],
   ["Vitamins - Part 2", "Supplements"],
 ].map(([legacyName, currentName]) => [
@@ -132,6 +133,12 @@ const WIKI_QUEST_REDIRECT_TITLES = [
 // were removed. Keep the quest's in-game name/identity, but point the external
 // link at the verified parent page instead of leaving a 404 URL in the pack.
 const WIKI_QUEST_LINK_ONLY = new Map([
+  // The game task keeps the mode suffix, while the Wiki uses the shorter
+  // canonical page title.
+  ["Arena Business [PVP ZONE]", "Arena Business"],
+  // Fandom title casing is significant in its API, even though the quest
+  // name is otherwise identical.
+  ["Demonstration Model", "Demonstration model"],
   ["Beyond the Red Meat - Part 1", "Beyond the Red Meat"],
   ["Beyond the Red Meat - Part 2", "Beyond the Red Meat"],
   ["Cargo X - Part 1", "Cargo X"],
@@ -159,6 +166,8 @@ const WIKI_QUEST_UNVERIFIED_TITLES = new Set([
   "No Offence",
   "No Questions Asked",
   "Painkiller",
+  // The live task exists, but Fandom has no dedicated page for it yet.
+  "Secret Message",
   "Spa Tour - Part 1",
   "Spa Tour - Part 3",
   "Spa Tour - Part 4",
@@ -180,6 +189,22 @@ const WIKI_QUEST_ID_RENAMES = new Map([
   ["tarkovdata-new-beginning-2", "New Beginning (Prestige 2)"],
   ["tarkovdata-new-beginning-3", "New Beginning (Prestige 3)"],
   ["tarkovdata-new-beginning-4", "New Beginning (Prestige 4)"],
+  // The live task feed uses localized German names and new BSG ids for the
+  // prestige chain. Match each task by its stable id so all three pages keep
+  // their distinct objectives and requirements.
+  ["tarkovdata-6761ff17cdc36bd66102e9d0", "New Beginning (Prestige 2)"],
+  ["tarkovdata-6848100b00afffa81f09e365", "New Beginning (Prestige 3)"],
+  ["tarkovdata-68481881f43abfdda2058369", "New Beginning (Prestige 4)"],
+  ["tarkovdata-6a4532e48e82d8ffea0c3eae", "The Huntsman Path - Controller"],
+]);
+
+// Some newly published tasks have a stale or already-cleared link in an
+// existing bundle. Resolve them by stable task id so a cleanup run can repair
+// the link even when there is no old URL left to inspect.
+const WIKI_QUEST_ID_LINKS = new Map([
+  ["tarkovdata-697877e0c639962b2e0cf24f", "Arena Business"],
+  ["tarkovdata-6a5cd2178fd7c2b201032f3f", "Demonstration model"],
+  ["tarkovdata-6a4532e48e82d8ffea0c3eae", "The Huntsman Path - Controller"],
 ]);
 
 function wikiPageLinkForTitle(title) {
@@ -214,6 +239,8 @@ export function applyWikiQuestRenames(quests) {
         ...(legacyNames.size > 0 ? { nameAliases: [...legacyNames] } : {}),
       };
     }
+    const idLink = WIKI_QUEST_ID_LINKS.get(quest?.id);
+    if (idLink) return { ...quest, wikiPageLink: wikiPageLinkForTitle(idLink) };
     const oldTitle = wikiTitleFromUrl(quest?.wikiPageLink);
     const linkOnlyTitle = WIKI_QUEST_LINK_ONLY.get(oldTitle);
     if (linkOnlyTitle) {
@@ -302,7 +329,11 @@ function applyQuestObjectiveMapOverrides(quest) {
 }
 
 function objectiveLocations(remoteObjective) {
-  return Array.isArray(remoteObjective?.locations) ? remoteObjective.locations : [];
+  if (Array.isArray(remoteObjective?.locations)) return remoteObjective.locations;
+  if (Array.isArray(remoteObjective?.maps)) {
+    return remoteObjective.maps.map((map) => ({ map }));
+  }
+  return [];
 }
 
 function questLocations(remoteQuest) {
@@ -333,6 +364,11 @@ function appObjective(remoteQuest, remoteObjective, index, questId) {
     objectiveType: String(remoteObjective?.type ?? "other"),
     description: String(remoteObjective?.description ?? remoteObjective?.type ?? "Objective"),
     targetType: String(remoteObjective?.type ?? "other"),
+    ...(remoteObjective?.descriptionKo ? { descriptionKo: String(remoteObjective.descriptionKo) } : {}),
+    ...(Number.isFinite(Number(remoteObjective?.count)) ? { targetCount: Number(remoteObjective.count) } : {}),
+    ...(Array.isArray(remoteObjective?.items) && remoteObjective.items[0]
+      ? { itemId: String(remoteObjective.items[0]) }
+      : {}),
     ...(mapName ? { mapName } : {}),
     requiresFir: false,
     // TarkovData's x/y values are map pixels, not the web pack's world coordinates.
@@ -356,18 +392,147 @@ export function toAppQuest(remoteQuest) {
     normalizedName: String(remoteQuest?.id ?? normalizeQuestName(remoteQuest?.name)),
     name: String(remoteQuest?.name ?? remoteQuest?.id ?? "Unknown quest"),
     nameEn: String(remoteQuest?.name ?? remoteQuest?.id ?? "Unknown quest"),
+    ...(remoteQuest?.nameKo ? { nameKo: String(remoteQuest.nameKo) } : {}),
     ...(questWikiUrl(remoteQuest) ? { wikiPageLink: questWikiUrl(remoteQuest) } : {}),
     trader: String(remoteQuest?.trader ?? ""),
     locations: questLocations(remoteQuest),
     ...(Number.isFinite(minLevel) && minLevel > 0 ? { minLevel } : {}),
     kappaRequired: Boolean(remoteQuest?.kappa),
     ...(remoteQuest?.faction ? { faction: String(remoteQuest.faction) } : {}),
-    requirements: [],
+    requirements: Array.isArray(remoteQuest?.requirements) ? remoteQuest.requirements : [],
     alternativeQuestIds: [],
     followUpQuestIds: [],
     objectives,
     requiredItems: [],
   });
+}
+
+function mergeQuestObjectives(localObjectives, refreshedObjectives) {
+  const localById = new Map(
+    (Array.isArray(localObjectives) ? localObjectives : [])
+      .filter((objective) => objective?.id)
+      .map((objective) => [String(objective.id), objective]),
+  );
+  const refreshedIds = new Set();
+  const objectives = (Array.isArray(refreshedObjectives) ? refreshedObjectives : []).map((objective) => {
+    const id = String(objective?.id ?? "");
+    refreshedIds.add(id);
+    const local = localById.get(id);
+    if (!local) return objective;
+    return {
+      ...local,
+      ...objective,
+      // Keep map/marker enrichment from the existing pack, while accepting a
+      // newly localized description and map from the live task feed.
+      ...(local.mapName ? { mapName: local.mapName } : {}),
+      ...(Array.isArray(local.locationPoints) && local.locationPoints.length > 0
+        ? { locationPoints: local.locationPoints }
+        : {}),
+      ...(Array.isArray(local.optionalPoints) && local.optionalPoints.length > 0
+        ? { optionalPoints: local.optionalPoints }
+        : {}),
+    };
+  });
+  for (const local of Array.isArray(localObjectives) ? localObjectives : []) {
+    if (local?.id && !refreshedIds.has(String(local.id))) objectives.push(local);
+  }
+  return objectives;
+}
+
+function mergeQuestRecord(localQuest, refreshedQuest) {
+  const localLocations = Array.isArray(localQuest?.locations) ? localQuest.locations : [];
+  const refreshedLocations = Array.isArray(refreshedQuest?.locations) ? refreshedQuest.locations : [];
+  const localRequirements = Array.isArray(localQuest?.requirements) ? localQuest.requirements : [];
+  const refreshedRequirements = Array.isArray(refreshedQuest?.requirements)
+    ? refreshedQuest.requirements
+    : [];
+  const localRequiredItems = Array.isArray(localQuest?.requiredItems) ? localQuest.requiredItems : [];
+  const refreshedRequiredItems = Array.isArray(refreshedQuest?.requiredItems)
+    ? refreshedQuest.requiredItems
+    : [];
+  return {
+    ...refreshedQuest,
+    ...localQuest,
+    id: localQuest.id,
+    bsgId: localQuest.bsgId ?? refreshedQuest.bsgId,
+    name: refreshedQuest.name ?? localQuest.name,
+    nameEn: refreshedQuest.nameEn ?? localQuest.nameEn,
+    ...(refreshedQuest.nameKo ? { nameKo: refreshedQuest.nameKo } : {}),
+    normalizedName: localQuest.normalizedName ?? refreshedQuest.normalizedName,
+    wikiPageLink: refreshedQuest.wikiPageLink ?? localQuest.wikiPageLink,
+    trader: refreshedQuest.trader || localQuest.trader,
+    locations: localLocations.length > 0 ? localLocations : refreshedLocations,
+    requirements: refreshedRequirements.length > 0 ? refreshedRequirements : localRequirements,
+    alternativeQuestIds: localQuest.alternativeQuestIds?.length
+      ? localQuest.alternativeQuestIds
+      : (refreshedQuest.alternativeQuestIds ?? []),
+    followUpQuestIds: localQuest.followUpQuestIds?.length
+      ? localQuest.followUpQuestIds
+      : (refreshedQuest.followUpQuestIds ?? []),
+    objectives: mergeQuestObjectives(localQuest.objectives, refreshedQuest.objectives),
+    requiredItems: localRequiredItems.length > 0 ? localRequiredItems : refreshedRequiredItems,
+  };
+}
+
+function localizedValue(dictionary, key, fallback = "") {
+  const value = dictionary?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+/**
+ * Normalize json.tarkov.dev's task endpoint into the source shape consumed by
+ * mergeQuestSources. The endpoint uses localization keys for names/objectives
+ * and trader ids, so resolving those here prevents placeholder labels from
+ * entering the app bundle.
+ */
+export function normalizeTarkovDevTasks({ data, english = {}, korean = {}, maps = {}, traders = [] }) {
+  const traderNames = new Map(
+    traders
+      .filter((trader) => trader?.id && trader?.name)
+      .map((trader) => [String(trader.id), String(trader.name)]),
+  );
+  const mapName = (value) => {
+    const raw = String(value ?? "");
+    return localizedValue(maps, `${raw} Name`, mapDisplayName(raw));
+  };
+  const tasks = Object.values(data?.tasks ?? {});
+  return tasks.map((task) => {
+    const id = String(task?.id ?? "");
+    const fallbackName = String(task?.name ?? id ?? "Unknown quest").replace(/ name$/, "");
+    const objectives = Array.isArray(task?.objectives)
+      ? task.objectives.map((objective) => {
+          const objectiveId = String(objective?.id ?? "");
+          return {
+            ...objective,
+            description: localizedValue(english, objectiveId, String(objective?.description ?? objective?.type ?? "Objective")),
+            ...(localizedValue(korean, objectiveId)
+              ? { descriptionKo: localizedValue(korean, objectiveId) }
+              : {}),
+            ...(Array.isArray(objective?.maps)
+              ? { locations: objective.maps.map((map) => ({ map: mapName(map) })) }
+              : {}),
+          };
+        })
+      : [];
+    return {
+      ...task,
+      id,
+      gameId: id,
+      name: localizedValue(english, `${id} name`, fallbackName),
+      nameKo: localizedValue(korean, `${id} name`),
+      trader: traderNames.get(String(task?.trader ?? "")) ?? String(task?.trader ?? ""),
+      map: mapName(task?.map),
+      wiki: typeof task?.wikiLink === "string" ? task.wikiLink : undefined,
+      requirements: Array.isArray(task?.taskRequirements)
+        ? task.taskRequirements.map((requirement, index) => ({
+            questId: String(requirement?.task ?? ""),
+            requirementType: String(requirement?.status?.[0] ?? "Complete"),
+            groupId: index + 1,
+          }))
+        : [],
+      objectives,
+    };
+  }).filter((task) => task.id);
 }
 
 function hasLocalMatch(localQuest, remoteQuest, localByBsgId, localByName) {
@@ -390,7 +555,7 @@ export function mergeQuestSources(localPack, tarkovData, wikiMeta = {}) {
     const remote = quest?.id?.startsWith("tarkovdata-") && quest?.bsgId
       ? remoteByBsgId.get(String(quest.bsgId))
       : undefined;
-    return remote ? toAppQuest(remote) : quest;
+    return remote ? mergeQuestRecord(quest, toAppQuest(remote)) : quest;
   });
   const additions = remoteQuests
     .filter((quest) => !hasLocalMatch(localQuests, quest, localByBsgId, localByName))
@@ -405,6 +570,10 @@ export function mergeQuestSources(localPack, tarkovData, wikiMeta = {}) {
     localExportedAt: localMeta.sources?.localExportedAt ?? localMeta.exportedAt ?? null,
     tarkovDataGeneratedAt: remoteGenerated ?? null,
     tarkovDataQuestCount: Number(tarkovData?.meta?.count ?? remoteQuests.length),
+    ...(Number.isFinite(Number(tarkovData?.meta?.liveTaskCount))
+      ? { liveTaskCount: Number(tarkovData.meta.liveTaskCount) }
+      : {}),
+    ...(tarkovData?.meta?.liveTaskSource ? { liveTaskSource: tarkovData.meta.liveTaskSource } : {}),
     wikiQuestCount: Number(wikiMeta.wikiQuestCount ?? 0),
     wikiRevisionTimestamp: wikiMeta.wikiRevisionTimestamp ?? null,
     refreshMode: "preserve-local-enriched-append-tarkovdata",
