@@ -3,6 +3,8 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 
+import { applyWikiGuideLinkErrors } from "./quest-pack.mjs";
+
 const root = path.resolve(import.meta.dirname, "..");
 const dataPath = path.join(root, "public", "data", "tarkov-data.json");
 const guidesPath = path.join(root, "public", "data", "quest-wiki-guides.json");
@@ -18,6 +20,7 @@ function normalize(value) {
 
 const data = JSON.parse(await readFile(dataPath, "utf8"));
 const guides = JSON.parse(await readFile(guidesPath, "utf8"));
+const linkCorrectedQuests = applyWikiGuideLinkErrors(data.quests ?? [], guides);
 const mapAliases = new Map();
 for (const map of data.mapConfigs ?? []) {
   const canonical = map.displayName;
@@ -28,7 +31,7 @@ for (const map of data.mapConfigs ?? []) {
 mapAliases.set("labs", "The Lab");
 
 const corrections = [];
-const quests = (data.quests ?? []).map((quest) => {
+const quests = linkCorrectedQuests.map((quest) => {
   const guide = guides.entries?.[quest.id];
   if (!guide || guide.error) return quest;
   const wikiMaps = [...new Set((guide.wikiLocation ?? [])
@@ -58,6 +61,7 @@ const output = {
         Number(data.meta?.sources?.wikiLocationCorrections ?? 0),
         corrections.length,
       ),
+      wikiLinkUnverifiedQuests: quests.filter((quest) => !quest?.wikiPageLink).length,
     },
   },
 };

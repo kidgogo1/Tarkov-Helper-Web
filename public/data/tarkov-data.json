@@ -14,8 +14,8 @@
       "localExportedAt": "2026-05-06T18:03:23Z",
       "tarkovDataGeneratedAt": "2026-08-02T09:43:19.569Z",
       "tarkovDataQuestCount": 501,
-      "wikiQuestCount": 516,
-      "wikiRevisionTimestamp": "2026-08-07T14:28:05Z",
+      "wikiQuestCount": 514,
+      "wikiRevisionTimestamp": "2026-08-19T23:11:55Z",
       "refreshMode": "preserve-local-enriched-append-tarkovdata-wiki-rewards",
       "koreanLocalizationSource": "https://json.tarkov.dev/regular/tasks_ko",
       "koreanLocalizedQuests": 471,
@@ -24,9 +24,11 @@
       "wikiRewardItemCount": 713,
       "wikiRewardUnmappedLineCount": 20,
       "wikiRewardRevisionTimestamp": "2026-08-07T14:28:05Z",
-      "wikiLocationVerifiedAt": "2026-08-10T11:08:43.737Z",
-      "wikiLocationVerifiedQuests": 463,
-      "wikiLocationCorrections": 4
+      "wikiLocationVerifiedAt": "2026-08-21T00:34:02.135Z",
+      "wikiLocationVerifiedQuests": 480,
+      "wikiLocationCorrections": 5,
+      "wikiLinkCorrections": 40,
+      "wikiLinkUnverifiedQuests": 21
     }
   },
   "quests": [
@@ -4049,7 +4051,7 @@
       "nameEn": "Beyond the Red Meat - Part 1",
       "nameKo": "Beyond the Red Meat - Part 1",
       "nameJa": "Beyond the Red Meat - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat",
       "trader": "Skier",
       "locations": [
         "StreetsOfTarkov"
@@ -4125,7 +4127,7 @@
       "nameEn": "Beyond the Red Meat - Part 2",
       "nameKo": "Beyond the Red Meat - Part 2",
       "nameJa": "Beyond the Red Meat - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat",
       "trader": "Skier",
       "locations": [
         "StreetsOfTarkov"
@@ -4778,12 +4780,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9CUF9EZXBvdA==",
       "bsgId": "59c124d686f774189b3c843f",
-      "normalizedName": "bp-depot",
-      "name": "BP Depot",
-      "nameEn": "BP Depot",
+      "normalizedName": "oil-run",
+      "name": "Oil Run",
+      "nameEn": "Oil Run",
       "nameKo": "BP 연료 확보",
-      "nameJa": "BP Depot",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/BP_Depot",
+      "nameJa": "Oil Run",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Oil_Run",
       "trader": "Prapor",
       "locations": [
         "Customs"
@@ -4905,6 +4907,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "BP Depot"
       ]
     },
     {
@@ -6874,7 +6879,7 @@
       "nameEn": "Cargo X - Part 1",
       "nameKo": "화물 X - 파트 1",
       "nameJa": "Cargo X - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -6964,7 +6969,7 @@
       "nameEn": "Cargo X - Part 2",
       "nameKo": "화물 X - 파트 2",
       "nameJa": "Cargo X - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -13414,7 +13419,12 @@
       "nameJa": "Debut",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Debut",
       "trader": "Prapor",
-      "locations": [],
+      "locations": [
+        "Woods",
+        "Ground Zero",
+        "Interchange",
+        "Customs"
+      ],
       "kappaRequired": true,
       "requirements": [
         {
@@ -13865,7 +13875,6 @@
       "nameEn": "Developer's Secrets - Part 1",
       "nameKo": "Developer's Secrets - Part 1",
       "nameJa": "Developer's Secrets - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Developer%27s_Secrets_-_Part_1",
       "trader": "Mechanic",
       "locations": [
         "StreetsOfTarkov"
@@ -13939,7 +13948,6 @@
       "nameEn": "Developer's Secrets - Part 2",
       "nameKo": "Developer's Secrets - Part 2",
       "nameJa": "Developer's Secrets - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Developer%27s_Secrets_-_Part_2",
       "trader": "Mechanic",
       "locations": [
         "StreetsOfTarkov"
@@ -17866,7 +17874,7 @@
       "nameEn": "Friend From the West - Part 1",
       "nameKo": "서쪽에서 온 친구 - 파트 1",
       "nameJa": "Friend From the West - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Friend_From_the_West_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Friend_From_the_West",
       "trader": "Skier",
       "locations": [],
       "minLevel": 9,
@@ -18090,7 +18098,6 @@
       "nameEn": "Mall Cop",
       "nameKo": "헌병대 - 쇼핑몰 경비대",
       "nameJa": "Mall Cop",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Mall_Cop",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -18201,7 +18208,6 @@
       "nameEn": "Tickets, Please",
       "nameKo": "헌병대 - 표 검사",
       "nameJa": "Tickets, Please",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Tickets%2C_Please",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -19538,7 +19544,6 @@
       "nameEn": "Gunsmith - Old Friend's Request",
       "nameKo": "Gunsmith - Old Friend's Request",
       "nameJa": "Gunsmith - Old Friend's Request",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Old_Friend%27s_Request",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 17,
@@ -20920,7 +20925,6 @@
       "nameEn": "Gunsmith - Part 23",
       "nameKo": "Gunsmith - Part 23",
       "nameJa": "Gunsmith - Part 23",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_23",
       "trader": "Mechanic",
       "locations": [],
       "kappaRequired": false,
@@ -20958,7 +20962,6 @@
       "nameEn": "Gunsmith - Part 24",
       "nameKo": "Gunsmith - Part 24",
       "nameJa": "Gunsmith - Part 24",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_24",
       "trader": "Mechanic",
       "locations": [],
       "kappaRequired": false,
@@ -20995,7 +20998,6 @@
       "nameEn": "Gunsmith - Part 25",
       "nameKo": "Gunsmith - Part 25",
       "nameJa": "Gunsmith - Part 25",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_25",
       "trader": "Mechanic",
       "locations": [],
       "kappaRequired": false,
@@ -21210,12 +21212,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNQ==",
       "bsgId": "5ae3267986f7742a413592fe",
-      "normalizedName": "gunsmith---part-5",
-      "name": "Gunsmith - Part 5",
-      "nameEn": "Gunsmith - Part 5",
+      "normalizedName": "gunsmith-model-870",
+      "name": "Gunsmith - Model 870",
+      "nameEn": "Gunsmith - Model 870",
       "nameKo": "건스미스 - 파트 5",
-      "nameJa": "Gunsmith - Part 5",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_5",
+      "nameJa": "Gunsmith - Model 870",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Model_870",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 10,
@@ -21245,7 +21247,10 @@
           "descriptionKo": "Remington Model 870을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 5"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNg==",
@@ -31830,12 +31835,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9OZXdfRGF5JTJDX05ld19QYXRocw==",
       "bsgId": "66aa58245ab22944110db6e9",
-      "normalizedName": "new-day-new-paths",
-      "name": "New Day, New Paths",
-      "nameEn": "New Day, New Paths",
+      "normalizedName": "new-paths",
+      "name": "New Paths",
+      "nameEn": "New Paths",
       "nameKo": "New Day, New Paths",
-      "nameJa": "New Day, New Paths",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Day%2C_New_Paths",
+      "nameJa": "New Paths",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Paths",
       "trader": "Peacekeeper",
       "locations": [
         "GroundZero",
@@ -31893,7 +31898,10 @@
           "descriptionKo": "Locate the passage leading to Streets of Tarkov on Ground Zero (In one raid)"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "New Day, New Paths"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9OaWdodF9Td2VlcA==",
@@ -32085,7 +32093,6 @@
       "nameEn": "No Offence",
       "nameKo": "악의 없음",
       "nameJa": "No Offence",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/No_Offence",
       "trader": "Prapor",
       "locations": [],
       "kappaRequired": false,
@@ -32261,7 +32268,6 @@
       "nameEn": "No Questions Asked",
       "nameKo": "No Questions Asked",
       "nameJa": "No Questions Asked",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/No_Questions_Asked",
       "trader": "Prapor",
       "locations": [],
       "kappaRequired": false,
@@ -32872,7 +32878,7 @@
       "nameEn": "Operation Aquarius - Part 1",
       "nameKo": "물병자리 작전 - 파트 1",
       "nameJa": "Operation Aquarius - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius",
       "trader": "Therapist",
       "locations": [
         "Customs"
@@ -32940,7 +32946,7 @@
       "nameEn": "Operation Aquarius - Part 2",
       "nameKo": "물병자리 작전 - 파트 2",
       "nameJa": "Operation Aquarius - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius",
       "trader": "Therapist",
       "locations": [
         "Customs"
@@ -33335,7 +33341,6 @@
       "nameEn": "Painkiller",
       "nameKo": "진통제",
       "nameJa": "Painkiller",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Painkiller",
       "trader": "Therapist",
       "locations": [],
       "minLevel": 8,
@@ -34077,7 +34082,7 @@
       "nameEn": "Pets Won't Need It - Part 1",
       "nameKo": "Pets Won't Need It - Part 1",
       "nameJa": "Pets Won't Need It - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Pets_Won%27t_Need_It_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Pets_Won't_Need_It",
       "trader": "Therapist",
       "locations": [
         "StreetsOfTarkov"
@@ -38760,9 +38765,11 @@
       "nameEn": "Sanitary Standards - Part 1",
       "nameKo": "위생 기준 - 파트 1",
       "nameJa": "Sanitary Standards - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Sanitary_Standards_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Sanitary_Standards",
       "trader": "Therapist",
-      "locations": [],
+      "locations": [
+        "Factory"
+      ],
       "minLevel": 4,
       "kappaRequired": true,
       "requirements": [
@@ -43363,7 +43370,6 @@
       "nameEn": "Spa Tour - Part 1",
       "nameKo": "스파 관광 - 파트 1",
       "nameJa": "Spa Tour - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_1",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -43520,7 +43526,6 @@
       "nameEn": "Spa Tour - Part 3",
       "nameKo": "스파 관광 - 파트 3",
       "nameJa": "Spa Tour - Part 3",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_3",
       "trader": "Peacekeeper",
       "locations": [],
       "minLevel": 12,
@@ -43679,7 +43684,6 @@
       "nameEn": "Spa Tour - Part 4",
       "nameKo": "스파 관광 - 파트 4",
       "nameJa": "Spa Tour - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_4",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -43777,7 +43781,6 @@
       "nameEn": "Spa Tour - Part 5",
       "nameKo": "스파 관광 - 파트 5",
       "nameJa": "Spa Tour - Part 5",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_5",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -43904,7 +43907,6 @@
       "nameEn": "Spa Tour - Part 7",
       "nameKo": "스파 관광 - 파트 7",
       "nameJa": "Spa Tour - Part 7",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_7",
       "trader": "Peacekeeper",
       "locations": [],
       "minLevel": 12,
@@ -46676,7 +46678,6 @@
       "nameEn": "Test Drive - Part 4",
       "nameKo": "시범운용 - 파트 4",
       "nameJa": "Test Drive - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_4",
       "trader": "Prapor",
       "locations": [
         "Shoreline",
@@ -46723,7 +46724,6 @@
       "nameEn": "Test Drive - Part 5",
       "nameKo": "시범운용 - 파트 5",
       "nameJa": "Test Drive - Part 5",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_5",
       "trader": "Prapor",
       "locations": [
         "Factory"
@@ -46768,7 +46768,6 @@
       "nameEn": "Test Drive - Part 6",
       "nameKo": "Test Drive - Part 6",
       "nameJa": "Test Drive - Part 6",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_6",
       "trader": "Prapor",
       "locations": [
         "Customs"
@@ -48133,7 +48132,7 @@
       "nameEn": "The Cult - Part 1",
       "nameKo": "광신도 - 파트 1",
       "nameJa": "The Cult - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -48192,7 +48191,7 @@
       "nameEn": "The Cult - Part 2",
       "nameKo": "광신도 - 파트 2",
       "nameJa": "The Cult - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline",
@@ -49816,12 +49815,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0V2aWxfV2F0Y2htYW4=",
       "bsgId": "5d25e44386f77409453bce7b",
-      "normalizedName": "the-huntsman-path---evil-watchman",
-      "name": "The Huntsman Path - Evil Watchman",
-      "nameEn": "The Huntsman Path - Evil Watchman",
+      "normalizedName": "the-huntsman-path-angry-watchman",
+      "name": "The Huntsman Path - Angry Watchman",
+      "nameEn": "The Huntsman Path - Angry Watchman",
       "nameKo": "사냥꾼의 길 - 사악한 경비원",
-      "nameJa": "The Huntsman Path - Evil Watchman",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Evil_Watchman",
+      "nameJa": "The Huntsman Path - Angry Watchman",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Angry_Watchman",
       "trader": "Jaeger",
       "locations": [
         "Customs"
@@ -49914,7 +49913,10 @@
           "descriptionKo": "세관(Customs)의 기숙사 지역에서 PMC 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "The Huntsman Path - Evil Watchman"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0ZhY3RvcnlfQ2hpZWY=",
@@ -53506,7 +53508,6 @@
       "nameEn": "The Tarkov Shooter - Part 8",
       "nameKo": "타르코프의 저격수 - 파트 8",
       "nameJa": "The Tarkov Shooter - Part 8",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Tarkov_Shooter_-_Part_8",
       "trader": "Jaeger",
       "locations": [],
       "kappaRequired": true,
@@ -55178,7 +55179,6 @@
       "nameEn": "Trust Regain",
       "nameKo": "신뢰 회복",
       "nameJa": "Trust Regain",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Trust_Regain",
       "trader": "Therapist",
       "locations": [],
       "kappaRequired": false,
@@ -55878,7 +55878,9 @@
       "nameJa": "Supplements",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Supplements",
       "trader": "Skier",
-      "locations": [],
+      "locations": [
+        "Customs"
+      ],
       "minLevel": 22,
       "kappaRequired": true,
       "requirements": [
@@ -57337,10 +57339,10 @@
     {
       "id": "tarkovdata-new-beginning",
       "bsgId": "6761f28a022f60bb320f3e95",
-      "normalizedName": "new-beginning",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-1",
+      "name": "New Beginning (Prestige 1)",
+      "nameEn": "New Beginning (Prestige 1)",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_1)",
       "trader": "Ragman",
       "locations": [
         "TheLab"
@@ -57423,15 +57425,18 @@
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameKo": "New Beginning",
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-new-beginning-2",
       "bsgId": "6761ff17cdc36bd66102e9d0",
-      "normalizedName": "new-beginning-2",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-2",
+      "name": "New Beginning (Prestige 2)",
+      "nameEn": "New Beginning (Prestige 2)",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_2)",
       "trader": "Ragman",
       "locations": [
         "TheLab"
@@ -57514,17 +57519,23 @@
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameKo": "New Beginning",
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-new-beginning-3",
       "bsgId": "6848100b00afffa81f09e365",
-      "normalizedName": "new-beginning-3",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-3",
+      "name": "New Beginning (Prestige 3)",
+      "nameEn": "New Beginning (Prestige 3)",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_3)",
       "trader": "Ragman",
-      "locations": [],
+      "locations": [
+        "The Lab",
+        "Streets of Tarkov"
+      ],
       "minLevel": 35,
       "kappaRequired": false,
       "requirements": [],
@@ -57617,17 +57628,24 @@
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameKo": "New Beginning",
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-new-beginning-4",
       "bsgId": "68481881f43abfdda2058369",
-      "normalizedName": "new-beginning-4",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-4",
+      "name": "New Beginning (Prestige 4)",
+      "nameEn": "New Beginning (Prestige 4)",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_4)",
       "trader": "Ragman",
-      "locations": [],
+      "locations": [
+        "The Lab",
+        "Streets of Tarkov",
+        "Interchange"
+      ],
       "minLevel": 40,
       "kappaRequired": false,
       "requirements": [],
@@ -57731,7 +57749,10 @@
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameKo": "New Beginning",
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-professional-fitness-part-1-pvp-zone",

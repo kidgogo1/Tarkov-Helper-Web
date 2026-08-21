@@ -20,6 +20,8 @@ export interface DataMeta {
     wikiLocationVerifiedAt?: string | null;
     wikiLocationVerifiedQuests?: number;
     wikiLocationCorrections?: number;
+    wikiLinkCorrections?: number;
+    wikiLinkUnverifiedQuests?: number;
   };
   counts: {
     quests: number;

@@ -55,6 +55,10 @@ const WIKI_QUEST_RENAMES = new Map([
 // Fandom has redirected these legacy titles to the current quest names. Keep
 // the old display name as an alias while updating the canonical page link.
 const WIKI_QUEST_REDIRECT_TITLES = [
+  ["BP Depot", "Oil Run"],
+  ["Gunsmith - Part 5", "Gunsmith - Model 870"],
+  ["New Day, New Paths", "New Paths"],
+  ["The Huntsman Path - Evil Watchman", "The Huntsman Path - Angry Watchman"],
   ["A Shooter Born in Heaven", "Shooter Born in Heaven"],
   ["Ambulance", "First Aid"],
   ["Ambulances Again", "Paramedic"],
@@ -124,6 +128,64 @@ const WIKI_QUEST_REDIRECT_TITLES = [
   },
 ]);
 
+// Fandom keeps a single parent page for some quests whose old per-part pages
+// were removed. Keep the quest's in-game name/identity, but point the external
+// link at the verified parent page instead of leaving a 404 URL in the pack.
+const WIKI_QUEST_LINK_ONLY = new Map([
+  ["Beyond the Red Meat - Part 1", "Beyond the Red Meat"],
+  ["Beyond the Red Meat - Part 2", "Beyond the Red Meat"],
+  ["Cargo X - Part 1", "Cargo X"],
+  ["Cargo X - Part 2", "Cargo X"],
+  ["Friend From the West - Part 1", "Friend From the West"],
+  ["Operation Aquarius - Part 1", "Operation Aquarius"],
+  ["Operation Aquarius - Part 2", "Operation Aquarius"],
+  ["Pets Won't Need It - Part 1", "Pets Won't Need It"],
+  ["Sanitary Standards - Part 1", "Sanitary Standards"],
+  ["The Cult - Part 1", "The Cult"],
+  ["The Cult - Part 2", "The Cult"],
+]);
+
+// These old names currently have no dedicated page on the Wiki. Removing the
+// dead URL is safer than linking to a different quest and presenting its
+// objectives as if they belonged to this one.
+const WIKI_QUEST_UNVERIFIED_TITLES = new Set([
+  "Developer's Secrets - Part 1",
+  "Developer's Secrets - Part 2",
+  "Gunsmith - Old Friend's Request",
+  "Gunsmith - Part 23",
+  "Gunsmith - Part 24",
+  "Gunsmith - Part 25",
+  "Mall Cop",
+  "No Offence",
+  "No Questions Asked",
+  "Painkiller",
+  "Spa Tour - Part 1",
+  "Spa Tour - Part 3",
+  "Spa Tour - Part 4",
+  "Spa Tour - Part 5",
+  "Spa Tour - Part 7",
+  "Test Drive - Part 4",
+  "Test Drive - Part 5",
+  "Test Drive - Part 6",
+  "The Tarkov Shooter - Part 8",
+  "Tickets, Please",
+  "Trust Regain",
+]);
+
+// Prestige quests all share the legacy German title in the upstream pack.
+// Their stable ids let us attach the correct current Wiki page without
+// collapsing four distinct quests into one link.
+const WIKI_QUEST_ID_RENAMES = new Map([
+  ["tarkovdata-new-beginning", "New Beginning (Prestige 1)"],
+  ["tarkovdata-new-beginning-2", "New Beginning (Prestige 2)"],
+  ["tarkovdata-new-beginning-3", "New Beginning (Prestige 3)"],
+  ["tarkovdata-new-beginning-4", "New Beginning (Prestige 4)"],
+]);
+
+function wikiPageLinkForTitle(title) {
+  return `https://escapefromtarkov.fandom.com/wiki/${encodeURIComponent(title).replaceAll("%20", "_")}`;
+}
+
 function wikiTitleFromUrl(link) {
   try {
     return decodeURIComponent(new URL(link).pathname.replace(/^\/wiki\//, ""))
@@ -135,7 +197,31 @@ function wikiTitleFromUrl(link) {
 
 export function applyWikiQuestRenames(quests) {
   return quests.map((quest) => {
+    const idRename = WIKI_QUEST_ID_RENAMES.get(quest?.id);
+    if (idRename) {
+      const legacyNames = new Set([
+        ...(Array.isArray(quest.nameAliases) ? quest.nameAliases : []),
+        quest.nameEn,
+        quest.name,
+      ].filter((name) => typeof name === "string" && name.trim()));
+      legacyNames.delete(idRename);
+      return {
+        ...quest,
+        name: idRename,
+        nameEn: idRename,
+        normalizedName: idRename.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        wikiPageLink: wikiPageLinkForTitle(idRename),
+        ...(legacyNames.size > 0 ? { nameAliases: [...legacyNames] } : {}),
+      };
+    }
     const oldTitle = wikiTitleFromUrl(quest?.wikiPageLink);
+    const linkOnlyTitle = WIKI_QUEST_LINK_ONLY.get(oldTitle);
+    if (linkOnlyTitle) {
+      return { ...quest, wikiPageLink: wikiPageLinkForTitle(linkOnlyTitle) };
+    }
+    if (WIKI_QUEST_UNVERIFIED_TITLES.has(oldTitle)) {
+      return { ...quest, wikiPageLink: undefined };
+    }
     const titleRename = WIKI_QUEST_REDIRECT_TITLES.find(
       ([legacyName]) => legacyName === oldTitle,
     )?.[1];
@@ -154,6 +240,17 @@ export function applyWikiQuestRenames(quests) {
       nameJa: rename.name,
       ...(legacyNames.size > 0 ? { nameAliases: [...legacyNames] } : {}),
     };
+  });
+}
+
+export function applyWikiGuideLinkErrors(quests, guides) {
+  const confirmedMissingErrors = new Set(["PAGE_NOT_FOUND", "INVALID_WIKI_LINK"]);
+  return quests.map((quest) => {
+    const error = guides?.entries?.[quest?.id]?.error;
+    if (!confirmedMissingErrors.has(error) || !quest?.wikiPageLink) return quest;
+    const withoutWikiPageLink = { ...quest };
+    delete withoutWikiPageLink.wikiPageLink;
+    return withoutWikiPageLink;
   });
 }
 

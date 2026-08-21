@@ -36,7 +36,7 @@ describe("Wiki quest guide index", () => {
     expect(locations.get("The Tarkov Import")).toEqual(["Lighthouse", "Reserve"]);
     expect(locations.get("Saving Private Roman")).toEqual(["Woods", "Lighthouse"]);
     expect(locations.get("Stick to It")).toEqual(["Lighthouse"]);
-    expect(data.meta.sources.wikiLocationCorrections).toBe(4);
+    expect(data.meta.sources.wikiLocationCorrections).toBe(5);
   });
 
   it("keeps every quest-required item connected to a current Wiki page", async () => {
@@ -53,6 +53,43 @@ describe("Wiki quest guide index", () => {
 
     expect(data.items.find((item) => item.name === "Arena poster 1")?.wikiPageLink).toBe(
       "https://escapefromtarkov.fandom.com/wiki/Arena_advertisement_poster",
+    );
+  });
+
+  it("does not ship retired quest URLs after Wiki link correction", async () => {
+    const [guides, data] = await Promise.all([
+      readJson("public/data/quest-wiki-guides.json"),
+      readJson("public/data/tarkov-data.json"),
+    ]);
+    const byName = new Map(data.quests.map((quest) => [quest.nameEn, quest]));
+
+    expect(byName.get("Oil Run")).toMatchObject({
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Oil_Run",
+    });
+    expect(byName.get("Oil Run").nameAliases).toContain("BP Depot");
+    expect(byName.get("Gunsmith - Model 870")).toMatchObject({
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Model_870",
+    });
+    expect(byName.get("New Paths")).toMatchObject({
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/New_Paths",
+    });
+    expect(byName.get("The Huntsman Path - Angry Watchman")).toMatchObject({
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Angry_Watchman",
+    });
+    expect(byName.get("Painkiller")).not.toHaveProperty("wikiPageLink");
+
+    const painkiller = data.quests.find((quest) => quest.nameEn === "Painkiller");
+    expect(guides.entries[painkiller.id]).toMatchObject({ error: "NO_WIKI_LINK" });
+    expect(data.meta.sources.wikiLinkUnverifiedQuests).toBeGreaterThan(0);
+  });
+
+  it("keeps guide entries in the deterministic quest-pack order", async () => {
+    const [guides, data] = await Promise.all([
+      readJson("public/data/quest-wiki-guides.json"),
+      readJson("public/data/tarkov-data.json"),
+    ]);
+    expect(Object.keys(guides.entries).slice(0, 25)).toEqual(
+      data.quests.slice(0, 25).map((quest) => quest.id),
     );
   });
 });

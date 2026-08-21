@@ -157,12 +157,15 @@ async function main() {
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, quests.length) }, worker));
+  const orderedEntries = Object.fromEntries(
+    quests.map((quest) => [quest.id, entries[quest.id]]),
+  );
   const output = {
     schemaVersion: 1,
     source: "https://escapefromtarkov.fandom.com/wiki/Quests",
     fetchedAt: new Date().toISOString(),
     questCount: quests.length,
-    entries,
+    entries: orderedEntries,
   };
   const temporaryPath = `${outputPath}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");

@@ -45,9 +45,13 @@ export function QuestWikiGuidePanel({ quest, guide, language }: QuestWikiGuidePa
           <span className="quest-wiki-guide-unavailable">{isKorean ? "확인되지 않음" : "Not verified"}</span>
         </div>
         <p className="quest-wiki-guide-empty">
-          {isKorean
-            ? "이 퀘스트의 위키 페이지를 읽지 못했습니다. 아래 원문 링크에서 직접 확인하세요."
-            : "The Wiki page could not be read. Check the original page below."}
+          {quest.wikiPageLink
+            ? (isKorean
+              ? "이 퀘스트의 위키 페이지를 읽지 못했습니다. 아래 원문 링크에서 직접 확인하세요."
+              : "The Wiki page could not be read. Check the original page below.")
+            : (isKorean
+              ? "현재 확인 가능한 전용 위키 페이지가 없습니다."
+              : "There is no current dedicated Wiki page for this quest.")}
         </p>
       </section>
     );

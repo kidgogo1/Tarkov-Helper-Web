@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   extractWikiQuestMeta,
+  applyWikiGuideLinkErrors,
   mergeQuestSources,
   normalizeQuestName,
   toAppQuest,
@@ -50,7 +51,7 @@ describe("quest pack refresh", () => {
     expect(pack.quests).toHaveLength(501);
     expect(pack.meta.sources).toMatchObject({
       tarkovDataQuestCount: 501,
-      wikiQuestCount: 516,
+      wikiQuestCount: 514,
       refreshMode: "preserve-local-enriched-append-tarkovdata-wiki-rewards",
       wikiRewardQuestCount: 441,
       wikiRewardItemCount: 713,
@@ -135,8 +136,8 @@ describe("quest pack refresh", () => {
     };
 
     const refreshed = mergeQuestSources(emptyPack, remote, {
-      wikiQuestCount: 516,
-      wikiRevisionTimestamp: "2026-08-07T14:28:05Z",
+      wikiQuestCount: 514,
+      wikiRevisionTimestamp: "2026-08-19T23:11:55Z",
     });
 
     expect(refreshed.quests).toHaveLength(2);
@@ -158,7 +159,7 @@ describe("quest pack refresh", () => {
     expect(refreshed.meta.counts.quests).toBe(2);
     expect(refreshed.meta.sources).toMatchObject({
       tarkovDataGeneratedAt: "2026-08-02T09:43:19.569Z",
-      wikiQuestCount: 516,
+      wikiQuestCount: 514,
     });
 
     const repeated = mergeQuestSources(refreshed, remote, {
@@ -238,6 +239,106 @@ describe("quest pack refresh", () => {
       wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_MP-133",
     });
     expect(refreshed.quests[0].nameAliases).toContain("Gunsmith - Part 1");
+  });
+
+  it("removes only confirmed missing Wiki links during a guide refresh", () => {
+    const quests = [
+      { id: "missing", wikiPageLink: "https://example.test/missing" },
+      { id: "rate-limited", wikiPageLink: "https://example.test/rate-limited" },
+    ];
+    const refreshed = applyWikiGuideLinkErrors(quests, {
+      entries: {
+        missing: { error: "PAGE_NOT_FOUND" },
+        "rate-limited": { error: "HTTP_429" },
+      },
+    });
+
+    expect(refreshed[0]).not.toHaveProperty("wikiPageLink");
+    expect(refreshed[1].wikiPageLink).toBe("https://example.test/rate-limited");
+  });
+
+  it("canonicalizes stale quest Wiki links and removes links with no current page", () => {
+    const staleQuests = [
+      {
+        ...baseQuest,
+        id: "legacy-bp-depot",
+        name: "BP Depot",
+        nameEn: "BP Depot",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/BP_Depot",
+      },
+      {
+        ...baseQuest,
+        id: "legacy-gunsmith-5",
+        name: "Gunsmith - Part 5",
+        nameEn: "Gunsmith - Part 5",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_5",
+      },
+      {
+        ...baseQuest,
+        id: "legacy-new-day",
+        name: "New Day, New Paths",
+        nameEn: "New Day, New Paths",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/New_Day%2C_New_Paths",
+      },
+      {
+        ...baseQuest,
+        id: "legacy-evil-watchman",
+        name: "The Huntsman Path - Evil Watchman",
+        nameEn: "The Huntsman Path - Evil Watchman",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Evil_Watchman",
+      },
+      {
+        ...baseQuest,
+        id: "legacy-cargo-1",
+        name: "Cargo X - Part 1",
+        nameEn: "Cargo X - Part 1",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Cargo_X_-_Part_1",
+      },
+      {
+        ...baseQuest,
+        id: "legacy-missing",
+        name: "Painkiller",
+        nameEn: "Painkiller",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Painkiller",
+      },
+      {
+        ...baseQuest,
+        id: "tarkovdata-new-beginning",
+        name: "Neuanfang",
+        nameEn: "Neuanfang",
+        wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      },
+    ];
+    const refreshed = mergeQuestSources(
+      { ...emptyPack, quests: staleQuests },
+      { meta: { generated: "now", count: 0 }, quests: [] },
+    );
+    const byId = new Map(refreshed.quests.map((quest) => [quest.id, quest]));
+
+    expect(byId.get("legacy-bp-depot")).toMatchObject({
+      nameEn: "Oil Run",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Oil_Run",
+    });
+    expect(byId.get("legacy-gunsmith-5")).toMatchObject({
+      nameEn: "Gunsmith - Model 870",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Model_870",
+    });
+    expect(byId.get("legacy-new-day")).toMatchObject({
+      nameEn: "New Paths",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/New_Paths",
+    });
+    expect(byId.get("legacy-evil-watchman")).toMatchObject({
+      nameEn: "The Huntsman Path - Angry Watchman",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Angry_Watchman",
+    });
+    expect(byId.get("legacy-cargo-1").wikiPageLink).toBe(
+      "https://escapefromtarkov.fandom.com/wiki/Cargo_X",
+    );
+    expect(byId.get("legacy-missing").wikiPageLink).toBeUndefined();
+    expect(byId.get("tarkovdata-new-beginning")).toMatchObject({
+      nameEn: "New Beginning (Prestige 1)",
+      wikiPageLink: "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_1)",
+    });
   });
 
   it("creates safe app defaults for a remote quest without map locations", () => {
