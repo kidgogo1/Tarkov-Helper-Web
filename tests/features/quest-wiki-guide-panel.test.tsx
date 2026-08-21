@@ -65,4 +65,12 @@ describe("QuestWikiGuidePanel", () => {
     expect(screen.getByText(/위키 페이지를 읽지 못했습니다/)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
+
+  it("does not promise a source link when the quest has no current Wiki page", () => {
+    const questWithoutWikiPage = { ...quest, wikiPageLink: undefined };
+    render(<QuestWikiGuidePanel guide={{ ...guide, error: "NO_WIKI_LINK" }} language="ko" quest={questWithoutWikiPage} />);
+
+    expect(screen.getByText("현재 확인 가능한 전용 위키 페이지가 없습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/아래 원문 링크에서 직접 확인하세요/)).not.toBeInTheDocument();
+  });
 });

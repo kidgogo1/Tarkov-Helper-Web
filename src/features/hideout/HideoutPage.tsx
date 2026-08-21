@@ -8,7 +8,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "../../components/EmptyState";
 import { QuantityStepper } from "../../components/QuantityStepper";
@@ -142,7 +142,7 @@ export function HideoutPage({
     : undefined;
 
   const selectedStationRouteId = selected?.id;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canonicalLevel = focusedLevel?.level;
     const stationChanged = selectedStationRouteId !== focusStationId;
     const levelChanged = focusRequested && canonicalLevel !== focusLevel;

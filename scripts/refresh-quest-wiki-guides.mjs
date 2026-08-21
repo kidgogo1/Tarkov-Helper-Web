@@ -17,7 +17,7 @@ const defaultOutput = path.join(root, "public", "data", "quest-wiki-guides.json"
 const apiUrl = "https://escapefromtarkov.fandom.com/api.php";
 const userAgent = "TarkovHelperWeb-WikiGuideRefresh/1.0 (quest location verification)";
 const maxImages = 8;
-const concurrency = 5;
+const concurrency = 3;
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -106,6 +106,12 @@ function questTitle(link) {
   }
 }
 
+function isTransientError(error) {
+  return /^HTTP_(?:429|5\d\d)$/.test(String(error ?? ""))
+    || /^NETWORK:/.test(String(error ?? ""))
+    || error === "INVALID_JSON";
+}
+
 async function fetchQuest(quest) {
   if (!quest.wikiPageLink) return [quest.id, { error: "NO_WIKI_LINK" }];
   const page = questTitle(quest.wikiPageLink);
@@ -141,6 +147,13 @@ async function fetchQuest(quest) {
 async function main() {
   const outputPath = path.resolve(arg("--output", defaultOutput));
   const data = JSON.parse(await readFile(inputPath, "utf8"));
+  let previousEntries = {};
+  try {
+    const previous = JSON.parse(await readFile(outputPath, "utf8"));
+    previousEntries = previous?.entries ?? {};
+  } catch {
+    // A first refresh has no prior guide index to reuse.
+  }
   const quests = Array.isArray(data.quests) ? data.quests : [];
   const entries = {};
   let cursor = 0;
@@ -148,8 +161,15 @@ async function main() {
   async function worker() {
     while (cursor < quests.length) {
       const index = cursor++;
-      const [id, entry] = await fetchQuest(quests[index]);
-      entries[id] = entry;
+      const quest = quests[index];
+      const [id, entry] = await fetchQuest(quest);
+      const previous = previousEntries[id];
+      entries[id] = isTransientError(entry?.error)
+        && previous
+        && !previous.error
+        && previous.wikiPageLink === quest.wikiPageLink
+        ? previous
+        : entry;
       completed += 1;
       if (completed % 25 === 0 || completed === quests.length) {
         console.error(`Wiki quest guides: ${completed}/${quests.length}`);
@@ -157,12 +177,15 @@ async function main() {
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, quests.length) }, worker));
+  const orderedEntries = Object.fromEntries(
+    quests.map((quest) => [quest.id, entries[quest.id]]),
+  );
   const output = {
     schemaVersion: 1,
     source: "https://escapefromtarkov.fandom.com/wiki/Quests",
     fetchedAt: new Date().toISOString(),
     questCount: quests.length,
-    entries,
+    entries: orderedEntries,
   };
   const temporaryPath = `${outputPath}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");

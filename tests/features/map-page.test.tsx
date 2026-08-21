@@ -1199,7 +1199,7 @@ describe("MapPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not project a mapless automatic screenshot until the current raid map is confirmed", async () => {
+  it("applies a mapless automatic screenshot to the current map without confirmation", async () => {
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
       if (url.endsWith("/api/v1/local-tracker/status")) {
@@ -1231,18 +1231,15 @@ describe("MapPage", () => {
 
     renderPage({ focusQuestId: "quest-customs" });
 
-    expect(await screen.findByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/))
-      .toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /플레이어 위치 X 88/ }))
-      .not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
     expect(await screen.findByRole("button", { name: /플레이어 위치 X 88.*Z 144/ }))
       .toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Customs 자동 위치 연결됨" }))
-      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /자동 위치 연결/ }))
+      .not.toBeInTheDocument();
   });
 
-  it("does not reuse a confirmed mapless screenshot after changing maps", async () => {
+  it("does not reuse a mapless screenshot after changing maps", async () => {
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
       if (url.endsWith("/api/v1/local-tracker/status")) {
@@ -1273,21 +1270,15 @@ describe("MapPage", () => {
     vi.stubGlobal("fetch", request);
     renderPage({ focusQuestId: "quest-customs" });
 
-    await screen.findByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/);
-    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
     await screen.findByRole("button", { name: /플레이어 위치 X 88/ });
     fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
       target: { value: "Woods" },
     });
-    await waitFor(() => expect(screen.getByRole("button", {
-      name: "현재 지도로 자동 위치 연결",
-    })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
     expect(screen.queryByRole("button", { name: /플레이어 위치 X 88/ }))
       .not.toBeInTheDocument();
   });
 
-  it("discards an unconfirmed mapless screenshot when the user changes maps", async () => {
+  it("does not project a mapless screenshot onto a newly selected map", async () => {
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
       if (url.endsWith("/api/v1/local-tracker/status")) {
@@ -1318,13 +1309,12 @@ describe("MapPage", () => {
     vi.stubGlobal("fetch", request);
     renderPage({ focusQuestId: "quest-customs" });
 
-    await screen.findByText(/자동 감지된 스크린샷에는 지도 이름이 없습니다/);
+    await screen.findByRole("button", { name: /플레이어 위치 X 88/ });
     fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
       target: { value: "Woods" },
     });
     await waitFor(() => expect(screen.getByRole("combobox", { name: "지도 선택" }))
       .toHaveValue("Woods"));
-    fireEvent.click(screen.getByRole("button", { name: "현재 지도로 자동 위치 연결" }));
     expect(screen.queryByRole("button", { name: /플레이어 위치 X 88/ }))
       .not.toBeInTheDocument();
   });
@@ -1371,8 +1361,8 @@ describe("MapPage", () => {
     });
     expect(await screen.findByRole("button", { name: /플레이어 위치 X 66.*Z 122/ }))
       .toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Woods 자동 감지 연결됨" }))
-      .toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: /자동 위치 연결/ }))
+      .not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "플레이어 경로 지우기" }));
     expect(screen.queryByRole("button", { name: /플레이어 위치 X 66/ }))
@@ -1491,16 +1481,6 @@ describe("MapPage", () => {
   });
 
   it.each([
-    {
-      label: "mapless",
-      latest: {
-        type: "SCREENSHOT_CREATED",
-        sequence: 2,
-        fileName: "2026-08-07[10-21]_88, 7, 144_0, 0, 0, 1_0.png",
-        detectedAt: "2026-08-07T01:21:00.000Z",
-      },
-      message: /자동 감지된 스크린샷에는 지도 이름이 없습니다/,
-    },
     {
       label: "unsupported-map",
       latest: {

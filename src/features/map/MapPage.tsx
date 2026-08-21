@@ -186,7 +186,7 @@ function localTrackerNote(tracker: LocalTrackerViewState): {
     case "WATCHING":
       return {
         title: "폴더 자동 감지",
-        description: `${tracker.folderPath}에서 새 EFT 스크린샷 파일을 자동 감지합니다. EFT 로그에서 현재 지도가 확인되면 해당 지도로 자동 전환하며, 지도 확인이 불가능한 경우에만 현재 레이드 지도를 직접 확인해 연결합니다. 필요하면 아래 파일 선택도 계속 사용할 수 있습니다.`,
+        description: `${tracker.folderPath}에서 새 EFT 스크린샷 파일을 자동 감지합니다. EFT 로그에서 현재 지도가 확인되면 해당 지도로 자동 전환하고, 확인되지 않으면 현재 선택된 지도에 스크린샷 위치를 표시합니다. 필요하면 아래 파일 선택도 계속 사용할 수 있습니다.`,
       };
     case "NOT_FOUND":
       return {
@@ -861,8 +861,6 @@ export function MapPage({
   const [groupObjectivesByQuest, setGroupObjectivesByQuest] = useState(true);
   const [playerPositions, setPlayerPositions] = useState<PlayerMapPosition[]>([]);
   const [positionError, setPositionError] = useState("");
-  const [trackerMapConfirmed, setTrackerMapConfirmed] = useState(false);
-  const [trackerDetectedMapKey, setTrackerDetectedMapKey] = useState<string>();
   const [routeNotice, setRouteNotice] = useState("");
   const [routeNoticeFloor, setRouteNoticeFloor] = useState<string>();
   const [localTracker, setLocalTracker] = useState<LocalTrackerViewState>({
@@ -902,8 +900,6 @@ export function MapPage({
     eventMapKey?: string,
     activate?: boolean,
   ) => void>(() => undefined);
-  const trackerMapConfirmedRef = useRef(false);
-  const pendingMaplessScreenshotRef = useRef<string | undefined>(undefined);
   const latestTrackerScreenshotByMapRef = useRef(new Map<string, string>());
   const playerFloorOverrideRef = useRef<{ mapKey: string; floorId: string } | undefined>(undefined);
   const handledRouteSelectionsRef = useRef({
@@ -1015,9 +1011,6 @@ export function MapPage({
     if (previousMapRef.current === config.key) return;
     previousMapRef.current = config.key;
     playerFloorOverrideRef.current = undefined;
-    trackerMapConfirmedRef.current = false;
-    setTrackerMapConfirmed(false);
-    pendingMaplessScreenshotRef.current = undefined;
     const pendingFocus =
       pendingMapFocusRef.current?.mapKey === config.key
         ? pendingMapFocusRef.current
@@ -1821,10 +1814,6 @@ export function MapPage({
       const eventConfig = findMapConfig(data.mapConfigs, eventMapKey);
       if (!eventConfig) {
         if (!activate) return;
-        pendingMaplessScreenshotRef.current = undefined;
-        trackerMapConfirmedRef.current = false;
-        setTrackerMapConfirmed(false);
-        setTrackerDetectedMapKey(undefined);
         setPlayerPositions([]);
         handledRouteSelectionsRef.current.keys.clear();
         setRouteNotice("");
@@ -1839,10 +1828,6 @@ export function MapPage({
       ) {
         latestTrackerScreenshotByMapRef.current.delete(eventConfig.key);
         if (!activate) return;
-        pendingMaplessScreenshotRef.current = undefined;
-        trackerMapConfirmedRef.current = false;
-        setTrackerMapConfirmed(false);
-        setTrackerDetectedMapKey(undefined);
         setPlayerPositions([]);
         for (const key of handledRouteSelectionsRef.current.keys) {
           if (key.endsWith(`:${eventConfig.key}`)) {
@@ -1856,32 +1841,19 @@ export function MapPage({
       }
       latestTrackerScreenshotByMapRef.current.set(eventConfig.key, fileName);
       if (!activate) return;
-      pendingMaplessScreenshotRef.current = undefined;
-      trackerMapConfirmedRef.current = false;
-      setTrackerMapConfirmed(false);
       if (eventConfig.key === config.key) {
         if (!applyScreenshotFileName(fileName, eventConfig.key)) return;
       }
-      setTrackerDetectedMapKey(eventConfig.key);
       setSelectedMapKey(eventConfig.key);
       return;
     }
     if (!activate) return;
-    setTrackerDetectedMapKey(undefined);
-    if (trackerMapConfirmedRef.current) {
-      applyScreenshotFileName(fileName);
-      return;
-    }
     const parsed = parseScreenshotFilename(fileName);
     if (parsed?.z === undefined) {
-      pendingMaplessScreenshotRef.current = undefined;
       setPositionError("EFT 스크린샷 파일 이름에서 위치를 읽지 못했습니다.");
       return;
     }
-    pendingMaplessScreenshotRef.current = fileName;
-    setPositionError(
-      `자동 감지된 스크린샷에는 지도 이름이 없습니다. ${config.displayName} 레이드가 맞는지 확인한 뒤 현재 지도로 연결해 주세요.`,
-    );
+    applyScreenshotFileName(fileName);
   }, [applyScreenshotFileName, config, data.mapConfigs]);
 
   useEffect(() => {
@@ -1890,9 +1862,7 @@ export function MapPage({
 
   const invalidateTrackerHistory = useCallback(() => {
     latestTrackerScreenshotByMapRef.current.clear();
-    pendingMaplessScreenshotRef.current = undefined;
     playerFloorOverrideRef.current = undefined;
-    setTrackerDetectedMapKey(undefined);
     setPlayerPositions([]);
     setPositionError("");
     handledRouteSelectionsRef.current.keys.clear();
@@ -2119,24 +2089,7 @@ export function MapPage({
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     event.currentTarget.value = "";
-    pendingMaplessScreenshotRef.current = undefined;
-    setTrackerDetectedMapKey(undefined);
-    trackerMapConfirmedRef.current = true;
-    setTrackerMapConfirmed(true);
     applyScreenshotFileName(file.name);
-  };
-
-  const confirmTrackerMap = () => {
-    setTrackerDetectedMapKey(undefined);
-    trackerMapConfirmedRef.current = true;
-    setTrackerMapConfirmed(true);
-    const pendingFileName = pendingMaplessScreenshotRef.current;
-    if (pendingFileName) {
-      pendingMaplessScreenshotRef.current = undefined;
-      applyScreenshotFileName(pendingFileName);
-    } else {
-      setPositionError("");
-    }
   };
 
   const clearPlayerTrail = () => {
@@ -2290,12 +2243,6 @@ export function MapPage({
   };
 
   const latestPlayerPosition = playerPositions.at(-1);
-  const trackerMapAutomaticallyDetected = Boolean(
-    trackerDetectedMapKey &&
-    mapMatches(config, trackerDetectedMapKey) &&
-    latestPlayerPosition?.mapKey === config.key,
-  );
-  const trackerConnectionActive = trackerMapConfirmed || trackerMapAutomaticallyDetected;
   const positionIsOnSelectedFloor = (position: PlayerMapPosition) =>
     config.floors.length <= 1 ||
     !position.floorId ||
@@ -2802,22 +2749,6 @@ export function MapPage({
             )}
             {positionError ? <p className="map-inline-error" role="alert">{positionError}</p> : null}
             <div className="map-position-actions">
-              {localTracker.state === "WATCHING" ? (
-                <button
-                  aria-pressed={trackerConnectionActive}
-                  className="compact"
-                  disabled={trackerMapAutomaticallyDetected}
-                  onClick={confirmTrackerMap}
-                  type="button"
-                >
-                  <Crosshair aria-hidden="true" size={14} />
-                  {trackerMapAutomaticallyDetected
-                    ? `${config.displayName} 자동 감지 연결됨`
-                    : trackerMapConfirmed
-                      ? `${config.displayName} 자동 위치 연결됨`
-                      : "현재 지도로 자동 위치 연결"}
-                </button>
-              ) : null}
               {latestPlayerPosition &&
               latestPlayerPosition.mapKey === config.key &&
               config.floors.length > 1 &&

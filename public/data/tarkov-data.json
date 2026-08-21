@@ -4,7 +4,7 @@
     "modifiedCommit": "77ee7343ed0f98dc6aa8610519062c61120535f1",
     "exportedAt": "2026-08-02T09:43:19.569Z",
     "counts": {
-      "quests": 501,
+      "quests": 517,
       "items": 4014,
       "hideoutStations": 26,
       "maps": 12,
@@ -14,9 +14,9 @@
       "localExportedAt": "2026-05-06T18:03:23Z",
       "tarkovDataGeneratedAt": "2026-08-02T09:43:19.569Z",
       "tarkovDataQuestCount": 501,
-      "wikiQuestCount": 516,
-      "wikiRevisionTimestamp": "2026-08-07T14:28:05Z",
-      "refreshMode": "preserve-local-enriched-append-tarkovdata-wiki-rewards",
+      "wikiQuestCount": 514,
+      "wikiRevisionTimestamp": "2026-08-19T23:11:55Z",
+      "refreshMode": "preserve-local-enriched-append-tarkovdata",
       "koreanLocalizationSource": "https://json.tarkov.dev/regular/tasks_ko",
       "koreanLocalizedQuests": 471,
       "koreanLocalizedObjectives": 1022,
@@ -24,9 +24,13 @@
       "wikiRewardItemCount": 713,
       "wikiRewardUnmappedLineCount": 20,
       "wikiRewardRevisionTimestamp": "2026-08-07T14:28:05Z",
-      "wikiLocationVerifiedAt": "2026-08-10T11:08:43.737Z",
-      "wikiLocationVerifiedQuests": 463,
-      "wikiLocationCorrections": 4
+      "wikiLocationVerifiedAt": "2026-08-21T03:30:30.676Z",
+      "wikiLocationVerifiedQuests": 479,
+      "wikiLocationCorrections": 5,
+      "wikiLinkCorrections": 0,
+      "wikiLinkUnverifiedQuests": 22,
+      "liveTaskCount": 517,
+      "liveTaskSource": "https://json.tarkov.dev/regular/tasks"
     }
   },
   "quests": [
@@ -4049,7 +4053,7 @@
       "nameEn": "Beyond the Red Meat - Part 1",
       "nameKo": "Beyond the Red Meat - Part 1",
       "nameJa": "Beyond the Red Meat - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat",
       "trader": "Skier",
       "locations": [
         "StreetsOfTarkov"
@@ -4125,7 +4129,7 @@
       "nameEn": "Beyond the Red Meat - Part 2",
       "nameKo": "Beyond the Red Meat - Part 2",
       "nameJa": "Beyond the Red Meat - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Beyond_the_Red_Meat",
       "trader": "Skier",
       "locations": [
         "StreetsOfTarkov"
@@ -4778,12 +4782,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9CUF9EZXBvdA==",
       "bsgId": "59c124d686f774189b3c843f",
-      "normalizedName": "bp-depot",
-      "name": "BP Depot",
-      "nameEn": "BP Depot",
+      "normalizedName": "oil-run",
+      "name": "Oil Run",
+      "nameEn": "Oil Run",
       "nameKo": "BP 연료 확보",
-      "nameJa": "BP Depot",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/BP_Depot",
+      "nameJa": "Oil Run",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Oil_Run",
       "trader": "Prapor",
       "locations": [
         "Customs"
@@ -4905,6 +4909,9 @@
           "requirementType": "Required",
           "sortOrder": 0
         }
+      ],
+      "nameAliases": [
+        "BP Depot"
       ]
     },
     {
@@ -6874,7 +6881,7 @@
       "nameEn": "Cargo X - Part 1",
       "nameKo": "화물 X - 파트 1",
       "nameJa": "Cargo X - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -6964,7 +6971,7 @@
       "nameEn": "Cargo X - Part 2",
       "nameKo": "화물 X - 파트 2",
       "nameJa": "Cargo X - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Cargo_X",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -13414,7 +13421,12 @@
       "nameJa": "Debut",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Debut",
       "trader": "Prapor",
-      "locations": [],
+      "locations": [
+        "Woods",
+        "Ground Zero",
+        "Interchange",
+        "Customs"
+      ],
       "kappaRequired": true,
       "requirements": [
         {
@@ -13865,7 +13877,6 @@
       "nameEn": "Developer's Secrets - Part 1",
       "nameKo": "Developer's Secrets - Part 1",
       "nameJa": "Developer's Secrets - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Developer%27s_Secrets_-_Part_1",
       "trader": "Mechanic",
       "locations": [
         "StreetsOfTarkov"
@@ -13939,7 +13950,6 @@
       "nameEn": "Developer's Secrets - Part 2",
       "nameKo": "Developer's Secrets - Part 2",
       "nameJa": "Developer's Secrets - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Developer%27s_Secrets_-_Part_2",
       "trader": "Mechanic",
       "locations": [
         "StreetsOfTarkov"
@@ -17866,7 +17876,7 @@
       "nameEn": "Friend From the West - Part 1",
       "nameKo": "서쪽에서 온 친구 - 파트 1",
       "nameJa": "Friend From the West - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Friend_From_the_West_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Friend_From_the_West",
       "trader": "Skier",
       "locations": [],
       "minLevel": 9,
@@ -18090,7 +18100,6 @@
       "nameEn": "Mall Cop",
       "nameKo": "헌병대 - 쇼핑몰 경비대",
       "nameJa": "Mall Cop",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Mall_Cop",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -18201,7 +18210,6 @@
       "nameEn": "Tickets, Please",
       "nameKo": "헌병대 - 표 검사",
       "nameJa": "Tickets, Please",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Tickets%2C_Please",
       "trader": "Prapor",
       "locations": [
         "StreetsOfTarkov"
@@ -19538,7 +19546,6 @@
       "nameEn": "Gunsmith - Old Friend's Request",
       "nameKo": "Gunsmith - Old Friend's Request",
       "nameJa": "Gunsmith - Old Friend's Request",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Old_Friend%27s_Request",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 17,
@@ -20920,7 +20927,6 @@
       "nameEn": "Gunsmith - Part 23",
       "nameKo": "Gunsmith - Part 23",
       "nameJa": "Gunsmith - Part 23",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_23",
       "trader": "Mechanic",
       "locations": [],
       "kappaRequired": false,
@@ -20958,7 +20964,6 @@
       "nameEn": "Gunsmith - Part 24",
       "nameKo": "Gunsmith - Part 24",
       "nameJa": "Gunsmith - Part 24",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_24",
       "trader": "Mechanic",
       "locations": [],
       "kappaRequired": false,
@@ -20995,7 +21000,6 @@
       "nameEn": "Gunsmith - Part 25",
       "nameKo": "Gunsmith - Part 25",
       "nameJa": "Gunsmith - Part 25",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_25",
       "trader": "Mechanic",
       "locations": [],
       "kappaRequired": false,
@@ -21210,12 +21214,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNQ==",
       "bsgId": "5ae3267986f7742a413592fe",
-      "normalizedName": "gunsmith---part-5",
-      "name": "Gunsmith - Part 5",
-      "nameEn": "Gunsmith - Part 5",
+      "normalizedName": "gunsmith-model-870",
+      "name": "Gunsmith - Model 870",
+      "nameEn": "Gunsmith - Model 870",
       "nameKo": "건스미스 - 파트 5",
-      "nameJa": "Gunsmith - Part 5",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Part_5",
+      "nameJa": "Gunsmith - Model 870",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Gunsmith_-_Model_870",
       "trader": "Mechanic",
       "locations": [],
       "minLevel": 10,
@@ -21245,7 +21249,10 @@
           "descriptionKo": "Remington Model 870을 요구 사항에 맞게 개조하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "Gunsmith - Part 5"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HdW5zbWl0aF8tX1BhcnRfNg==",
@@ -31830,12 +31837,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9OZXdfRGF5JTJDX05ld19QYXRocw==",
       "bsgId": "66aa58245ab22944110db6e9",
-      "normalizedName": "new-day-new-paths",
-      "name": "New Day, New Paths",
-      "nameEn": "New Day, New Paths",
+      "normalizedName": "new-paths",
+      "name": "New Paths",
+      "nameEn": "New Paths",
       "nameKo": "New Day, New Paths",
-      "nameJa": "New Day, New Paths",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Day%2C_New_Paths",
+      "nameJa": "New Paths",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Paths",
       "trader": "Peacekeeper",
       "locations": [
         "GroundZero",
@@ -31893,7 +31900,10 @@
           "descriptionKo": "Locate the passage leading to Streets of Tarkov on Ground Zero (In one raid)"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "New Day, New Paths"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9OaWdodF9Td2VlcA==",
@@ -32085,7 +32095,6 @@
       "nameEn": "No Offence",
       "nameKo": "악의 없음",
       "nameJa": "No Offence",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/No_Offence",
       "trader": "Prapor",
       "locations": [],
       "kappaRequired": false,
@@ -32261,7 +32270,6 @@
       "nameEn": "No Questions Asked",
       "nameKo": "No Questions Asked",
       "nameJa": "No Questions Asked",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/No_Questions_Asked",
       "trader": "Prapor",
       "locations": [],
       "kappaRequired": false,
@@ -32872,7 +32880,7 @@
       "nameEn": "Operation Aquarius - Part 1",
       "nameKo": "물병자리 작전 - 파트 1",
       "nameJa": "Operation Aquarius - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius",
       "trader": "Therapist",
       "locations": [
         "Customs"
@@ -32940,7 +32948,7 @@
       "nameEn": "Operation Aquarius - Part 2",
       "nameKo": "물병자리 작전 - 파트 2",
       "nameJa": "Operation Aquarius - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Operation_Aquarius",
       "trader": "Therapist",
       "locations": [
         "Customs"
@@ -33335,7 +33343,6 @@
       "nameEn": "Painkiller",
       "nameKo": "진통제",
       "nameJa": "Painkiller",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Painkiller",
       "trader": "Therapist",
       "locations": [],
       "minLevel": 8,
@@ -34077,7 +34084,7 @@
       "nameEn": "Pets Won't Need It - Part 1",
       "nameKo": "Pets Won't Need It - Part 1",
       "nameJa": "Pets Won't Need It - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Pets_Won%27t_Need_It_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Pets_Won't_Need_It",
       "trader": "Therapist",
       "locations": [
         "StreetsOfTarkov"
@@ -38760,9 +38767,11 @@
       "nameEn": "Sanitary Standards - Part 1",
       "nameKo": "위생 기준 - 파트 1",
       "nameJa": "Sanitary Standards - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Sanitary_Standards_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Sanitary_Standards",
       "trader": "Therapist",
-      "locations": [],
+      "locations": [
+        "Factory"
+      ],
       "minLevel": 4,
       "kappaRequired": true,
       "requirements": [
@@ -43363,7 +43372,6 @@
       "nameEn": "Spa Tour - Part 1",
       "nameKo": "스파 관광 - 파트 1",
       "nameJa": "Spa Tour - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_1",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -43520,7 +43528,6 @@
       "nameEn": "Spa Tour - Part 3",
       "nameKo": "스파 관광 - 파트 3",
       "nameJa": "Spa Tour - Part 3",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_3",
       "trader": "Peacekeeper",
       "locations": [],
       "minLevel": 12,
@@ -43679,7 +43686,6 @@
       "nameEn": "Spa Tour - Part 4",
       "nameKo": "스파 관광 - 파트 4",
       "nameJa": "Spa Tour - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_4",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -43777,7 +43783,6 @@
       "nameEn": "Spa Tour - Part 5",
       "nameKo": "스파 관광 - 파트 5",
       "nameJa": "Spa Tour - Part 5",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_5",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -43904,7 +43909,6 @@
       "nameEn": "Spa Tour - Part 7",
       "nameKo": "스파 관광 - 파트 7",
       "nameJa": "Spa Tour - Part 7",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Spa_Tour_-_Part_7",
       "trader": "Peacekeeper",
       "locations": [],
       "minLevel": 12,
@@ -46676,7 +46680,6 @@
       "nameEn": "Test Drive - Part 4",
       "nameKo": "시범운용 - 파트 4",
       "nameJa": "Test Drive - Part 4",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_4",
       "trader": "Prapor",
       "locations": [
         "Shoreline",
@@ -46723,7 +46726,6 @@
       "nameEn": "Test Drive - Part 5",
       "nameKo": "시범운용 - 파트 5",
       "nameJa": "Test Drive - Part 5",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_5",
       "trader": "Prapor",
       "locations": [
         "Factory"
@@ -46768,7 +46770,6 @@
       "nameEn": "Test Drive - Part 6",
       "nameKo": "Test Drive - Part 6",
       "nameJa": "Test Drive - Part 6",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Test_Drive_-_Part_6",
       "trader": "Prapor",
       "locations": [
         "Customs"
@@ -48133,7 +48134,7 @@
       "nameEn": "The Cult - Part 1",
       "nameKo": "광신도 - 파트 1",
       "nameJa": "The Cult - Part 1",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult_-_Part_1",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline"
@@ -48192,7 +48193,7 @@
       "nameEn": "The Cult - Part 2",
       "nameKo": "광신도 - 파트 2",
       "nameJa": "The Cult - Part 2",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult_-_Part_2",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Cult",
       "trader": "Peacekeeper",
       "locations": [
         "Shoreline",
@@ -49816,12 +49817,12 @@
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0V2aWxfV2F0Y2htYW4=",
       "bsgId": "5d25e44386f77409453bce7b",
-      "normalizedName": "the-huntsman-path---evil-watchman",
-      "name": "The Huntsman Path - Evil Watchman",
-      "nameEn": "The Huntsman Path - Evil Watchman",
+      "normalizedName": "the-huntsman-path-angry-watchman",
+      "name": "The Huntsman Path - Angry Watchman",
+      "nameEn": "The Huntsman Path - Angry Watchman",
       "nameKo": "사냥꾼의 길 - 사악한 경비원",
-      "nameJa": "The Huntsman Path - Evil Watchman",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Evil_Watchman",
+      "nameJa": "The Huntsman Path - Angry Watchman",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Angry_Watchman",
       "trader": "Jaeger",
       "locations": [
         "Customs"
@@ -49914,7 +49915,10 @@
           "descriptionKo": "세관(Customs)의 기숙사 지역에서 PMC 사살하기"
         }
       ],
-      "requiredItems": []
+      "requiredItems": [],
+      "nameAliases": [
+        "The Huntsman Path - Evil Watchman"
+      ]
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UaGVfSHVudHNtYW5fUGF0aF8tX0ZhY3RvcnlfQ2hpZWY=",
@@ -53506,7 +53510,6 @@
       "nameEn": "The Tarkov Shooter - Part 8",
       "nameKo": "타르코프의 저격수 - 파트 8",
       "nameJa": "The Tarkov Shooter - Part 8",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Tarkov_Shooter_-_Part_8",
       "trader": "Jaeger",
       "locations": [],
       "kappaRequired": true,
@@ -55178,7 +55181,6 @@
       "nameEn": "Trust Regain",
       "nameKo": "신뢰 회복",
       "nameJa": "Trust Regain",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Trust_Regain",
       "trader": "Therapist",
       "locations": [],
       "kappaRequired": false,
@@ -55878,7 +55880,9 @@
       "nameJa": "Supplements",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Supplements",
       "trader": "Skier",
-      "locations": [],
+      "locations": [
+        "Customs"
+      ],
       "minLevel": 22,
       "kappaRequired": true,
       "requirements": [
@@ -57182,12 +57186,19 @@
       "normalizedName": "arena-business-pvp-zone",
       "name": "Arena Business [PVP ZONE]",
       "nameEn": "Arena Business [PVP ZONE]",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Arena_Business",
+      "nameKo": "Arena Business [PVP ZONE]",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Arena_Business_%5BPVP_ZONE%5D%0A",
       "trader": "Ref",
       "locations": [],
       "minLevel": 10,
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "66058cb7c7f3584787181476",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
@@ -57199,7 +57210,9 @@
           "targetType": "taskStatus",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Complete the task Professional Fitness - Part 2",
+          "targetCount": 0
         },
         {
           "id": "69789737271caeeb3db66e8d",
@@ -57209,7 +57222,9 @@
           "targetType": "taskStatus",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "더 높은 곳을 향해! - 파트 6 태스크 완수하기",
+          "targetCount": 0
         },
         {
           "id": "6978973c2834db5eb178fdc8",
@@ -57219,11 +57234,12 @@
           "targetType": "taskStatus",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Complete the task Hold the Lead",
+          "targetCount": 0
         }
       ],
       "requiredItems": [],
-      "nameKo": "Arena Business [PVP ZONE]",
       "rewardItems": [
         {
           "id": "wiki-reward-1",
@@ -57260,28 +57276,36 @@
       "normalizedName": "hold-the-lead-pvp-zone",
       "name": "Hold the Lead [PVP ZONE]",
       "nameEn": "Hold the Lead [PVP ZONE]",
+      "nameKo": "Hold the Lead [PVP ZONE]",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Hold_the_Lead",
       "trader": "Ref",
       "locations": [],
       "minLevel": 10,
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "69789418b2187365e70bb947",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
         {
           "id": "697895e700201d158bb28f22",
           "sortOrder": 0,
-          "objectiveType": "visit",
-          "description": "Eliminate 75 enemies in Arena",
-          "targetType": "visit",
+          "objectiveType": "shoot",
+          "description": "Eliminate enemies in Arena",
+          "targetType": "shoot",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate enemies in Arena",
+          "targetCount": 75
         }
       ],
       "requiredItems": [],
-      "nameKo": "Hold the Lead [PVP ZONE]",
       "rewardItems": [
         {
           "id": "wiki-reward-2",
@@ -57312,11 +57336,18 @@
       "normalizedName": "immunity",
       "name": "Immunity",
       "nameEn": "Immunity",
+      "nameKo": "Immunity",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Immunity",
       "trader": "Fence",
       "locations": [],
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "66631489acf8442f8b05319f",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
@@ -57328,19 +57359,21 @@
           "targetType": "extract",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Extract from the location with the \"Unknown toxin\" status effect",
+          "targetCount": 1
         }
       ],
-      "requiredItems": [],
-      "nameKo": "Immunity"
+      "requiredItems": []
     },
     {
       "id": "tarkovdata-new-beginning",
       "bsgId": "6761f28a022f60bb320f3e95",
-      "normalizedName": "new-beginning",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-1",
+      "name": "New Beginning (Prestige 1)",
+      "nameEn": "New Beginning (Prestige 1)",
+      "nameKo": "New Beginning",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_1)",
       "trader": "Ragman",
       "locations": [
         "TheLab"
@@ -57360,7 +57393,9 @@
           "mapName": "TheLab",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate Scavs",
+          "targetCount": 50
         },
         {
           "id": "6761f9d718fa62aac3264ff2",
@@ -57371,7 +57406,9 @@
           "mapName": "TheLab",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "연구소(The Lab)에서 살아서 탈출하기",
+          "targetCount": 1
         },
         {
           "id": "6761f6f1bacf72169272e381",
@@ -57383,7 +57420,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the item: BEAR operative figurine"
+          "descriptionKo": "아무 PMC 피규어 건네주기",
+          "targetCount": 1,
+          "itemId": "655c652d60d0ac437100fed7"
         },
         {
           "id": "6761f7d086fd2d9c941b8aa3",
@@ -57395,7 +57434,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the item: Politician Mutkevich figurine"
+          "descriptionKo": "아무 스캐브 피규어 건네주기",
+          "targetCount": 1,
+          "itemId": "655c66e40b2de553b618d4b8"
         },
         {
           "id": "6761f7f87b309912d6b5f2a9",
@@ -57407,7 +57448,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the item: Killa figurine"
+          "descriptionKo": "아무 보스 피규어 건네주기",
+          "targetCount": 1,
+          "itemId": "66572c82ad599021091c6118"
         },
         {
           "id": "6761f87227aeff895cef62c5",
@@ -57419,19 +57462,25 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the item: Den figurine"
+          "descriptionKo": "아무 상인 피규어 건네주기",
+          "targetCount": 1,
+          "itemId": "68f2608301fb9de974058be6"
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameAliases": [
+        "Neuanfang",
+        "New Beginning"
+      ]
     },
     {
       "id": "tarkovdata-new-beginning-2",
       "bsgId": "6761ff17cdc36bd66102e9d0",
-      "normalizedName": "new-beginning-2",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-2",
+      "name": "New Beginning (Prestige 2)",
+      "nameEn": "New Beginning (Prestige 2)",
+      "nameKo": "New Beginning",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_2)",
       "trader": "Ragman",
       "locations": [
         "TheLab"
@@ -57451,7 +57500,9 @@
           "mapName": "TheLab",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate PMC operatives",
+          "targetCount": 10
         },
         {
           "id": "6761ff17cdc36bd66102e9d6",
@@ -57462,7 +57513,9 @@
           "mapName": "TheLab",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Survive and extract from The Lab",
+          "targetCount": 1
         },
         {
           "id": "6761ff17cdc36bd66102e9d8",
@@ -57474,7 +57527,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: BEAR operative figurine"
+          "descriptionKo": "Hand over the found in raid item: BEAR operative figurine",
+          "targetCount": 2,
+          "itemId": "655c652d60d0ac437100fed7"
         },
         {
           "id": "6761ff17cdc36bd66102e9d9",
@@ -57486,7 +57541,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Politician Mutkevich figurine"
+          "descriptionKo": "Hand over the found in raid item: Politician Mutkevich figurine",
+          "targetCount": 2,
+          "itemId": "655c673673a43e23e857aebd"
         },
         {
           "id": "6761ff17cdc36bd66102e9da",
@@ -57498,7 +57555,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Killa figurine"
+          "descriptionKo": "Hand over the found in raid item: Killa figurine",
+          "targetCount": 2,
+          "itemId": "66572c82ad599021091c6118"
         },
         {
           "id": "6761ff17cdc36bd66102e9e1",
@@ -57510,21 +57569,29 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Den figurine"
+          "descriptionKo": "Hand over the found in raid item: Den figurine",
+          "targetCount": 2,
+          "itemId": "68f25c64b2b53abd200b954f"
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-new-beginning-3",
       "bsgId": "6848100b00afffa81f09e365",
-      "normalizedName": "new-beginning-3",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-3",
+      "name": "New Beginning (Prestige 3)",
+      "nameEn": "New Beginning (Prestige 3)",
+      "nameKo": "New Beginning",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_3)",
       "trader": "Ragman",
-      "locations": [],
+      "locations": [
+        "The Lab",
+        "Streets of Tarkov"
+      ],
       "minLevel": 35,
       "kappaRequired": false,
       "requirements": [],
@@ -57539,7 +57606,9 @@
           "targetType": "shoot",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate PMC operatives",
+          "targetCount": 15
         },
         {
           "id": "684812156189183883f13947",
@@ -57549,7 +57618,9 @@
           "targetType": "shoot",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate Raiders",
+          "targetCount": 20
         },
         {
           "id": "6848100b00afffa81f09e36b",
@@ -57559,7 +57630,10 @@
           "targetType": "extract",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Use the transit from The Lab to Streets of Tarkov",
+          "targetCount": 1,
+          "mapName": "The Lab"
         },
         {
           "id": "6848116061809d65b8503617",
@@ -57569,7 +57643,10 @@
           "targetType": "extract",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Survive and extract from Streets of Tarkov",
+          "targetCount": 1,
+          "mapName": "Streets of Tarkov"
         },
         {
           "id": "6848100b00afffa81f09e36d",
@@ -57580,7 +57657,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: BEAR operative figurine"
+          "descriptionKo": "Hand over the found in raid item: BEAR operative figurine",
+          "targetCount": 3,
+          "itemId": "655c652d60d0ac437100fed7"
         },
         {
           "id": "6848100b00afffa81f09e36e",
@@ -57591,7 +57670,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Politician Mutkevich figurine"
+          "descriptionKo": "Hand over the found in raid item: Politician Mutkevich figurine",
+          "targetCount": 3,
+          "itemId": "655c673673a43e23e857aebd"
         },
         {
           "id": "6848100b00afffa81f09e36f",
@@ -57602,7 +57683,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Killa figurine"
+          "descriptionKo": "Hand over the found in raid item: Killa figurine",
+          "targetCount": 3,
+          "itemId": "66572c82ad599021091c6118"
         },
         {
           "id": "6848100b00afffa81f09e376",
@@ -57613,21 +57696,30 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Den figurine"
+          "descriptionKo": "Hand over the found in raid item: Den figurine",
+          "targetCount": 3,
+          "itemId": "68f25c64b2b53abd200b954f"
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-new-beginning-4",
       "bsgId": "68481881f43abfdda2058369",
-      "normalizedName": "new-beginning-4",
-      "name": "Neuanfang",
-      "nameEn": "Neuanfang",
-      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Neuanfang",
+      "normalizedName": "new-beginning-prestige-4",
+      "name": "New Beginning (Prestige 4)",
+      "nameEn": "New Beginning (Prestige 4)",
+      "nameKo": "New Beginning",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/New_Beginning_(Prestige_4)",
       "trader": "Ragman",
-      "locations": [],
+      "locations": [
+        "The Lab",
+        "Streets of Tarkov",
+        "Interchange"
+      ],
       "minLevel": 40,
       "kappaRequired": false,
       "requirements": [],
@@ -57642,7 +57734,9 @@
           "targetType": "shoot",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate PMC operatives",
+          "targetCount": 20
         },
         {
           "id": "68481a8eda10b760b3b1a73f",
@@ -57652,7 +57746,9 @@
           "targetType": "shoot",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate Rogues",
+          "targetCount": 30
         },
         {
           "id": "68481881f43abfdda205836f",
@@ -57662,7 +57758,10 @@
           "targetType": "extract",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Use the transit from The Lab to Streets of Tarkov",
+          "targetCount": 1,
+          "mapName": "The Lab"
         },
         {
           "id": "68483a05801f8d9e40ac05b1",
@@ -57672,7 +57771,10 @@
           "targetType": "extract",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Use the transit from Streets of Tarkov to Interchange",
+          "targetCount": 1,
+          "mapName": "Streets of Tarkov"
         },
         {
           "id": "68486a0eda4828c0772e337b",
@@ -57683,7 +57785,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over any of the found in raid limited Labyrinth figurines"
+          "descriptionKo": "Hand over any of the found in raid limited Labyrinth figurines",
+          "targetCount": 1,
+          "mapName": "Interchange"
         },
         {
           "id": "68481881f43abfdda2058371",
@@ -57694,7 +57798,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: BEAR operative figurine"
+          "descriptionKo": "Hand over the found in raid item: BEAR operative figurine",
+          "targetCount": 3,
+          "itemId": "655c652d60d0ac437100fed7"
         },
         {
           "id": "68481881f43abfdda2058372",
@@ -57705,7 +57811,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Politician Mutkevich figurine"
+          "descriptionKo": "Hand over the found in raid item: Politician Mutkevich figurine",
+          "targetCount": 3,
+          "itemId": "655c673673a43e23e857aebd"
         },
         {
           "id": "68481881f43abfdda2058373",
@@ -57716,7 +57824,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Killa figurine"
+          "descriptionKo": "Hand over the found in raid item: Killa figurine",
+          "targetCount": 3,
+          "itemId": "66572c82ad599021091c6118"
         },
         {
           "id": "68481881f43abfdda205837a",
@@ -57727,11 +57837,15 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "Hand over the found in raid item: Den figurine"
+          "descriptionKo": "Hand over the found in raid item: Den figurine",
+          "targetCount": 3,
+          "itemId": "68f25c64b2b53abd200b954f"
         }
       ],
       "requiredItems": [],
-      "nameKo": "New Beginning"
+      "nameAliases": [
+        "Neuanfang"
+      ]
     },
     {
       "id": "tarkovdata-professional-fitness-part-1-pvp-zone",
@@ -57739,12 +57853,19 @@
       "normalizedName": "professional-fitness-part-1-pvp-zone",
       "name": "Professional Fitness - Part 1 [PVP ZONE]",
       "nameEn": "Professional Fitness - Part 1 [PVP ZONE]",
+      "nameKo": "Professional Fitness - Part 1 [PVP ZONE]",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Professional_Fitness_-_Part_1",
       "trader": "Ref",
       "locations": [],
       "minLevel": 10,
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "697877e0c639962b2e0cf24f",
+          "requirementType": "active",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
@@ -57752,15 +57873,15 @@
           "id": "69788c6d403c43a13a7ba7c2",
           "sortOrder": 0,
           "objectiveType": "visit",
-          "description": "Play a match in CheckPoint or Last Hero mode in Arena",
+          "description": "Play a match in CheckPoint or Last Hero mode",
           "targetType": "visit",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Play a match in CheckPoint or Last Hero mode"
         }
       ],
       "requiredItems": [],
-      "nameKo": "Professional Fitness - Part 1 [PVP ZONE]",
       "rewardItems": [
         {
           "id": "wiki-reward-2",
@@ -57791,28 +57912,36 @@
       "normalizedName": "professional-fitness-part-2-pvp-zone",
       "name": "Professional Fitness - Part 2 [PVP ZONE]",
       "nameEn": "Professional Fitness - Part 2 [PVP ZONE]",
+      "nameKo": "Professional Fitness - Part 2 [PVP ZONE]",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Professional_Fitness_-_Part_2",
       "trader": "Ref",
       "locations": [],
       "minLevel": 10,
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "69788c2bac719606e40b4e77",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
         {
           "id": "69788fc3dc3074ce1c851e20",
           "sortOrder": 0,
-          "objectiveType": "visit",
-          "description": "Eliminate 20 enemies in Arena",
-          "targetType": "visit",
+          "objectiveType": "shoot",
+          "description": "Eliminate enemies in Arena",
+          "targetType": "shoot",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "Eliminate enemies in Arena",
+          "targetCount": 20
         }
       ],
       "requiredItems": [],
-      "nameKo": "Professional Fitness - Part 2 [PVP ZONE]",
       "rewardItems": [
         {
           "id": "wiki-reward-2",
@@ -57853,6 +57982,7 @@
       "normalizedName": "reserve",
       "name": "Reserve",
       "nameEn": "Reserve",
+      "nameKo": "리저브",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Reserve_(quest)",
       "trader": "Jaeger",
       "locations": [
@@ -57868,7 +57998,7 @@
           "id": "5d8a05d086f77410b4225d10",
           "sortOrder": 0,
           "objectiveType": "visit",
-          "description": "Locate the food storage location on Reserve",
+          "description": "Locate the food warehouse on Reserve",
           "targetType": "visit",
           "mapName": "Reserve",
           "requiresFir": false,
@@ -57886,11 +58016,11 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "살아서 탈출하기"
+          "descriptionKo": "살아서 탈출하기",
+          "targetCount": 1
         }
       ],
       "requiredItems": [],
-      "nameKo": "리저브",
       "rewardItems": [
         {
           "id": "wiki-reward-3",
@@ -57953,6 +58083,7 @@
       "normalizedName": "saving-private-roman",
       "name": "Saving Private Roman",
       "nameEn": "Saving Private Roman",
+      "nameKo": "로만 이병 구하기",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Saving_Private_Roman",
       "trader": "BTR Driver",
       "locations": [
@@ -57960,7 +58091,13 @@
         "Lighthouse"
       ],
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "69c26c07683c9831020018c7",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
@@ -57973,7 +58110,8 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "삼림(Woods)에서 등대(Lighthouse)로 가는 길을 MS2000 마커로 표시하기"
+          "descriptionKo": "삼림(Woods)에서 등대(Lighthouse)로 가는 길을 MS2000 마커로 표시하기",
+          "targetCount": 1
         },
         {
           "id": "69c27425f79e528d73ed4b2e",
@@ -57984,7 +58122,9 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "삼림(Woods)에서 등대(Lighthouse)로 이동하기"
+          "descriptionKo": "삼림(Woods)에서 등대(Lighthouse)로 지역 이동하기",
+          "targetCount": 1,
+          "mapName": "Woods"
         },
         {
           "id": "69c2745137b8de0e367891c6",
@@ -57995,11 +58135,11 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "등대(Lighthouse)에서 삼림(Woods)로 가는 길을 MS200 마커로 표시하기"
+          "descriptionKo": "등대(Lighthouse)에서 삼림(Woods)로 가는 길을 MS200 마커로 표시하기",
+          "targetCount": 1
         }
       ],
       "requiredItems": [],
-      "nameKo": "로만 이병 구하기",
       "rewardXp": 42000,
       "rewardText": [
         "* +42,000 EXP"
@@ -58011,6 +58151,7 @@
       "normalizedName": "stick-to-it",
       "name": "Stick to It",
       "nameEn": "Stick to It",
+      "nameKo": "계획 고수",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Stick_to_It",
       "trader": "BTR Driver",
       "locations": [
@@ -58030,11 +58171,12 @@
           "requiresFir": false,
           "locationPoints": [],
           "optionalPoints": [],
-          "descriptionKo": "로그 처치하기"
+          "descriptionKo": "로그 처치하기",
+          "targetCount": 30,
+          "mapName": "Lighthouse"
         }
       ],
       "requiredItems": [],
-      "nameKo": "계획 고수",
       "rewardItems": [
         {
           "id": "wiki-reward-2",
@@ -58060,12 +58202,19 @@
       "normalizedName": "to-great-heights-part-6-pvp-zone",
       "name": "To Great Heights! - Part 6 [PVP ZONE]",
       "nameEn": "To Great Heights! - Part 6 [PVP ZONE]",
+      "nameKo": "더 높은 곳을 향해! - 파트 6 [PVP ZONE]",
       "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/To_Great_Heights!_-_Part_6",
       "trader": "Ref",
       "locations": [],
       "minLevel": 10,
       "kappaRequired": false,
-      "requirements": [],
+      "requirements": [
+        {
+          "questId": "66058cc9ae4719735349b9ea",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
       "alternativeQuestIds": [],
       "followUpQuestIds": [],
       "objectives": [
@@ -58073,15 +58222,15 @@
           "id": "6978a28fe2bee676ada49c79",
           "sortOrder": 0,
           "objectiveType": "visit",
-          "description": "Win 2 matches in a row in TeamFight, BlastGang or CheckPoint mode in Arena",
+          "description": "Win two matches in a row in TeamFight, BlastGang, or CheckPoint mode",
           "targetType": "visit",
           "requiresFir": false,
           "locationPoints": [],
-          "optionalPoints": []
+          "optionalPoints": [],
+          "descriptionKo": "아레나에서 팀파이트, 블라스트갱, 혹은 체크포인트 모드에서 2회 연속으로 매치 승리하기"
         }
       ],
       "requiredItems": [],
-      "nameKo": "더 높은 곳을 향해! - 파트 6 [PVP ZONE]",
       "rewardItems": [
         {
           "id": "wiki-reward-2",
@@ -58109,6 +58258,830 @@
         "* 55 GP coins",
         "* Unlocks barter for APOK Tactical Wasteland Gladius at Ref LL2"
       ]
+    },
+    {
+      "id": "tarkovdata-69c277f3ea6da9c23e07f8d2",
+      "bsgId": "69c277f3ea6da9c23e07f8d2",
+      "normalizedName": "69c277f3ea6da9c23e07f8d2",
+      "name": "A Bitter Victory",
+      "nameEn": "A Bitter Victory",
+      "nameKo": "씁쓸한 승리",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/A_Bitter_Victory",
+      "trader": "BTR Driver",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [
+        {
+          "questId": "69c27158e350f01390049e77",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69c27887c921a0bbeb1889f5",
+          "sortOrder": 0,
+          "objectiveType": "giveItem",
+          "description": "Hand over the item: Bottle of Fierce Hatchling moonshine",
+          "targetType": "giveItem",
+          "descriptionKo": "[맹렬한 도끼런 밀주] 건네주기",
+          "targetCount": 2,
+          "itemId": "5d1b376e86f774252519444e",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c278e24c0bedf890ce8873",
+          "sortOrder": 1,
+          "objectiveType": "findItem",
+          "description": "Obtain the item: Bottle of Fierce Hatchling moonshine",
+          "targetType": "findItem",
+          "descriptionKo": "[맹렬한 도끼런 밀주] 획득하기",
+          "targetCount": 2,
+          "itemId": "5d1b376e86f774252519444e",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c278f14dc0363079d5bb40",
+          "sortOrder": 2,
+          "objectiveType": "giveItem",
+          "description": "Hand over the item: Salty Dog beef sausage",
+          "targetType": "giveItem",
+          "descriptionKo": "[솔티 독 소고기 소세지] 건네주기",
+          "targetCount": 2,
+          "itemId": "635a758bfefc88a93f021b8a",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c278cc962d59d4fe7d8d82",
+          "sortOrder": 3,
+          "objectiveType": "findItem",
+          "description": "Obtain the item: Salty Dog beef sausage",
+          "targetType": "findItem",
+          "descriptionKo": "[솔티 독 소고기 소세지] 획득하기",
+          "targetCount": 2,
+          "itemId": "635a758bfefc88a93f021b8a",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c294f2bffe2159a3e4d56a",
+          "sortOrder": 4,
+          "objectiveType": "globalVariable",
+          "description": "Talk to the BTR Driver",
+          "targetType": "globalVariable",
+          "descriptionKo": "BTR 조종수와 대화하기",
+          "targetCount": 2,
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c278972aaa73481e71ddf7",
+          "sortOrder": 5,
+          "objectiveType": "findItem",
+          "description": "Obtain the item: Rye croutons",
+          "targetType": "findItem",
+          "descriptionKo": "[호밀 크루통] 획득하기",
+          "targetCount": 4,
+          "itemId": "57347d3d245977448f7b7f61",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c278be0634a7d5f463fc3b",
+          "sortOrder": 6,
+          "objectiveType": "findItem",
+          "description": "Obtain the item: Bottle of Tarkovskaya vodka",
+          "targetType": "findItem",
+          "descriptionKo": "[타르코프스카야 보드카 병] 건네주기",
+          "targetCount": 4,
+          "itemId": "5d40407c86f774318526545a",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c27909f96f171f6982c4c7",
+          "sortOrder": 7,
+          "objectiveType": "giveItem",
+          "description": "Hand over the item: Rye croutons",
+          "targetType": "giveItem",
+          "descriptionKo": "[호밀 크루통] 건네주기",
+          "targetCount": 4,
+          "itemId": "5751487e245977207e26a315",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69c278fff569bda0e2652705",
+          "sortOrder": 8,
+          "objectiveType": "giveItem",
+          "description": "Hand over the item: Bottle of Tarkovskaya vodka",
+          "targetType": "giveItem",
+          "descriptionKo": "[타르코프스카야 보드카 병] 건네주기",
+          "targetCount": 4,
+          "itemId": "5d40407c86f774318526545a",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6a102713a973fbe02db53bf1",
+          "sortOrder": 9,
+          "objectiveType": "extract",
+          "description": "Survive and extract from the location",
+          "targetType": "extract",
+          "descriptionKo": "지역에서 생존해서 탈출하기",
+          "targetCount": 1,
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69ce1cfb298a6529b30d712b",
+      "bsgId": "69ce1cfb298a6529b30d712b",
+      "normalizedName": "69ce1cfb298a6529b30d712b",
+      "name": "A Wedge Between Us",
+      "nameEn": "A Wedge Between Us",
+      "nameKo": "우리 사이의 불협화음",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/A_Wedge_Between_Us",
+      "trader": "Jaeger",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69ce1cfb298a6529b30d712d",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Locate and neutralize The Wedge's squad",
+          "targetType": "shoot",
+          "descriptionKo": "웨지에 분대를 찾아 제거하기",
+          "targetCount": 4,
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6a03343990ee160507db2294",
+          "sortOrder": 1,
+          "objectiveType": "findItem",
+          "description": "Claim a trophy from The Wedge",
+          "targetType": "findItem",
+          "descriptionKo": "웨지에게서 전리품 노획하기",
+          "targetCount": 1,
+          "itemId": "69e2441a18cb3157560855ec",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6a033442e041f8512e182c8e",
+          "sortOrder": 2,
+          "objectiveType": "giveItem",
+          "description": "Hand over the found item",
+          "targetType": "giveItem",
+          "descriptionKo": "전리품 건네주기",
+          "targetCount": 1,
+          "itemId": "69e2441a18cb3157560855ec",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69ce213a298a6529b30d7134",
+      "bsgId": "69ce213a298a6529b30d7134",
+      "normalizedName": "69ce213a298a6529b30d7134",
+      "name": "Biochemistry",
+      "nameEn": "Biochemistry",
+      "nameKo": "생화학",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Biochemistry",
+      "trader": "Therapist",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [
+        {
+          "questId": "69ce204c8702b378f9091e4b",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69ce213a298a6529b30d7136",
+          "sortOrder": 0,
+          "objectiveType": "giveItem",
+          "description": "Find the item in raid: Aceso Xpress semi-automatic biochemical analyzer",
+          "targetType": "giveItem",
+          "descriptionKo": "Find the item in raid: Aceso Xpress semi-automatic biochemical analyzer",
+          "targetCount": 3,
+          "itemId": "69bb435ff609db77390b0e25",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-6a5cd2178fd7c2b201032f3f",
+      "bsgId": "6a5cd2178fd7c2b201032f3f",
+      "normalizedName": "6a5cd2178fd7c2b201032f3f",
+      "name": "Demonstration Model",
+      "nameEn": "Demonstration Model",
+      "nameKo": "Demonstration Model",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Demonstration_model",
+      "trader": "Peacekeeper",
+      "locations": [
+        "Reserve"
+      ],
+      "minLevel": 19,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6a5cd2178fd7c2b201032f41",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate any target with headshots with 7.62x51 assault rifles or DMRs on Reserve",
+          "targetType": "shoot",
+          "descriptionKo": "리저브(Reserve)에서 7.62x51 돌격소총 혹은 DMR로 아무 표적 사살하기",
+          "targetCount": 15,
+          "mapName": "Reserve",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-6a5424ae135497b9df0c68be",
+      "bsgId": "6a5424ae135497b9df0c68be",
+      "normalizedName": "6a5424ae135497b9df0c68be",
+      "name": "Fall Ailment",
+      "nameEn": "Fall Ailment",
+      "nameKo": "Fall Ailment",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Fall_Ailment",
+      "trader": "Therapist",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6a5424ae135497b9df0c68c1",
+          "sortOrder": 0,
+          "objectiveType": "findItem",
+          "description": "Find the item in raid: Disposable syringe",
+          "targetType": "findItem",
+          "descriptionKo": "Find the item in raid: Disposable syringe",
+          "targetCount": 5,
+          "itemId": "5d1b3f2d86f774253763b735",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6a5424ae135497b9df0c68c2",
+          "sortOrder": 1,
+          "objectiveType": "giveItem",
+          "description": "Hand over the items",
+          "targetType": "giveItem",
+          "descriptionKo": "Hand over the items",
+          "targetCount": 5,
+          "itemId": "5d1b3f2d86f774253763b735",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69ce21e990144e437802b1e0",
+      "bsgId": "69ce21e990144e437802b1e0",
+      "normalizedName": "69ce21e990144e437802b1e0",
+      "name": "Fresh Stock",
+      "nameEn": "Fresh Stock",
+      "nameKo": "신상이 왔어요",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Fresh_Stock",
+      "trader": "Ragman",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69ce21e990144e437802b1e2",
+          "sortOrder": 0,
+          "objectiveType": "findItem",
+          "description": "Find the item in raid: Black Division plate carrier",
+          "targetType": "findItem",
+          "descriptionKo": "레이드에서 아무 블랙 디비전 플레이트 캐리어 획득하기",
+          "targetCount": 5,
+          "itemId": "68947a4be4bf255d1b0ca746",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69ce21e990144e437802b1e3",
+          "sortOrder": 1,
+          "objectiveType": "giveItem",
+          "description": "Hand over the items",
+          "targetType": "giveItem",
+          "descriptionKo": "플레이트 캐리어 건네기",
+          "targetCount": 5,
+          "itemId": "68947a4be4bf255d1b0ca746",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69c2a2d004de49c8f0055a3d",
+      "bsgId": "69c2a2d004de49c8f0055a3d",
+      "normalizedName": "69c2a2d004de49c8f0055a3d",
+      "name": "Hangover",
+      "nameEn": "Hangover",
+      "nameKo": "숙취",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Hangover",
+      "trader": "BTR Driver",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [
+        {
+          "questId": "69c277f3ea6da9c23e07f8d2",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69c2a5ba8d7f2db5aff26bd2",
+          "sortOrder": 0,
+          "objectiveType": "dialogue",
+          "description": "Return to the BTR Driver and ask about the negotiations with the smugglers",
+          "targetType": "dialogue",
+          "descriptionKo": "BTR 조종수한테 돌아가서 밀수꾼들과 진행된 협상에 관해 묻기",
+          "targetCount": 1,
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-6a5c1578f2689567c30eb0f3",
+      "bsgId": "6a5c1578f2689567c30eb0f3",
+      "normalizedName": "6a5c1578f2689567c30eb0f3",
+      "name": "Hiking",
+      "nameEn": "Hiking",
+      "nameKo": "Hiking",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Hiking",
+      "trader": "Peacekeeper",
+      "locations": [
+        "Woods"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6a667849c90044ddde3e7c26",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate Scavs at USEC camp, Scav camp, sawmill, or abandoned village on Woods",
+          "targetType": "shoot",
+          "descriptionKo": "Eliminate Scavs at USEC camp, Scav camp, sawmill, or abandoned village on Woods",
+          "targetCount": 10,
+          "mapName": "Woods",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69ce1de03e15cd80bd06f6c9",
+      "bsgId": "69ce1de03e15cd80bd06f6c9",
+      "normalizedName": "69ce1de03e15cd80bd06f6c9",
+      "name": "Oil Change",
+      "nameEn": "Oil Change",
+      "nameKo": "기름 교체",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Oil_Change",
+      "trader": "Prapor",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69ce1e2614b1a16885f61da4",
+          "sortOrder": 0,
+          "objectiveType": "findItem",
+          "description": "Find the item in raid: AMG-10 hydraulic fluid",
+          "targetType": "findItem",
+          "descriptionKo": "레이드에서 [AMG-10 유압유] 획득하기",
+          "targetCount": 5,
+          "itemId": "699f09de81a6c812900a77b7",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69ce1e30e2c52320f2eba4ee",
+          "sortOrder": 1,
+          "objectiveType": "giveItem",
+          "description": "Hand over the items",
+          "targetType": "giveItem",
+          "descriptionKo": "[AMG-10 유압유] 건네주기",
+          "targetCount": 5,
+          "itemId": "699f09de81a6c812900a77b7",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69ce1f84ebbdbf36a200627c",
+      "bsgId": "69ce1f84ebbdbf36a200627c",
+      "normalizedName": "69ce1f84ebbdbf36a200627c",
+      "name": "Peaceful Atom",
+      "nameEn": "Peaceful Atom",
+      "nameKo": "평화를 위한 원자력",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Peaceful_Atom",
+      "trader": "Peacekeeper",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [
+        {
+          "questId": "69ce1de03e15cd80bd06f6c9",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69ce1f84ebbdbf36a200627e",
+          "sortOrder": 0,
+          "objectiveType": "findQuestItem",
+          "description": "Locate and obtain the nuclear power unit control log on Icebreaker",
+          "targetType": "findQuestItem",
+          "descriptionKo": "Locate and obtain the nuclear power unit control log on Icebreaker",
+          "targetCount": 1,
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69ce1f84ebbdbf36a200627f",
+          "sortOrder": 1,
+          "objectiveType": "giveQuestItem",
+          "description": "Hand over the found item",
+          "targetType": "giveQuestItem",
+          "descriptionKo": "Hand over the found item",
+          "targetCount": 1,
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-6a5ccda873f06065630d61b0",
+      "bsgId": "6a5ccda873f06065630d61b0",
+      "normalizedName": "6a5ccda873f06065630d61b0",
+      "name": "Secret Message",
+      "nameEn": "Secret Message",
+      "nameKo": "Secret Message",
+      "trader": "Peacekeeper",
+      "locations": [
+        "Streets of Tarkov"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6a5ccda873f06065630d61b2",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate any target with headshots using a 12ga shotgun on Streets of Tarkov",
+          "targetType": "shoot",
+          "descriptionKo": "Eliminate any target with headshots using a 12ga shotgun on Streets of Tarkov",
+          "targetCount": 15,
+          "mapName": "Streets of Tarkov",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-68ee1c18b4e5bc9a68018cd7",
+      "bsgId": "68ee1c18b4e5bc9a68018cd7",
+      "normalizedName": "68ee1c18b4e5bc9a68018cd7",
+      "name": "Special Order",
+      "nameEn": "Special Order",
+      "nameKo": "특별 제안",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Special_Order",
+      "trader": "Prapor",
+      "locations": [],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "68ee1cc7e8b13097f525e6f2",
+          "sortOrder": 0,
+          "objectiveType": "giveItem",
+          "description": "Hand over the found in raid item: Red Rebel ice pick",
+          "targetType": "giveItem",
+          "descriptionKo": "레이드에서 발견한 [Red Rebel 아이스 픽] 건네주기",
+          "targetCount": 1,
+          "itemId": "5c0126f40db834002a125382",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-6a4532e48e82d8ffea0c3eae",
+      "bsgId": "6a4532e48e82d8ffea0c3eae",
+      "normalizedName": "the-huntsman-path-controller",
+      "name": "The Huntsman Path - Controller",
+      "nameEn": "The Huntsman Path - Controller",
+      "nameKo": "The Huntsman Path - Control",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Huntsman_Path_-_Controller",
+      "trader": "Jaeger",
+      "locations": [
+        "The Lab"
+      ],
+      "minLevel": 33,
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "6a4532e48e82d8ffea0c3eb0",
+          "sortOrder": 0,
+          "objectiveType": "shoot",
+          "description": "Eliminate any target in The Lab (in one raid)",
+          "targetType": "shoot",
+          "descriptionKo": "Eliminate any target in The Lab (in one raid)",
+          "targetCount": 10,
+          "mapName": "The Lab",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": [],
+      "nameAliases": [
+        "The Huntsman Path - Control"
+      ]
+    },
+    {
+      "id": "tarkovdata-67a09673972c11a3f507731d",
+      "bsgId": "67a09673972c11a3f507731d",
+      "normalizedName": "67a09673972c11a3f507731d",
+      "name": "The Tarkov Butcher",
+      "nameEn": "The Tarkov Butcher",
+      "nameKo": "The Tarkov Butcher",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/The_Tarkov_Butcher",
+      "trader": "Therapist",
+      "locations": [
+        "Ground Zero",
+        "Ground Zero 21+"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "67a0d92a6cf4a5745d0bc94f",
+          "sortOrder": 0,
+          "objectiveType": "findQuestItem",
+          "description": "Locate and obtain the chemical container on Ground Zero",
+          "targetType": "findQuestItem",
+          "descriptionKo": "Locate and obtain the chemical container on Ground Zero",
+          "targetCount": 1,
+          "mapName": "Ground Zero",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "6a57565d0c4e021f681b32f0",
+          "sortOrder": 1,
+          "objectiveType": "plantQuestItem",
+          "description": "Stash the container by the police station on Streets of Tarkov",
+          "targetType": "plantQuestItem",
+          "descriptionKo": "Stash the container by the police station on Streets of Tarkov",
+          "targetCount": 1,
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69ce204c8702b378f9091e4b",
+      "bsgId": "69ce204c8702b378f9091e4b",
+      "normalizedName": "69ce204c8702b378f9091e4b",
+      "name": "War Never Changes",
+      "nameEn": "War Never Changes",
+      "nameKo": "전쟁, 전쟁은 절대 변하지 않는다",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/War_Never_Changes",
+      "trader": "Therapist",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69ce204c8702b378f9091e4d",
+          "sortOrder": 0,
+          "objectiveType": "findItem",
+          "description": "Find the item in raid: Nooby Shield potassium iodide tablets",
+          "targetType": "findItem",
+          "descriptionKo": "레이드에서 [누비 쉴드 요오드화 칼륨 정제] 구하기",
+          "targetCount": 10,
+          "itemId": "69bb43df99f3fda8f1072483",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69ce204c8702b378f9091e4e",
+          "sortOrder": 1,
+          "objectiveType": "giveItem",
+          "description": "Hand over the items",
+          "targetType": "giveItem",
+          "descriptionKo": "아이템 건네주기",
+          "targetCount": 10,
+          "itemId": "69bb43df99f3fda8f1072483",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
+    },
+    {
+      "id": "tarkovdata-69e5583240c3e6c8ba0edbd5",
+      "bsgId": "69e5583240c3e6c8ba0edbd5",
+      "normalizedName": "69e5583240c3e6c8ba0edbd5",
+      "name": "Wiring the Vessel",
+      "nameEn": "Wiring the Vessel",
+      "nameKo": "선내 배선 작업",
+      "wikiPageLink": "https://escapefromtarkov.fandom.com/wiki/Wiring_the_Vessel",
+      "trader": "Peacekeeper",
+      "locations": [
+        "Icebreaker"
+      ],
+      "kappaRequired": false,
+      "requirements": [
+        {
+          "questId": "69ce1f84ebbdbf36a200627c",
+          "requirementType": "complete",
+          "groupId": 1
+        }
+      ],
+      "alternativeQuestIds": [],
+      "followUpQuestIds": [],
+      "objectives": [
+        {
+          "id": "69e5593e3f425636f1d762d9",
+          "sortOrder": 0,
+          "objectiveType": "plantItem",
+          "description": "Repair the equipment in the automation room leading to the engine room on Icebreaker",
+          "targetType": "plantItem",
+          "descriptionKo": "Repair the equipment in the automation room leading to the engine room on Icebreaker",
+          "targetCount": 1,
+          "itemId": "590c2e1186f77425357b6124",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69e5594c6dd4d9e12fa3de0d",
+          "sortOrder": 1,
+          "objectiveType": "plantItem",
+          "description": "Repair the equipment in the automation room under the engine room on Icebreaker",
+          "targetType": "plantItem",
+          "descriptionKo": "Repair the equipment in the automation room under the engine room on Icebreaker",
+          "targetCount": 1,
+          "itemId": "590c2e1186f77425357b6124",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69e559525afcf4e746e98e33",
+          "sortOrder": 2,
+          "objectiveType": "plantItem",
+          "description": "Repair the equipment in the automation room near the storage room on Icebreaker",
+          "targetType": "plantItem",
+          "descriptionKo": "Repair the equipment in the automation room near the storage room on Icebreaker",
+          "targetCount": 1,
+          "itemId": "590c2e1186f77425357b6124",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        },
+        {
+          "id": "69e559bf4b53b554a2779130",
+          "sortOrder": 3,
+          "objectiveType": "plantItem",
+          "description": "Install the hacking device in the central control station room on Icebreaker",
+          "targetType": "plantItem",
+          "descriptionKo": "Install the hacking device in the central control station room on Icebreaker",
+          "targetCount": 1,
+          "itemId": "68e63a53371639e1e4004b6e",
+          "mapName": "Icebreaker",
+          "requiresFir": false,
+          "locationPoints": [],
+          "optionalPoints": []
+        }
+      ],
+      "requiredItems": []
     }
   ],
   "items": [

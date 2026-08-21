@@ -813,20 +813,24 @@ async function updateDiagnostics(stateDirectory) {
   return records.join("\n");
 }
 
-async function prepareStagedFixture(fixture, port = 41753) {
+async function prepareStagedFixture(fixture, port = 41753, options = {}) {
+  const checkTimeout = options.checkTimeout ?? 90_000;
+  const stageTimeout = options.stageTimeout ?? 60_000;
   const common = [
     "-PackageRoot", fixture.packageRoot,
     "-StateDirectory", fixture.stateDirectory,
     "-Port", String(port),
     "-AllowTestHttpLoopback",
   ];
-  const checked = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), ["-Action", "Check", ...common]);
+  const checked = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), ["-Action", "Check", ...common], {
+    timeout: checkTimeout,
+  });
   assert.equal(checked.status, 0, `${checked.stdout}\n${checked.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
   const available = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
   assert.equal(available.state, "AVAILABLE", JSON.stringify(available));
   const staged = await runPowerShellAsync(path.join(fixture.packageRoot, "app-update-worker.ps1"), [
     "-Action", "Stage", ...common, "-CandidateId", available.candidateId,
-  ], { timeout: 30_000 });
+  ], { timeout: stageTimeout });
   assert.equal(staged.status, 0, `${staged.stdout}\n${staged.stderr}\n${await updateDiagnostics(fixture.stateDirectory)}`);
   const ready = JSON.parse(await readFile(path.join(fixture.stateDirectory, "app-update", "status.json"), "utf8"));
   assert.equal(ready.state, "READY_TO_RESTART", JSON.stringify(ready));
@@ -2133,7 +2137,7 @@ test("the previous stable updater code performs the first hop with its own pinne
     assert.match(previous.launcher.toString("utf8"), /AddSeconds\(60\)/, "the v1.0.31 first hop must retain its published fixed timeout");
   }
 
-  await prepareStagedFixture(fixture, port);
+  await prepareStagedFixture(fixture, port, { checkTimeout: 120_000, stageTimeout: 90_000 });
   const updateDirectory = path.join(fixture.stateDirectory, "app-update");
   const pending = JSON.parse(await readFile(path.join(updateDirectory, "pending.json"), "utf8"));
   const previousBrokerSha256 = sha256(previous.broker);

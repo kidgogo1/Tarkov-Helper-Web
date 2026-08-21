@@ -8,6 +8,8 @@ export interface DataMeta {
     localExportedAt?: string | null;
     tarkovDataGeneratedAt?: string | null;
     tarkovDataQuestCount?: number;
+    liveTaskCount?: number;
+    liveTaskSource?: string;
     wikiQuestCount?: number;
     wikiRevisionTimestamp?: string | null;
     refreshMode?: string;
@@ -20,6 +22,8 @@ export interface DataMeta {
     wikiLocationVerifiedAt?: string | null;
     wikiLocationVerifiedQuests?: number;
     wikiLocationCorrections?: number;
+    wikiLinkCorrections?: number;
+    wikiLinkUnverifiedQuests?: number;
   };
   counts: {
     quests: number;

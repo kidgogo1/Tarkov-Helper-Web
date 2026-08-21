@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useAppStore } from "../../app/store";
 import { Dialog } from "../../components/Dialog";
@@ -248,7 +248,7 @@ export function QuestsPage({
     setSelectedQuestId(nextSelectedQuestId);
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (nextSelectedQuestId && nextSelectedQuestId !== focusQuestId) {
       const preserveFocus = focusRequested && focusedQuest?.id === nextSelectedQuestId;
       onQuestSelect?.(nextSelectedQuestId, preserveFocus);

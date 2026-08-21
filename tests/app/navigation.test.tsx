@@ -240,10 +240,22 @@ describe("App related navigation", () => {
 
   it("tracks a quest and opens its title and objectives from the map-adjacent quest window button", async () => {
     const openPopup = vi.spyOn(window, "open").mockReturnValue(null);
-    renderApp();
+    const selectTargetAsSoonAsTheListAppears = new MutationObserver(() => {
+      const questList = screen.queryByRole("region", { name: "퀘스트 목록" });
+      const target = questList ? within(questList).queryByText("목표 임무") : null;
+      const button = target?.closest("button");
+      if (!button) return;
+      selectTargetAsSoonAsTheListAppears.disconnect();
+      button.click();
+    });
+    selectTargetAsSoonAsTheListAppears.observe(document.body, { childList: true, subtree: true });
 
-    const questList = await screen.findByRole("region", { name: "퀘스트 목록" });
-    fireEvent.click(within(questList).getByText("목표 임무"));
+    try {
+      renderApp();
+      await waitFor(() => expect(window.location.hash).toBe("#/quests?quest=target-quest"));
+    } finally {
+      selectTargetAsSoonAsTheListAppears.disconnect();
+    }
     const questDetail = screen.getByRole("article", { name: "퀘스트 상세" });
     await waitFor(() => expect(
       within(questDetail).getByRole("heading", { name: "목표 임무" }),
