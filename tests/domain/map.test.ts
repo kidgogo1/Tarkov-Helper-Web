@@ -306,6 +306,75 @@ describe("floor detection", () => {
     expect(detectPlayerFloor([], config, 100, 0, 100)).toBeNull();
   });
 
+  it("uses the built-in Factory height bands when the bundle has no floor locations", () => {
+    const config: MapConfig = {
+      key: "Factory",
+      displayName: "Factory",
+      svgFileName: "Factory.svg",
+      imageWidth: 1_000,
+      imageHeight: 1_000,
+      aliases: [],
+      floors: [
+        { layerId: "basement", displayName: "Basement", order: -1, isDefault: false },
+        { layerId: "main", displayName: "Ground Floor", order: 0, isDefault: true },
+        { layerId: "level2", displayName: "Level 2", order: 1, isDefault: false },
+        { layerId: "level3", displayName: "Level 3", order: 2, isDefault: false },
+      ],
+    };
+
+    expect(detectPlayerFloor([], config, 0, -2, 0)).toBe("basement");
+    expect(detectPlayerFloor([], config, 0, -1, 0)).toBe("main");
+    expect(detectPlayerFloor([], config, 0, 0, 0)).toBe("main");
+    expect(detectPlayerFloor([], config, 0, 3, 0)).toBe("level2");
+    expect(detectPlayerFloor([], config, 0, 4, 0)).toBe("level2");
+    expect(detectPlayerFloor([], config, 0, 6, 0)).toBe("level3");
+    expect(detectPlayerFloor([], config, 0, 8, 0)).toBe("level3");
+    expect(
+      detectPlayerFloor(
+        [{
+          id: "legacy-factory-main",
+          mapKey: "Factory",
+          floorId: "main",
+          minY: -1,
+          maxY: 3,
+          minX: -65,
+          maxX: 77.6,
+          minZ: -64.5,
+          maxZ: 67.2,
+          priority: 1,
+        }],
+        config,
+        0,
+        4,
+        0,
+      ),
+    ).toBe("level2");
+  });
+
+  it("uses Ground Zero sub-area bounds before its broad upper-floor bands", () => {
+    const config: MapConfig = {
+      key: "GroundZero",
+      displayName: "Ground Zero",
+      svgFileName: "GroundZero.svg",
+      imageWidth: 1_000,
+      imageHeight: 1_000,
+      aliases: [],
+      floors: [
+        { layerId: "basement", displayName: "Basement", order: -1, isDefault: false },
+        { layerId: "main", displayName: "Ground Floor", order: 0, isDefault: true },
+        { layerId: "level2", displayName: "Level 2", order: 1, isDefault: false },
+        { layerId: "level3", displayName: "Level 3", order: 2, isDefault: false },
+      ],
+    };
+
+    expect(detectPlayerFloor([], config, 60, 10, 0)).toBe("basement");
+    expect(detectPlayerFloor([], config, 0, 10, 0)).toBe("main");
+    expect(detectPlayerFloor([], config, 0, 28, 0)).toBe("level2");
+    expect(detectPlayerFloor([], config, 0, 30, 0)).toBe("level2");
+    expect(detectPlayerFloor([], config, 0, 32.3, 0)).toBe("level3");
+    expect(detectPlayerFloor([], config, 0, 40, 0)).toBe("level3");
+  });
+
   it("shows the selected SVG layer over a dimmed default-floor background", () => {
     const document = new DOMParser().parseFromString(
       '<svg xmlns="http://www.w3.org/2000/svg"><g id="basement"/><g id="main"/><g id="level2"/></svg>',

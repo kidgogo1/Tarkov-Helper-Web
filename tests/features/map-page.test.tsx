@@ -1101,6 +1101,37 @@ describe("MapPage", () => {
     expect(screen.queryByRole("button", { name: /플레이어 위치/ })).not.toBeInTheDocument();
   });
 
+  it("automatically selects a Factory floor from screenshot height without floor-location rows", () => {
+    const pageData: TarkovData = {
+      ...data,
+      mapConfigs: data.mapConfigs.map((map) => map.key === "Factory"
+        ? {
+            ...map,
+            floors: [
+              { layerId: "basement", displayName: "Basement", order: -1, isDefault: false },
+              { layerId: "main", displayName: "Ground Floor", order: 0, isDefault: true },
+              { layerId: "level2", displayName: "Level 2", order: 1, isDefault: false },
+              { layerId: "level3", displayName: "Level 3", order: 2, isDefault: false },
+            ],
+          }
+        : map),
+      mapFloorLocations: [],
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Factory";
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    renderPage({}, false, pageData);
+
+    fireEvent.change(screen.getByLabelText("스크린샷 파일 선택"), {
+      target: {
+        files: [new File([], "2026-08-07[10-20]_0, 4, 0_0, 0, 0, 1_16.74.png")],
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Level 2" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/방향 180° · Level 2 · Factory 선택 기준/)).toBeInTheDocument();
+  });
+
   it("automatically applies new screenshot events through the manual coordinate pipeline", async () => {
     let eventRequestCount = 0;
     const request = vi.fn<typeof fetch>().mockImplementation(async (input) => {

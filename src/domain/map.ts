@@ -1,4 +1,5 @@
 import type { MapConfig, MapFloor, MapFloorLocation } from "../types/data";
+import { fallbackFloorLocationsForMap } from "./map-floor-fallbacks";
 
 export interface ScreenPoint {
   x: number;
@@ -503,6 +504,9 @@ export function detectFloor(
  * Resolves positions outside every explicit indoor X/Z footprint to the map's
  * default floor. Positions inside a known footprint but outside all Y ranges
  * remain unknown, because guessing there would connect different floors.
+ * Older data packs may omit an entire map's floor rows; supported fallback
+ * GameBounds are added only when the config contains every corresponding SVG
+ * floor, so incomplete/custom fixtures remain conservative.
  */
 export function detectPlayerFloor(
   locations: readonly MapFloorLocation[],
@@ -511,7 +515,22 @@ export function detectPlayerFloor(
   y: number,
   z: number,
 ): string | null {
-  const mapLocations = matchingFloorLocations(locations, config.key);
+  const explicitMapLocations = matchingFloorLocations(locations, config.key);
+  const configuredFloorIds = new Set(config.floors.map((floor) => floor.layerId));
+  const allFallbackMapLocations = fallbackFloorLocationsForMap(config.key);
+  const fallbackMapLocations = allFallbackMapLocations.every((location) =>
+    configuredFloorIds.has(location.floorId),
+  )
+    ? allFallbackMapLocations
+    : [];
+  const explicitFloorIds = new Set(explicitMapLocations.map((location) => location.floorId));
+  const supplementalFallbackLocations = fallbackMapLocations.filter(
+    (location) => !explicitFloorIds.has(location.floorId),
+  );
+  const mapLocations = matchingFloorLocations(
+    [...locations, ...supplementalFallbackLocations],
+    config.key,
+  );
   const detected = mapLocations.find((location) =>
     floorLocationContains(location, x, y, z))?.floorId;
   if (detected) return detected;
