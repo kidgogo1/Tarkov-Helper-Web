@@ -74251,7 +74251,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Archives",
-      "shortNameKo": "Archives"
+      "shortNameKo": "Archives",
+      "localIcon": "assets/items/e7fd66f9b790c5afdd00d463abe728a22bd6036e075aea2240a916882295e5a3.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9BcmVuYV9Ib3BsaXRlX21hc2tfJTI4QW5jaWVudF9Db3JpbnRoaWFuJTI5",
@@ -75066,7 +75067,8 @@
       "categories": [
         "Keys"
       ],
-      "isDogtagItem": false
+      "isDogtagItem": false,
+      "localIcon": "assets/items/d01b6fe1308249ce75e2ce01baff1473b03dd88b04786315c28bf81e27b63c60.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Bcm15X2JhbmRhZ2U",
@@ -75729,7 +75731,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Aspect",
-      "shortNameKo": "Aspect"
+      "shortNameKo": "Aspect",
+      "localIcon": "assets/items/a7a8fa6c1b069ef87848236ea1204ec20d4b70860121e0587e83ddeafff76f70.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Bc3Npc3RhbnQlMjdzX25vdGVzX29uX0dyb3VwXzEy",
@@ -77448,7 +77451,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "BD",
-      "shortNameKo": "BD"
+      "shortNameKo": "BD",
+      "localIcon": "assets/items/6ed1be9bb398a95bc2e479d120b5bc46d825272db39687cac45906bd9f896adc.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9CbGFja0hhd2slMjFfQ29tbWFuZG9fY2hlc3RfaGFybmVzc18lMjhCbGFjayUyOQ",
@@ -77525,7 +77529,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Blank RFID",
-      "shortNameKo": "RFID 공카드"
+      "shortNameKo": "RFID 공카드",
+      "localIcon": "assets/items/4f06dbd5325230123c230694387d6b66d78425bfde893d0786d43ede4184d732.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9CbGFzdEdhbmdfYXR0YWNrZXJzJTI3X2JhY2twYWNr",
@@ -78597,7 +78602,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Cardinal",
-      "shortNameKo": "Cardinal"
+      "shortNameKo": "Cardinal",
+      "localIcon": "assets/items/6a9fcb51b4b9811562f2130a59c28ef7c0091251bc920b836d770e98ce4ec430.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DYXJnb19jb250YWluZXJfbWVzaF9kb29yX2tleQ",
@@ -78612,7 +78618,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Container",
-      "shortNameKo": "Container"
+      "shortNameKo": "Container",
+      "localIcon": "assets/items/9e77eee5a37f490e5897ed3e9eed495e9f501a0c12ceaf05d3e95f1af28f994d.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DYXJnb19mb3JfUHJhcG9y",
@@ -79483,7 +79490,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Conc 34",
-      "shortNameKo": "Conc 34"
+      "shortNameKo": "Conc 34",
+      "localIcon": "assets/items/3d3af095452dc2ae02ec6aa2f1d2917e42e991ce99c91f1e793d405093114496.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25jb3JkaWFfYXBhcnRtZW50XzYzX3Jvb21fa2V5",
@@ -79498,7 +79506,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Conc 63",
-      "shortNameKo": "Conc 63"
+      "shortNameKo": "Conc 63",
+      "localIcon": "assets/items/97f03a1639ae61b7fe178688e3117074a2093fcf46179ec0fdfd22110ab0a68e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25jb3JkaWFfYXBhcnRtZW50XzY0X2tleQ",
@@ -79513,7 +79522,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Conc 64",
-      "shortNameKo": "Conc 64"
+      "shortNameKo": "Conc 64",
+      "localIcon": "assets/items/7fe8630280130cf152c7092cf8ffc455631647b07ac58fd8a42fdbeb9475e07d.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25jb3JkaWFfYXBhcnRtZW50XzY0X29mZmljZV9yb29tX2tleQ",
@@ -79528,7 +79538,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Conc off.",
-      "shortNameKo": "Conc off."
+      "shortNameKo": "Conc off.",
+      "localIcon": "assets/items/1865aae3b63b872b3d6b5bd102056dc5db82296a15303cd26aae15a52b606a47.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25jb3JkaWFfYXBhcnRtZW50XzhfaG9tZV9jaW5lbWFfa2V5",
@@ -79543,7 +79554,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Cinema",
-      "shortNameKo": "Cinema"
+      "shortNameKo": "Cinema",
+      "localIcon": "assets/items/0a1b0cf5fb2410aca3354ab0809c621324b9e6344b76b3496d739c044084fb7f.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25jb3JkaWFfYXBhcnRtZW50Xzhfcm9vbV9rZXk",
@@ -79558,7 +79570,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Conc 8",
-      "shortNameKo": "Conc 8"
+      "shortNameKo": "Conc 8",
+      "localIcon": "assets/items/29774d9ed515098a377ee6b15349590ff7eaeff1e1e3db146645615a53906e05.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25jb3JkaWFfc2VjdXJpdHlfcm9vbV9rZXk",
@@ -79589,7 +79602,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Conf.",
-      "shortNameKo": "Conf."
+      "shortNameKo": "Conf.",
+      "localIcon": "assets/items/37637a3e002e3f40dc6d5bd9f070e63584aec0c11410d2ce4e9a1b1c5c59641f.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db25zdHJ1Y3Rpb25fbWVhc3VyaW5nX3RhcGU",
@@ -79620,7 +79634,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Construct.",
-      "shortNameKo": "Construct."
+      "shortNameKo": "Construct.",
+      "localIcon": "assets/items/52364f7efde9585093081908bf244c6ba22e7679aeb434d51512d736db5deca1.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db250YWluZXJfd2l0aF9zdXNwaWNpb3VzX3N1YnN0YW5jZQ",
@@ -79663,7 +79678,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Store",
-      "shortNameKo": "Store"
+      "shortNameKo": "Store",
+      "localIcon": "assets/items/8601a525be6d9fb09fbf0b55b1725a2ea78d1af3f0444d4e10407d0bf35473b3.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db3JkdXJhX3BvbHlhbWlkZV9mYWJyaWM",
@@ -79772,7 +79788,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Safe",
-      "shortNameKo": "Safe"
+      "shortNameKo": "Safe",
+      "localIcon": "assets/items/ea49f1a4eacdf4dc0c2923deb226c6952bdd95827a5f7cabf8e2222a238eccca.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Db3VudF9CbG9vZHN1Y2tlcl9maWd1cmluZQ",
@@ -80073,7 +80090,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Cult victim",
-      "shortNameKo": "Cult victim"
+      "shortNameKo": "Cult victim",
+      "localIcon": "assets/items/dbc9702e4b5837954b26ed17a779394c3d78a467ec41d854288d4336e3762465.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9DdWx0aXN0X2ZpZ3VyaW5l",
@@ -81238,7 +81256,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "GDesk",
-      "shortNameKo": "GDesk"
+      "shortNameKo": "GDesk",
+      "localIcon": "assets/items/e2b3085f14326210af249c0c1241ef5fc2bda3c5a2db3a7396b6a072039e711c.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX292ZXJzZWVyX2tleQ",
@@ -81269,7 +81288,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 103",
-      "shortNameKo": "Dorm 103"
+      "shortNameKo": "Dorm 103",
+      "localIcon": "assets/items/afcbdb2effcb8efdcbf95e325a444663a6ed91d55ae87fb10b39c8f06794a4d8.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMTA0X2tleQ",
@@ -81284,7 +81304,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 104",
-      "shortNameKo": "Dorm 104"
+      "shortNameKo": "Dorm 104",
+      "localIcon": "assets/items/9e384642c70639032a0847121205338729c941a6a393f9f1d1b5a2684e2ee39f.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMTA1X2tleQ",
@@ -81299,7 +81320,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 105",
-      "shortNameKo": "Dorm 105"
+      "shortNameKo": "Dorm 105",
+      "localIcon": "assets/items/f4081da7cb14922547ebec053e42153cf308f0ec3474fe9f7f0d48bf6539e771.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMTA4X2tleQ",
@@ -81314,7 +81336,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 108",
-      "shortNameKo": "Dorm 108"
+      "shortNameKo": "Dorm 108",
+      "localIcon": "assets/items/41090a639cba8272ac5d3f0134d373703db38150c4df940effa27c9ab9eeabb3.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMTEwX2tleQ",
@@ -81329,7 +81352,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 110",
-      "shortNameKo": "Dorm 110"
+      "shortNameKo": "Dorm 110",
+      "localIcon": "assets/items/c2e7323043322b436b4e1637251c966b9abb692b176eb372040162f15f7d0345.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMTE0X2tleQ",
@@ -81360,7 +81384,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 118",
-      "shortNameKo": "Dorm 118"
+      "shortNameKo": "Dorm 118",
+      "localIcon": "assets/items/9f0c8900d3d378722266b1c8ef278e210d600a5a66a8363c86268b418560f45e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMjAzX2tleQ",
@@ -81391,7 +81416,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 204",
-      "shortNameKo": "Dorm 204"
+      "shortNameKo": "Dorm 204",
+      "localIcon": "assets/items/38ca699b76566441175c6f30271b0a69899d330cc581ae6b0c13e2b848170482.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMjA2X2tleQ",
@@ -81422,7 +81448,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 214",
-      "shortNameKo": "Dorm 214"
+      "shortNameKo": "Dorm 214",
+      "localIcon": "assets/items/a10cd332d77d131798e8b4095413e1b296b06b94d2faaed627962190b9011426.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMjE4X2tleQ",
@@ -81437,7 +81464,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 218",
-      "shortNameKo": "Dorm 218"
+      "shortNameKo": "Dorm 218",
+      "localIcon": "assets/items/bf2841a46a85d33797eb4d9fff9d288ad3748a1048c5d31d8ab35337ae01c178.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMjIwX2tleQ",
@@ -81484,7 +81512,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 306",
-      "shortNameKo": "Dorm 306"
+      "shortNameKo": "Dorm 306",
+      "localIcon": "assets/items/68a75ef29ce7b90f32e1feb5e2e3fde567966e23eddb19fb23fedcee1843cf68.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMzA4X2tleQ",
@@ -81499,7 +81528,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 308",
-      "shortNameKo": "Dorm 308"
+      "shortNameKo": "Dorm 308",
+      "localIcon": "assets/items/00405ba75ccb5c89e72f8324c7b6251999ec3c1896cbc8bf2a0c04b50e732cb2.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3JtX3Jvb21fMzE0X21hcmtlZF9rZXk",
@@ -81530,7 +81560,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Dorm 315",
-      "shortNameKo": "Dorm 315"
+      "shortNameKo": "Dorm 315",
+      "localIcon": "assets/items/91b9c37cc1dbc1a9846c6e0411426371e4f390c5b6af239313f43c990ea3f02f.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Eb3VibGVTdGFyX0FDRV9yZWNvaWxfcGFk",
@@ -82042,7 +82073,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Elektronik",
-      "shortNameKo": "Elektronik"
+      "shortNameKo": "Elektronik",
+      "localIcon": "assets/items/1294a2049ea3b4db28db4c07ee17f8b1c8ad9c1829060b53c4984aced8b236dc.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9FbHZpc3Zpc3RhX2ZpZ3VyaW5l",
@@ -82815,7 +82847,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Finance",
-      "shortNameKo": "Finance"
+      "shortNameKo": "Finance",
+      "localIcon": "assets/items/c07c7b30c6b0eb0b34117204641a2e505d0b50ef2eb8b8b8235613123e69797c.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9GaW5hbmNpYWxfaW5zdGl0dXRpb25fc21hbGxfb2ZmaWNlX2tleQ",
@@ -82830,7 +82863,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Finance s",
-      "shortNameKo": "Finance s"
+      "shortNameKo": "Finance s",
+      "localIcon": "assets/items/aa09490f3dfb61dd2575dfea400c75297815e688e989b7ee092f4287d436f711.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9GaXJlS2xlYW5fZ3VuX2x1YmU",
@@ -83985,7 +84019,8 @@
       "categories": [
         "Keys"
       ],
-      "isDogtagItem": false
+      "isDogtagItem": false,
+      "localIcon": "assets/items/b004cd0ef76674c4d6301a8a87bcefa207eff19345b3dea6df8808c5c2174a39.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Gb3JfSHVtYW5pdHlfcG9zdGVy",
@@ -84493,7 +84528,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Gas office",
-      "shortNameKo": "Gas office"
+      "shortNameKo": "Gas office",
+      "localIcon": "assets/items/8259fee7771fa687bb0b4a14776b3ea14a6b2c9571d524daf85ec4a1253e9513.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HYXNfc3RhdGlvbl9zYWZlX2tleQ",
@@ -84508,7 +84544,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Gas safe",
-      "shortNameKo": "Gas safe"
+      "shortNameKo": "Gas safe",
+      "localIcon": "assets/items/2db871d413a9b690b29461dfce75d99247612c0936b46df91a10c405c6cdc23a.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HYXNfc3RhdGlvbl9zdG9yYWdlX3Jvb21fa2V5",
@@ -86210,7 +86247,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Grumpy",
-      "shortNameKo": "Grumpy"
+      "shortNameKo": "Grumpy",
+      "localIcon": "assets/items/9045a83804efec5a3217ad976a10a51713983d333bc08e81932b70f469af9937.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9HcnVwcGFfOTlfVDIwX2JhY2twYWNrXyUyOE11bHRpQ2FtJTI5",
@@ -86540,7 +86578,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E107 San",
-      "shortNameKo": "E107 San"
+      "shortNameKo": "E107 San",
+      "localIcon": "assets/items/245db69cf4d995e3de662df2978a2a1fea38152920657dbd3470b805c59fa195.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19vZmZpY2Vfcm9vbV8xMDhfa2V5",
@@ -86555,7 +86594,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E108 San",
-      "shortNameKo": "E108 San"
+      "shortNameKo": "E108 San",
+      "localIcon": "assets/items/d9236920aea5e7bae566f4c4a8dc63df42241c5f90cbd4f53bf927d55dab06d7.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIwNV9rZXk",
@@ -86570,7 +86610,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E205 San",
-      "shortNameKo": "E205 San"
+      "shortNameKo": "E205 San",
+      "localIcon": "assets/items/ea8be75c7560679292bf5624ce18909deb946d514e85b12f4198a12bbe2b17c6.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIwNl9rZXk",
@@ -86585,7 +86626,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E206 San",
-      "shortNameKo": "E206 San"
+      "shortNameKo": "E206 San",
+      "localIcon": "assets/items/021aaaafad549de531160eac1c5fc258f914e9d68e76aab55ccea916702469b9.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIwOV9rZXk",
@@ -86600,7 +86642,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E209 San",
-      "shortNameKo": "E209 San"
+      "shortNameKo": "E209 San",
+      "localIcon": "assets/items/059aafde151077fdc19b8951d710286d5b05ef9877eff8e821f0d03b7c3c8b0b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIxM19rZXk",
@@ -86615,7 +86658,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E213 San",
-      "shortNameKo": "E213 San"
+      "shortNameKo": "E213 San",
+      "localIcon": "assets/items/5655e1c70da5fbd1f6078c1b192a18d04f6d89c39cfa70901f220be5abd3ef46.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIxNl9rZXk",
@@ -86630,7 +86674,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E216 San",
-      "shortNameKo": "E216 San"
+      "shortNameKo": "E216 San",
+      "localIcon": "assets/items/939096f3e17b96506091fbc5dc6c4de367dcb92a7c9efd325d84f97e8332b79b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIyMl9rZXk",
@@ -86645,7 +86690,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E222 San",
-      "shortNameKo": "E222 San"
+      "shortNameKo": "E222 San",
+      "localIcon": "assets/items/f5a4e6527ebe326400a7a80254c2712b2bd09835eb56b9f118d86457d68d0743.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzIyNl9rZXk",
@@ -86660,7 +86706,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E226 San",
-      "shortNameKo": "E226 San"
+      "shortNameKo": "E226 San",
+      "localIcon": "assets/items/06d162fd2e69939a87c539f8cdf65b8ffbb098a51ff93d0d141e9c035faa00b1.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzMwNl9rZXk",
@@ -86707,7 +86754,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E310 San",
-      "shortNameKo": "E310 San"
+      "shortNameKo": "E310 San",
+      "localIcon": "assets/items/3c28071da6af14914ab18105a3c8ca0a77f855883a956284906c08bb72962723.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzMxM19rZXk",
@@ -86722,7 +86770,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E313 San",
-      "shortNameKo": "E313 San"
+      "shortNameKo": "E313 San",
+      "localIcon": "assets/items/cfb7fd263102bee133b9d608dfda37eece3da0f3c956453003c8855558a64e80.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzMxNF9rZXk",
@@ -86737,7 +86786,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E314 San",
-      "shortNameKo": "E314 San"
+      "shortNameKo": "E314 San",
+      "localIcon": "assets/items/dbacc6e292606621eff9a60cd650fe4e3eca7681e935b19fbb92d3314889574a.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzMxNl9rZXk",
@@ -86752,7 +86802,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E316 San",
-      "shortNameKo": "E316 San"
+      "shortNameKo": "E316 San",
+      "localIcon": "assets/items/c594014ef04accbe0ec20a9e48f10741f2e1c17eb2d68bc7b12e29e4e1a75d44.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzMyMl9rZXk",
@@ -86767,7 +86818,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "E322 San",
-      "shortNameKo": "E322 San"
+      "shortNameKo": "E322 San",
+      "localIcon": "assets/items/e3950f6ef7e29e2a2ed811da1b2c861cbdaa28c693e15f6f963b1a14b8942818.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X2Vhc3Rfd2luZ19yb29tXzMyOF9rZXk",
@@ -86798,7 +86850,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Safe",
-      "shortNameKo": "Safe"
+      "shortNameKo": "Safe",
+      "localIcon": "assets/items/627888cb565aba77dc58d639a1e874bb3999097416c9edd7b1ac37b1e3ebd7f8.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X21hbmFnZW1lbnRfd2FyZWhvdXNlX3NhZmVfa2V5",
@@ -86813,7 +86866,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Safe",
-      "shortNameKo": "Safe"
+      "shortNameKo": "Safe",
+      "localIcon": "assets/items/f14039855a47460136efe1af29a0be9a36f6070cc6e9976c50aa397696a58f96.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X29mZmljZV9rZXlfd2l0aF9hX2JsdWVfdGFwZQ",
@@ -86844,7 +86898,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "San util.",
-      "shortNameKo": "San util."
+      "shortNameKo": "San util.",
+      "localIcon": "assets/items/1b67eefa91d9f00cc003a96a2e13bed2a35a384578e8c1ba3cf2dba0cc1f89d8.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19vZmZpY2Vfcm9vbV8xMDRfa2V5",
@@ -86859,7 +86914,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W104 San",
-      "shortNameKo": "W104 San"
+      "shortNameKo": "W104 San",
+      "localIcon": "assets/items/fc0b6158909a8bce75c86841b55c99222936d7fb870f5eb39a60a430320b33ea.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19vZmZpY2Vfcm9vbV8xMTJfa2V5",
@@ -86890,7 +86946,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W203 San",
-      "shortNameKo": "W203 San"
+      "shortNameKo": "W203 San",
+      "localIcon": "assets/items/9ef7994a326a5715c2d1fdab8c9226c2f579045513e3d70882d7b58f4c3338df.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzIwNV9rZXk",
@@ -86905,7 +86962,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W205 San",
-      "shortNameKo": "W205 San"
+      "shortNameKo": "W205 San",
+      "localIcon": "assets/items/6dbc11e87686b66eeb799e695b73efa3a6c07bd9ea66e1aa7913c1ed1195c8ce.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzIwN19rZXk",
@@ -86920,7 +86978,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W207 San",
-      "shortNameKo": "W207 San"
+      "shortNameKo": "W207 San",
+      "localIcon": "assets/items/aeec65ccecacaa86989aff9654e4fef811d9dc27d58fa523e4e1c6575a4385fe.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzIxNl9rZXk",
@@ -86951,7 +87010,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W218 San",
-      "shortNameKo": "W218 San"
+      "shortNameKo": "W218 San",
+      "localIcon": "assets/items/a22e83d67a624631230e8ab596662f86d5ea67ab546126508b3b38693dce4a4f.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzIxOV9rZXk",
@@ -86998,7 +87058,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W221 San",
-      "shortNameKo": "W221 San"
+      "shortNameKo": "W221 San",
+      "localIcon": "assets/items/04604ac8ad33989a38f8fe712b7b705d03cb81a459339f35e913f98009a47541.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzIyMl9rZXk",
@@ -87013,7 +87074,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W222 San",
-      "shortNameKo": "W222 San"
+      "shortNameKo": "W222 San",
+      "localIcon": "assets/items/b7659f1cf3f369cccf5b8afc565f07f0e825374d792a1868c0369bba9bf81fc4.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzMwMV9rZXk",
@@ -87028,7 +87090,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W301 San",
-      "shortNameKo": "W301 San"
+      "shortNameKo": "W301 San",
+      "localIcon": "assets/items/651ef4a856af42acd433b29658ee2351789fe60f398aba7da2db658d9fbc4173.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzMwM19rZXk",
@@ -87043,7 +87106,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W303 San",
-      "shortNameKo": "W303 San"
+      "shortNameKo": "W303 San",
+      "localIcon": "assets/items/49ecf69ba2c3171b81bb93811a1c8a8ad0528b77908be3ea579160420e95eb2d.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzMwNl9rZXk",
@@ -87074,7 +87138,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W309 San",
-      "shortNameKo": "W309 San"
+      "shortNameKo": "W309 San",
+      "localIcon": "assets/items/06b7519a4444a0be4284e6362b137f23ef513bc8f40a88d29e403d4488695de0.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzMyMV9zYWZlX2tleQ",
@@ -87089,7 +87154,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W321 safe",
-      "shortNameKo": "W321 San safe"
+      "shortNameKo": "W321 San safe",
+      "localIcon": "assets/items/1a79e7e3240f421947b489df1d12f8c7da247d03b62fbda6cd926fb6920a4b95.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzMyM19rZXk",
@@ -87104,7 +87170,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W323 San",
-      "shortNameKo": "W323 San"
+      "shortNameKo": "W323 San",
+      "localIcon": "assets/items/12b808848337150b0710bde10e826eaed8b94b179badd5ab6ddc380fabffe43c.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWFsdGhfUmVzb3J0X3dlc3Rfd2luZ19yb29tXzMyNV9rZXk",
@@ -87119,7 +87186,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "W325 San",
-      "shortNameKo": "W325 San"
+      "shortNameKo": "W325 San",
+      "localIcon": "assets/items/3b92ca039852a889235eda9f206192d30f5ef0653413d98f530447ed3e3ec4a7.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZWxsX29yX0hpZ2h3YXRlcl9wb3N0ZXI",
@@ -87194,7 +87262,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "HEPS",
-      "shortNameKo": "HEPS"
+      "shortNameKo": "HEPS",
+      "localIcon": "assets/items/681f2495a88bbb08a9c4b11c3f3d8d1475c10c134e21cb7fa6737814d6de948c.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IZXJhX0FybXNfQ1FSX3RhY3RpY2FsX2ZvcmVncmlw",
@@ -87494,7 +87563,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "House",
-      "shortNameKo": "House"
+      "shortNameKo": "House",
+      "localIcon": "assets/items/fbf9339592f7ca00456273ddc6eff8655d2a4f61bd9b68c81a46816733d46f30.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9IS180MTZfNS41Nng0NV8xMC42X2luY2hfYmFycmVs",
@@ -89851,7 +89921,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "IDEA reg.",
-      "shortNameKo": "IDEA reg."
+      "shortNameKo": "IDEA reg.",
+      "localIcon": "assets/items/ea3097f270335ceb3e977c5391ee0675d0a61d70fbbf091f66902c6e367d6d19.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9JRUFfTWlsLU9wdGljc19LSCUyRkZfMzRtbV9vbmUtcGllY2VfbWFnbW91bnQ",
@@ -90974,7 +91045,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Key 01",
-      "shortNameKo": "Key 01"
+      "shortNameKo": "Key 01",
+      "localIcon": "assets/items/c62c4ab63bbf5fcfaa3725eaf57780603c6c7520dba07d375e47d663c74b1d62.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9LZXlfMDI",
@@ -90989,7 +91061,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Key 02",
-      "shortNameKo": "Key 02"
+      "shortNameKo": "Key 02",
+      "localIcon": "assets/items/93cba562b9c8d6c702b9e2dda851d414d095d16a1663f346b861ee521a8bd3b0.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9LZXlfMDM",
@@ -91004,7 +91077,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Key 03",
-      "shortNameKo": "Key 03"
+      "shortNameKo": "Key 03",
+      "localIcon": "assets/items/c0730c774ad3777c58bfd165e721a221bdff0ce93cdfd37f00d9f436390cd81b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9LZXlfMDQ",
@@ -91019,7 +91093,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Key 04",
-      "shortNameKo": "Key 04"
+      "shortNameKo": "Key 04",
+      "localIcon": "assets/items/e9a8eaafe30cb2f7147f05d240b9385079b31189af4e75920f30ed6479e3d4fe.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9LZXlfY2FzZQ",
@@ -91896,7 +91971,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Kruglov",
-      "shortNameKo": "Kruglov"
+      "shortNameKo": "Kruglov",
+      "localIcon": "assets/items/2e87310755b6957f61ff891c2900903026e451a53c5dc0630921e7dbb302f2e7.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9LUy0yM18yM3g3NV81MTBtbV9iYXJyZWw",
@@ -92123,7 +92199,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Labrys",
-      "shortNameKo": "Labrys"
+      "shortNameKo": "Labrys",
+      "localIcon": "assets/items/11aebded6da0bf5e80d80486c70d114f6cdeca362067700c301aabbf1fdffdda.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9MYWJyeXNfcmVzZWFyY2hfbm90ZXM",
@@ -92562,7 +92639,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Leon",
-      "shortNameKo": "Leon"
+      "shortNameKo": "Leon",
+      "localIcon": "assets/items/fe38f1b1fb851cf6a59ba5f9f52641a11a8670216a71c622309a7da698d892bf.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9MZXNoeSUyN3NfZGlhcnk",
@@ -96883,7 +96961,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Merin",
-      "shortNameKo": "Merin"
+      "shortNameKo": "Merin",
+      "localIcon": "assets/items/ef336222102d534d33b9503dc9db2539bebd80f50af70f6f29b7dcdefec580b4.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9NZXNhX1RhY3RpY2FsX0Nyb3NzaGFpcl9IeWRyYXVsaWNfYnVmZmVyX3R1YmU",
@@ -100318,7 +100397,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "MVD",
-      "shortNameKo": "MVD"
+      "shortNameKo": "MVD",
+      "localIcon": "assets/items/634eab3741a955b4ae269e05e5c0323a43c29706ca4207c0f5fbdf98b38a207e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9NWExSXy4zMDhfTUVfMjRfaW5jaF9iYXJyZWw",
@@ -100665,7 +100745,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Pharmacy",
-      "shortNameKo": "Pharmacy"
+      "shortNameKo": "Pharmacy",
+      "localIcon": "assets/items/ae15ea30a98c0065fb5ec1b2822da40ff12cb8e15305f31af06f2ece3af3f5cc.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9OZW9wcmVuZV9tYXNr",
@@ -101675,7 +101756,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Observe",
-      "shortNameKo": "Observe"
+      "shortNameKo": "Observe",
+      "localIcon": "assets/items/9016fc5dbc099177f3ee53d2777bb82b8efcc7d042e78115baacf201575e0b8e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9PZGluX1dvcmtzX0stUG9kX0tleU1vZF9iaXBvZF9hZGFwdGVy",
@@ -101767,7 +101849,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Depot",
-      "shortNameKo": "Depot"
+      "shortNameKo": "Depot",
+      "localIcon": "assets/items/d3d6232c2bc041fe2ebf9cb4f3cea46e4e41f0a2cd8356962a7c6a3196e1e482.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9PbGRfaG91c2VfdG9pbGV0X2tleQ",
@@ -101782,7 +101865,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Depot T.",
-      "shortNameKo": "Depot T."
+      "shortNameKo": "Depot T.",
+      "localIcon": "assets/items/0dbd7e05a2089df40e808f9f5a0a19895c47b8139a083a67e0f9aed221c7bd4e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9PTElfYWRtaW5pc3RyYXRpb25fb2ZmaWNlX2tleQ",
@@ -101797,7 +101881,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "OLI office",
-      "shortNameKo": "OLI office"
+      "shortNameKo": "OLI office",
+      "localIcon": "assets/items/3687e55b1fec2938b7d017b47de261fcd25e1479fc557efde797c5db99c754f0.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9PTElfY2FyZ29fbWFuaWZlc3Rz",
@@ -101840,7 +101925,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "OLI reg.",
-      "shortNameKo": "OLI reg."
+      "shortNameKo": "OLI reg.",
+      "localIcon": "assets/items/e3f1d8e12b7526ad824681d052880b65c43f2f16835940f753b1be09e63691ca.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9PTElfbG9naXN0aWNzX2RlcGFydG1lbnRfb2ZmaWNlX2tleQ",
@@ -101871,7 +101957,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "OLI util.",
-      "shortNameKo": "OLI util."
+      "shortNameKo": "OLI util.",
+      "localIcon": "assets/items/2dd45d300bee0724fb7fc00f11e70facecdd6b24f2935f451325fb954d724834.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9PbGlnaHRfQmFsZHJfUHJvX3RhY3RpY2FsX2ZsYXNobGlnaHRfd2l0aF9sYXNlcg",
@@ -103215,7 +103302,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "PE",
-      "shortNameKo": "PE"
+      "shortNameKo": "PE",
+      "localIcon": "assets/items/40a052f4683a72fb74e75348b68813a30e538714e9e3abfeff9dddbe69f817ab.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9QZWFjZWtlZXBlcl9maWd1cmluZQ",
@@ -103616,7 +103704,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Pier",
-      "shortNameKo": "Pier"
+      "shortNameKo": "Pier",
+      "localIcon": "assets/items/2d03bc22872b57e70ee5fc19e61e222396abea38ee45e3a09fcd608ccee7226a.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9QaWxlX29mX21lZHM",
@@ -103677,7 +103766,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Pnwd 206",
-      "shortNameKo": "Pnwd 206"
+      "shortNameKo": "Pnwd 206",
+      "localIcon": "assets/items/da2107d7a0aa72c2bd0b24db09bbff57bb043dfa62c4e8b262bfc4782969d5e2.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9QaW5ld29vZF9ob3RlbF9yb29tXzIxNV9rZXk",
@@ -104371,7 +104461,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Police",
-      "shortNameKo": "Police"
+      "shortNameKo": "Police",
+      "localIcon": "assets/items/dbb424d7b21bc86e97c2c19b45ccd538be5e87dee61a174867ec8d22e76140a0.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Qb2xpdGljaWFuX011dGtldmljaF9maWd1cmluZQ",
@@ -104417,7 +104508,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Bunkhouse",
-      "shortNameKo": "Bunkhouse"
+      "shortNameKo": "Bunkhouse",
+      "localIcon": "assets/items/1ae70a1c1d2e08100fceb0350e3dd8bfce4112bfd0c53e9575254bf74836cb3b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Qb3J0YWJsZV9jYWJpbl9rZXk",
@@ -104432,7 +104524,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Cabin",
-      "shortNameKo": "Cabin key"
+      "shortNameKo": "Cabin key",
+      "localIcon": "assets/items/a1a49244ad25c3926feb9e38124e179e39de822c3a9ead894c52c478d197f5e7.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Qb3J0YWJsZV9kZWZpYnJpbGxhdG9y",
@@ -104495,7 +104588,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Power",
-      "shortNameKo": "Power cabin"
+      "shortNameKo": "Power cabin",
+      "localIcon": "assets/items/877b7f0feae3ea4461f5d58450067e712d49317c7be50b3d6ce1d338dc39b7a3.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Qb3dlcl9zdXBwbHlfdW5pdA",
@@ -105121,7 +105215,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Prim 48",
-      "shortNameKo": "Prim 48"
+      "shortNameKo": "Prim 48",
+      "localIcon": "assets/items/4ea6182eae8d9929d158410e6cac178f82c7318f9455e5802010c733653ce77e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Qcmltb3Jza3lfQXZlX2FwYXJ0bWVudF9rZXk",
@@ -105136,7 +105231,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Primorsky",
-      "shortNameKo": "Primorsky"
+      "shortNameKo": "Primorsky",
+      "localIcon": "assets/items/87543e0b27946e27780736f1877e306b8523f5444069841ac967960663722bcb.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9QcmludGVkX2NpcmN1aXRfYm9hcmQ",
@@ -105289,7 +105385,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Pump Back",
-      "shortNameKo": "Pump Back"
+      "shortNameKo": "Pump Back",
+      "localIcon": "assets/items/a4d9c1103feb38360c5210f56e714bb3692a3f8ac10306c371ec2a8e1566d757.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9QdW1waW5nX3N0YXRpb25fZnJvbnRfZG9vcl9rZXk",
@@ -105304,7 +105401,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Pump Frnt",
-      "shortNameKo": "Pump Frnt"
+      "shortNameKo": "Pump Frnt",
+      "localIcon": "assets/items/8f2ab051876205235f7f774eddf73207790076fa3be05f216e4422f80ec20003.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9QdW1waW5nX3N0YXRpb25fb3BlcmF0aW9uX3JlcG9ydA",
@@ -105581,7 +105679,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-AK",
-      "shortNameKo": "RB-AK"
+      "shortNameKo": "RB-AK",
+      "localIcon": "assets/items/56fba3f324f5dd9edd23384cf96c03a5cd87998cd3f5d13041f72962a339c5cf.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1BTV9rZXk",
@@ -105596,7 +105695,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-AM",
-      "shortNameKo": "RB-AM"
+      "shortNameKo": "RB-AM",
+      "localIcon": "assets/items/119e68b3e26773fc13529e3134804d7613faabe16e0e091bafc4d4a5459c3d8b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1BT19rZXk",
@@ -105611,7 +105711,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-AO",
-      "shortNameKo": "RB-AO"
+      "shortNameKo": "RB-AO",
+      "localIcon": "assets/items/45bf056ddff57d9463b00dc0c0345a5d6dc5238f4e8503ba037a8d7aef2f59ca.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1CS19tYXJrZWRfa2V5",
@@ -105626,7 +105727,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-BK",
-      "shortNameKo": "RB-BK"
+      "shortNameKo": "RB-BK",
+      "localIcon": "assets/items/8ba8b26b27914330e1f689e4864297a9c3849cdbc62042c352fe183437a2f365.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1HTl9rZXk",
@@ -105641,7 +105743,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-GN",
-      "shortNameKo": "RB-GN"
+      "shortNameKo": "RB-GN",
+      "localIcon": "assets/items/fe424358b8e4707e6ef86af3adda3085f75550d7e51af993494fe33fd27d821e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1LT1JMX2tleQ",
@@ -105656,7 +105759,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-KORL",
-      "shortNameKo": "RB-KORL"
+      "shortNameKo": "RB-KORL",
+      "localIcon": "assets/items/9dabd01c0b685d7188254d338b5c0a6b2603e4b7db8534bcce5663650475c819.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1LUFJMX2tleQ",
@@ -105671,7 +105775,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-KPRL",
-      "shortNameKo": "RB-KPRL"
+      "shortNameKo": "RB-KPRL",
+      "localIcon": "assets/items/446029bb8f1a90098252c375f5049eeb95c02ee50713234e04093579b9a46a02.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1LU01fa2V5",
@@ -105702,7 +105807,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-MP11",
-      "shortNameKo": "RB-MP11"
+      "shortNameKo": "RB-MP11",
+      "localIcon": "assets/items/ef13f813a7855e9c95e114c4aeeb6bd0d41298f22b277edfa804dbe8ae725b88.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1NUDEyX2tleQ",
@@ -105717,7 +105823,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-MP12",
-      "shortNameKo": "RB-MP12"
+      "shortNameKo": "RB-MP12",
+      "localIcon": "assets/items/dde0e044fbcd5d4c868c5f580109889f500960a295def8dfb0bbabf874c9135a.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1NUDEzX2tleQ",
@@ -105732,7 +105839,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-MP13",
-      "shortNameKo": "RB-MP13"
+      "shortNameKo": "RB-MP13",
+      "localIcon": "assets/items/880fd3d25b878581393577975b3578b55e63346eed91509e97e226ecb11273dc.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1NUDIxX2tleQ",
@@ -105747,7 +105855,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-MP21",
-      "shortNameKo": "RB-MP21"
+      "shortNameKo": "RB-MP21",
+      "localIcon": "assets/items/369bfb5ec2e34adbade4555e0bd88dd0c79863ca2fe4dba031b69a45b6aef868.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1NUDIyX2tleQ",
@@ -105762,7 +105871,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-MP22",
-      "shortNameKo": "RB-MP22"
+      "shortNameKo": "RB-MP22",
+      "localIcon": "assets/items/165a1bdf122c5e2d2e4c45f291419d3f567d50e3aa503b88662684a4fb296b0b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1PQl9rZXk",
@@ -105793,7 +105903,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-OP",
-      "shortNameKo": "RB-OP"
+      "shortNameKo": "RB-OP",
+      "localIcon": "assets/items/7b9ac8f303a2b18b863821699602eb1da085f5840f8787a8333fd56b51304051.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1PUkIxX2tleQ",
@@ -105856,7 +105967,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PKPM",
-      "shortNameKo": "RB-PKPM"
+      "shortNameKo": "RB-PKPM",
+      "localIcon": "assets/items/10979f13289b5452df2fc0cb9d1b987619f9643a2e7a6c557543c7ede9736e83.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1QS1BUU19rZXk",
@@ -105871,7 +105983,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PKPTS",
-      "shortNameKo": "RB-PKPTS"
+      "shortNameKo": "RB-PKPTS",
+      "localIcon": "assets/items/62e27cfb06dd632714eb663b7d23510d88ee3433fc8b2bbf42286df495a0f897.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1QUF9rZXk",
@@ -105886,7 +105999,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PP",
-      "shortNameKo": "RB-PP"
+      "shortNameKo": "RB-PP",
+      "localIcon": "assets/items/487f871e2cc75964bb8d4fb9038bb89d698f5280902f9fa013e7c7dbc7d9216b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1QU1AxX2tleQ",
@@ -105901,7 +106015,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PSP1",
-      "shortNameKo": "RB-PSP1"
+      "shortNameKo": "RB-PSP1",
+      "localIcon": "assets/items/0655cb3636e383ab7a5d28db69477b910a5377055a72875aa430c67687a122bb.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1QU1AyX2tleQ",
@@ -105916,7 +106031,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PSP2",
-      "shortNameKo": "RB-PSP2"
+      "shortNameKo": "RB-PSP2",
+      "localIcon": "assets/items/7df56bbfafedb6990549b09af2a78b27a7ea1db934d5b9385ada909c80014c5d.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1QU1YxX2tleQ",
@@ -105931,7 +106047,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PSV1",
-      "shortNameKo": "RB-PSV1"
+      "shortNameKo": "RB-PSV1",
+      "localIcon": "assets/items/cd134cb2e867ff686ff264ead76270c85343549e5efa402727883f9df1cc6536.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1QU1YyX2tleQ",
@@ -105946,7 +106063,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-PSV2",
-      "shortNameKo": "RB-PSV2"
+      "shortNameKo": "RB-PSV2",
+      "localIcon": "assets/items/f2491e560792016884bbd46c2771403c28ffcb2ebeac4e732c00b1489fbe1aea.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1SSF9rZXk",
@@ -105961,7 +106079,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-RH",
-      "shortNameKo": "RB-RH"
+      "shortNameKo": "RB-RH",
+      "localIcon": "assets/items/36f84b40409c6de8c68ae519eeb9172c75adb1dc0883499d26fd6247594b12d5.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1STFNBX2tleQ",
@@ -105976,7 +106095,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-RLSA",
-      "shortNameKo": "RB-RLSA"
+      "shortNameKo": "RB-RLSA",
+      "localIcon": "assets/items/c145e4339e1bcb605793960f9d1b117245ed058543c1f6cdb7da7d0d300285bd.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1SU19rZXk",
@@ -105991,7 +106111,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-RS",
-      "shortNameKo": "RB-RS"
+      "shortNameKo": "RB-RS",
+      "localIcon": "assets/items/f1ee3acd99915609e71f143b674fa3eb2674826f220adbb8cfedc55928fb5a53.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1TTVBfa2V5",
@@ -106038,7 +106159,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-TB",
-      "shortNameKo": "RB-TB"
+      "shortNameKo": "RB-TB",
+      "localIcon": "assets/items/7d99c90a0f9e820d36cc0e725ad1dc6448a07621e773b236268262cce07e0ac7.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SQi1WT19tYXJrZWRfa2V5",
@@ -106053,7 +106175,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "RB-VO",
-      "shortNameKo": "RB-VO"
+      "shortNameKo": "RB-VO",
+      "localIcon": "assets/items/83b757c65fb0479cecb8e5fe0b7a54f49fd9e6350fe439b9551aed99bca6a176.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SRC03MDRfZHVzdF9jb3Zlcg",
@@ -106376,7 +106499,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "A.P. Blue",
-      "shortNameKo": "A.P. Blue"
+      "shortNameKo": "A.P. Blue",
+      "localIcon": "assets/items/47b001b71845394279521573782010cec035cdb9255bfbe3f4bc9603db092cf4.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SZXByb2dyYW1tZWRfa2V5Y2FyZF9mb3JfQS5QLiUyN3NfYXBhcnRtZW50X2xvY2tfJTI4R3JlZW4lMjk",
@@ -106391,7 +106515,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "A.P. Green",
-      "shortNameKo": "A.P. Green"
+      "shortNameKo": "A.P. Green",
+      "localIcon": "assets/items/2d064aff9adf9a3f864c81fe901f9158f8e3a1cdcb46137c9daea5eebc151e44.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SZXByb2dyYW1tZWRfa2V5Y2FyZF9mb3JfQS5QLiUyN3NfYXBhcnRtZW50X2xvY2tfJTI4UmVkJTI5",
@@ -106406,7 +106531,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "A.P. Red",
-      "shortNameKo": "A.P. Red"
+      "shortNameKo": "A.P. Red",
+      "localIcon": "assets/items/136cce579e988bba0002fda7bffc9bd1b9f50884de54a9e9a219f53f30d67773.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SZXByb2dyYW1tZWRfUkZJRF9rZXljYXJkX3dpdGhfTXIuX0tlcm1hbiUyN3NfaGFzaF9jb2Rlcw",
@@ -106467,7 +106593,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Reshala",
-      "shortNameKo": "Reshala"
+      "shortNameKo": "Reshala",
+      "localIcon": "assets/items/68ef134b1587fc7fe1da94c173d5ad4e800e040c602f04720474f7954c0dffd2.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SZXNwaXJhdG9y",
@@ -106801,7 +106928,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Stash",
-      "shortNameKo": "Stash"
+      "shortNameKo": "Stash",
+      "localIcon": "assets/items/7b63a5fae288e5360d9bfcadd4a9e4d7c3e2e54e12ab17a261d1398e64b29d08.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Sb2d1ZV9VU0VDX3dvcmtzaG9wX2tleQ",
@@ -106816,7 +106944,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Workshop",
-      "shortNameKo": "Workshop"
+      "shortNameKo": "Workshop",
+      "localIcon": "assets/items/9a0a141c6e80e1f92bfbb060e9182173ab2d6d79e03412a7a3b47026a4c72027.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Sb2xlcl9TdWJtYXJpbmVyX2dvbGRfd3Jpc3Rfd2F0Y2g",
@@ -107594,7 +107723,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Rus Post",
-      "shortNameKo": "Rus Post"
+      "shortNameKo": "Rus Post",
+      "localIcon": "assets/items/90fac70fa0e937141842aecaa2de89e210d05ed03c39a95b3f844a4b8dbae675.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9SdXN0ZWRfYmxvb2R5X2tleQ",
@@ -109275,7 +109405,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Bedroom",
-      "shortNameKo": "Bedroom"
+      "shortNameKo": "Bedroom",
+      "localIcon": "assets/items/eb0e083abfc00a0e52ce2fff2f4d335fd77734e4320cf5d69e1a1e3814e18e42.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TaGFycHNob290ZXJfcG9zdGVy",
@@ -109320,7 +109451,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Shatun",
-      "shortNameKo": "Shatun"
+      "shortNameKo": "Shatun",
+      "localIcon": "assets/items/ab22aab208091863d632b448ad75c2d38317d7b426ff8a01c0ad020f502ab243.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TaGVsbGJhY2tfVGFjdGljYWxfQmFuc2hlZV9wbGF0ZV9jYXJyaWVyXyUyOEEtVEFDU19BVSUyOQ",
@@ -110874,7 +111006,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "SMW",
-      "shortNameKo": "SMW"
+      "shortNameKo": "SMW",
+      "localIcon": "assets/items/31423561a43635025a9ba5870fefc1b1281a72683f6d843647db2f116bcb0114.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Tb2Fw",
@@ -111921,7 +112054,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Stairs",
-      "shortNameKo": "Stairs"
+      "shortNameKo": "Stairs",
+      "localIcon": "assets/items/dd10b754d900c0cc8ffa02995c8b1ac408ace12c78fa503820ccfaee5bd78783.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TdGFya19TRS01X0V4cHJlc3NfRm9yd2FyZF9mb3JlZ3JpcA",
@@ -111964,7 +112098,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "14-4 rst.",
-      "shortNameKo": "14-4 rst."
+      "shortNameKo": "14-4 rst.",
+      "localIcon": "assets/items/36a419be84c42fbd38eff2cdca3fb10fb1700f17be8a2cf59b760af5fed6ab59.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TdGVjaGtpbl9BUEJfOXgxOFBNX3NpbGVuY2VkX21hY2hpbmVfcGlzdG9s",
@@ -112641,7 +112776,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Store",
-      "shortNameKo": "Store"
+      "shortNameKo": "Store",
+      "localIcon": "assets/items/0d51d0d3bcb08f16006c812896c9902060f4e82a1e2d8fdd0040172d5ebd2070.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TdG9yZV9zYWZlX2tleQ",
@@ -112656,7 +112792,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Safe",
-      "shortNameKo": "Safe"
+      "shortNameKo": "Safe",
+      "localIcon": "assets/items/f7a3dbbd471fa99d07d8423e3c87b6eabdf7d0667894f05daba3d18bfab97a7c.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TdHJlYW1lcl9pdGVtX2Nhc2U",
@@ -112834,7 +112971,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Supp.",
-      "shortNameKo": "Supp."
+      "shortNameKo": "Supp.",
+      "localIcon": "assets/items/9653861da9d4cd5adb344829ba8dd3a76a0001340b52714b44b8130c11da55e7.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9TdXJlRmlyZV9NNjAwX1Njb3V0X0xpZ2h0X1RodW1ic2NyZXdfTW91bnQ",
@@ -114166,7 +114304,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Tarbank",
-      "shortNameKo": "Tarbank"
+      "shortNameKo": "Tarbank",
+      "localIcon": "assets/items/cf0ad3525423422a1f0384c1911b05d9548839cbf30ee73aa6d27260a41ca4e6.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UYXJjb25lX0RpcmVjdG9yJTI3c19vZmZpY2Vfa2V5",
@@ -114485,7 +114624,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "TG apt.",
-      "shortNameKo": "TG apt."
+      "shortNameKo": "TG apt.",
+      "localIcon": "assets/items/19dcbdab39f5b4127bc981e791ff1178fb2a0a0c024af7420fad283162f30aa0.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfYWNjZXNzX2tleWNhcmQ",
@@ -114531,7 +114671,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "TGL ASR",
-      "shortNameKo": "TGL ASR"
+      "shortNameKo": "TGL ASR",
+      "localIcon": "assets/items/5a02e50e995fb0f0650b6bb69e2ddf41974ee2effd6c8416ae2577655eb94011.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfa2V5Y2FyZF8lMjhCbGFjayUyOQ",
@@ -114562,7 +114703,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Blue",
-      "shortNameKo": "Blue"
+      "shortNameKo": "Blue",
+      "localIcon": "assets/items/b36f36ca32ee2d9df7c6032fcec012a984c4d8662c8c8c827be15dce21a0d04e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfa2V5Y2FyZF8lMjhHcmVlbiUyOQ",
@@ -114577,7 +114719,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Green",
-      "shortNameKo": "Green"
+      "shortNameKo": "Green",
+      "localIcon": "assets/items/e69f9c968a709ac01a1bee47a5e62146466d594fe67a0149385125beffb68adc.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfa2V5Y2FyZF8lMjhSZWQlMjk",
@@ -114592,7 +114735,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Red",
-      "shortNameKo": "Red"
+      "shortNameKo": "Red",
+      "localIcon": "assets/items/26171b643b2931a1f8f26005bca6e918b627018c74a1628e6401ee8813dfa565.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfa2V5Y2FyZF8lMjhWaW9sZXQlMjk",
@@ -114607,7 +114751,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Violet",
-      "shortNameKo": "Violet"
+      "shortNameKo": "Violet",
+      "localIcon": "assets/items/320c5fe3e496223d405846c1802a56a8ac97c2e199d160b9a177d936c8844b4a.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfa2V5Y2FyZF8lMjhZZWxsb3clMjk",
@@ -114622,7 +114767,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Yellow",
-      "shortNameKo": "Yellow"
+      "shortNameKo": "Yellow",
+      "localIcon": "assets/items/b8e3858fa9311755c7a59a4d1a015d3cefd0ff38cd0b6b242a2dd8a1a3a5da76.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfbWFuYWdlciUyN3Nfb2ZmaWNlX3Jvb21fa2V5",
@@ -114666,7 +114812,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Res. unit",
-      "shortNameKo": "Res. unit"
+      "shortNameKo": "Res. unit",
+      "localIcon": "assets/items/0249f9d06a2476cf656ba9a44a05ded3326561b635f92c1662659bc9f3f3148f.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX0xhYnNfd2VhcG9uX3Rlc3RpbmdfYXJlYV9rZXk",
@@ -114743,7 +114890,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "TG arm.",
-      "shortNameKo": "TG arm."
+      "shortNameKo": "TG arm.",
+      "localIcon": "assets/items/3289de8542d6e97dee862666afa4f61120f613133e1774b269b5efd64aacc770.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9UZXJyYUdyb3VwX3NoaXBtZW50X3JlcG9ydA",
@@ -116128,7 +116276,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "ULTRA med.",
-      "shortNameKo": "ULTRA med."
+      "shortNameKo": "ULTRA med.",
+      "localIcon": "assets/items/478f5bcf884b09c70717b78a3f90e21dd77ce2138b01c149a70eb464bf7b20e0.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9VbHRyYWZpcmVfV0YtNTAxQl9mbGFzaGxpZ2h0",
@@ -116218,7 +116367,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Utility",
-      "shortNameKo": "Utility"
+      "shortNameKo": "Utility",
+      "localIcon": "assets/items/00ead5cdee72acfaf7c1775e35d089663b81117c18e12ce24b91598775b177ae.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Vbml0ZWRfQ3V0bGVyeV9NNDhfVGFjdGljYWxfS3Vrcmk",
@@ -116249,7 +116399,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "UC reg.",
-      "shortNameKo": "UC reg."
+      "shortNameKo": "UC reg.",
+      "localIcon": "assets/items/6c43573693bc442fa0a452076f1941f299c7a18e9fd6317d7e91839d0e81cb0e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Vbmtub3duX2tleQ",
@@ -116372,7 +116523,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "USEC 1",
-      "shortNameKo": "USEC 1"
+      "shortNameKo": "USEC 1",
+      "localIcon": "assets/items/de90ac59f1ceb9a8f6b9c5f2b2055690ea279ead45d7219d2c742c00a0dbd59b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9VU0VDX2NvdHRhZ2Vfcm9vbV9rZXk",
@@ -116387,7 +116539,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "USEC cott.",
-      "shortNameKo": "USEC cott."
+      "shortNameKo": "USEC cott.",
+      "localIcon": "assets/items/44b8e56385c459c576708585887390a2f7d57dac96964405eccd11d45b79502b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9VU0VDX2NvdHRhZ2Vfc2Vjb25kX3NhZmVfa2V5",
@@ -116402,7 +116555,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "USEC 2",
-      "shortNameKo": "USEC 2"
+      "shortNameKo": "USEC 2",
+      "localIcon": "assets/items/e8ce51f4a12ad0d3c96908bcf026c908e91524c03e232df66da1de591986aed5.webp"
     },
     {
       "id": "dogtag-usec",
@@ -116466,7 +116620,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "USEC",
-      "shortNameKo": "USEC"
+      "shortNameKo": "USEC",
+      "localIcon": "assets/items/785fed42ffa2267d027b6fd83da343b18a0678200dd9362f2c228bfeb438f465.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Vc2hhbmthX2Vhcl9mbGFwX2hhdA",
@@ -117339,7 +117494,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Shestyorka",
-      "shortNameKo": "Shestyorka"
+      "shortNameKo": "Shestyorka",
+      "localIcon": "assets/items/bda099bb5b55f0d315a8267bef13f2b77437120918df073db4c8c8f11c450187.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9WZWxvY2lyYXB0b3JfcG9seW1lcl9oYW5kZ3VhcmQ",
@@ -117749,7 +117905,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Voron",
-      "shortNameKo": "Voron"
+      "shortNameKo": "Voron",
+      "localIcon": "assets/items/4163212d5eb66e4726b1bd17347ca71e0c436aad1be076c6f558a2c31e0a47b5.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9Wb3J0ZXhfUmFuZ2VyXzE1MDBfcmFuZ2VmaW5kZXI",
@@ -118800,7 +118957,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "WSafe",
-      "shortNameKo": "WSafe"
+      "shortNameKo": "WSafe",
+      "localIcon": "assets/items/df89cec7d53cef3ae8275532fe48f96ba69edeaa98a47fe07b63109eed88ac06.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9XZWF0aGVyX3N0YXRpb25fc2FmZV9rZXk",
@@ -118815,7 +118973,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Safe",
-      "shortNameKo": "Safe"
+      "shortNameKo": "Safe",
+      "localIcon": "assets/items/1108186c6f2f6086452ba79e5001a4352f5479314b188a511a41125ea334ec48.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9XaGF0X1lvdV9TZWVrX3Bvc3Rlcg",
@@ -119229,7 +119388,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Yotota",
-      "shortNameKo": "Yotota"
+      "shortNameKo": "Yotota",
+      "localIcon": "assets/items/0038daae3ddc489f678edcbf1921dabfc55c91c63e62b4fb159cc4232ed2312e.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9aYWd1c3Rpbl9oZW1vc3RhdGljX2RydWdfaW5qZWN0b3I",
@@ -119594,7 +119754,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Zm apt. 8",
-      "shortNameKo": "Zm apt. 8"
+      "shortNameKo": "Zm apt. 8",
+      "localIcon": "assets/items/1c409314461908f9228b34c1eedec29425f9f302311260f23c22019313da2df5.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9abWVpc2t5XzNfYXBhcnRtZW50X2tleQ",
@@ -119609,7 +119770,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Zm. 3",
-      "shortNameKo": "Zm. 3"
+      "shortNameKo": "Zm. 3",
+      "localIcon": "assets/items/5f6c44ce04809f864038f560f00d464be41dd3baa9665d97e5c78d0a988fd34b.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9abWVpc2t5XzVfYXBhcnRtZW50XzIwX2tleQ",
@@ -119624,7 +119786,8 @@
       ],
       "isDogtagItem": false,
       "shortNameEn": "Zm apt. 20",
-      "shortNameKo": "Zm apt. 20"
+      "shortNameKo": "Zm apt. 20",
+      "localIcon": "assets/items/670904dda979f53f065a6be1a637b51419787f47b5877bbe519e993b511b807a.webp"
     },
     {
       "id": "aHR0cHM6Ly9lc2NhcGVmcm9tdGFya292LmZhbmRvbS5jb20vd2lraS9acnlhY2hpeSUyN3NfYmFsYWNsYXZh",
