@@ -17,6 +17,7 @@ import {
   DEFAULT_MINI_MAP_ZOOM_OUT_KEY,
   type CustomMapMarker,
   type InventoryAmount,
+  type KeyMapMarker,
   type MapDisplaySettings,
   type PersistedAppState,
   type ProfileState,
@@ -67,6 +68,8 @@ export interface AppStoreValue {
   setInventory: (id: string, amount: InventoryAmount) => void;
   upsertCustomMarker: (marker: CustomMapMarker) => void;
   deleteCustomMarker: (id: string) => void;
+  upsertKeyMarker: (marker: KeyMapMarker) => void;
+  deleteKeyMarker: (id: string) => void;
   resetProgress: () => void;
   updateSettings: (patch: SettingsPatch) => void;
   updateMapSettings: (patch: Partial<MapDisplaySettings>) => void;
@@ -90,6 +93,7 @@ function createDefaultProfile(): ProfileState {
     hideoutLevels: {},
     inventory: {},
     customMarkers: [],
+    keyMarkers: [],
   };
 }
 
@@ -103,6 +107,7 @@ function createDefaultMapSettings(): MapDisplaySettings {
     showScavExtracts: true,
     showTransits: true,
     showCustomMarkers: true,
+    showKeyMarkers: true,
     showCompletedObjectives: true,
     hiddenMarkerTypes: [],
     questMarkerStyle: "iconWithName",
@@ -130,6 +135,7 @@ function createDefaultMapSettings(): MapDisplaySettings {
     miniMapShowTransits: true,
     miniMapShowCustomMarkers: true,
     miniMapHiddenMarkerTypes: [],
+    hiddenKeyItemIds: [],
   };
 }
 
@@ -197,6 +203,15 @@ function sanitizeHiddenMarkerTypes(
   return result;
 }
 
+function sanitizeKeyItemIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.flatMap((candidate) => {
+    if (typeof candidate !== "string") return [];
+    const id = candidate.trim();
+    return id && id.length <= 128 && !id.includes("\0") ? [id] : [];
+  }))].slice(0, 1_000);
+}
+
 function normalizeMapSettings(
   current: MapDisplaySettings,
   patch: Partial<MapDisplaySettings>,
@@ -208,6 +223,7 @@ function normalizeMapSettings(
       next.hiddenMarkerTypes,
       current.hiddenMarkerTypes,
     ),
+    hiddenKeyItemIds: sanitizeKeyItemIds(next.hiddenKeyItemIds),
     markerSize: Number.isFinite(next.markerSize)
       ? clampInteger(next.markerSize, 12, 32)
       : current.markerSize,
@@ -419,6 +435,35 @@ function sanitizeProfile(value: unknown): ProfileState {
       })
     : [];
 
+  const keyMarkers = Array.isArray(value.keyMarkers)
+    ? value.keyMarkers.flatMap((candidate): KeyMapMarker[] => {
+        if (!isRecord(candidate)) return [];
+        const stringFields = ["id", "mapKey", "itemId", "createdAt"] as const;
+        const numberFields = ["x", "y", "z"] as const;
+        if (
+          !stringFields.every((key) => typeof candidate[key] === "string") ||
+          !numberFields.every(
+            (key) => typeof candidate[key] === "number" && Number.isFinite(candidate[key]),
+          )
+        ) {
+          return [];
+        }
+        return [{
+          id: candidate.id as string,
+          mapKey: candidate.mapKey as string,
+          itemId: candidate.itemId as string,
+          x: candidate.x as number,
+          y: candidate.y as number,
+          z: candidate.z as number,
+          ...(typeof candidate.floorId === "string" ? { floorId: candidate.floorId } : {}),
+          ...(typeof candidate.roomName === "string" ? { roomName: candidate.roomName.slice(0, 120) } : {}),
+          ...(typeof candidate.note === "string" ? { note: candidate.note.slice(0, 500) } : {}),
+          lootTier: candidate.lootTier === "high" ? "high" : "normal",
+          createdAt: candidate.createdAt as string,
+        }];
+      })
+    : [];
+
   return {
     ...updateProfileFields(defaults, fields),
     questProgress,
@@ -428,6 +473,7 @@ function sanitizeProfile(value: unknown): ProfileState {
     hideoutLevels,
     inventory,
     customMarkers,
+    keyMarkers,
   };
 }
 
@@ -466,6 +512,9 @@ function sanitizeSettings(value: unknown): SharedSettings {
       defaults.map.miniMapHiddenMarkerTypes,
     );
   }
+  if (Array.isArray(rawMap.hiddenKeyItemIds)) {
+    mapPatch.hiddenKeyItemIds = sanitizeKeyItemIds(rawMap.hiddenKeyItemIds);
+  }
   for (const key of [
     "fixedView",
     "showQuestMarkers",
@@ -474,6 +523,7 @@ function sanitizeSettings(value: unknown): SharedSettings {
     "showScavExtracts",
     "showTransits",
     "showCustomMarkers",
+    "showKeyMarkers",
     "showCompletedObjectives",
     "miniMapKeyboardShortcutsEnabled",
     "miniMapShowQuestMarkers",
@@ -780,6 +830,32 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
     [updateActiveProfile],
   );
 
+  const upsertKeyMarker = useCallback(
+    (marker: KeyMapMarker) => {
+      updateActiveProfile((profile) => {
+        const existingMarkers = profile.keyMarkers ?? [];
+        const index = existingMarkers.findIndex(
+          (candidate) => candidate.id === marker.id,
+        );
+        const keyMarkers = [...existingMarkers];
+        if (index === -1) keyMarkers.push({ ...marker });
+        else keyMarkers[index] = { ...marker };
+        return { ...profile, keyMarkers };
+      });
+    },
+    [updateActiveProfile],
+  );
+
+  const deleteKeyMarker = useCallback(
+    (id: string) => {
+      updateActiveProfile((profile) => ({
+        ...profile,
+        keyMarkers: (profile.keyMarkers ?? []).filter((marker) => marker.id !== id),
+      }));
+    },
+    [updateActiveProfile],
+  );
+
   const resetProgress = useCallback(() => {
     updateActiveProfile((profile) => ({
       ...profile,
@@ -837,6 +913,8 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       setInventory,
       upsertCustomMarker,
       deleteCustomMarker,
+      upsertKeyMarker,
+      deleteKeyMarker,
       resetProgress,
       updateSettings,
       updateMapSettings,
@@ -855,6 +933,8 @@ export function AppStoreProvider({ children }: PropsWithChildren) {
       setInventory,
       upsertCustomMarker,
       deleteCustomMarker,
+      upsertKeyMarker,
+      deleteKeyMarker,
       resetProgress,
       updateSettings,
       updateMapSettings,

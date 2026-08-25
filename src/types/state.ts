@@ -31,6 +31,22 @@ export interface CustomMapMarker {
   createdAt: string;
 }
 
+export type KeyMarkerLootTier = "normal" | "high";
+
+export interface KeyMapMarker {
+  id: string;
+  mapKey: string;
+  itemId: string;
+  x: number;
+  y: number;
+  z: number;
+  floorId?: string;
+  roomName?: string;
+  note?: string;
+  lootTier: KeyMarkerLootTier;
+  createdAt: string;
+}
+
 export interface ProfileState {
   level: number;
   scavRep: number;
@@ -48,6 +64,8 @@ export interface ProfileState {
   hideoutLevels: Record<string, number>;
   inventory: Record<string, InventoryAmount>;
   customMarkers: CustomMapMarker[];
+  /** Optional for compatibility with fixtures and profiles written before key markers existed. */
+  keyMarkers?: KeyMapMarker[];
 }
 
 export interface MapDisplaySettings {
@@ -59,6 +77,7 @@ export interface MapDisplaySettings {
   showScavExtracts: boolean;
   showTransits: boolean;
   showCustomMarkers: boolean;
+  showKeyMarkers: boolean;
   showCompletedObjectives: boolean;
   hiddenMarkerTypes: string[];
   questMarkerStyle: "icon" | "circle" | "iconWithName" | "circleWithName";
@@ -87,6 +106,7 @@ export interface MapDisplaySettings {
   miniMapShowTransits: boolean;
   miniMapShowCustomMarkers: boolean;
   miniMapHiddenMarkerTypes: string[];
+  hiddenKeyItemIds: string[];
 }
 
 export interface SharedSettings {

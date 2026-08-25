@@ -357,6 +357,72 @@ describe("MapPage", () => {
     expect(screen.getByRole("button", { name: "황금 키카드 숲 보상" })).toBeInTheDocument();
   });
 
+  it("registers a key location once and keeps its checkbox synchronized with the mini-map", async () => {
+    const keyItem = {
+      id: "customs-key",
+      name: "Dorm room key",
+      nameEn: "Dorm room key",
+      nameKo: "기숙사 열쇠",
+      shortNameEn: "Dorm 103",
+      shortNameKo: "기숙사 103",
+      category: "Keys",
+      categories: ["Keys"],
+      isDogtagItem: false,
+    };
+    const pageData: TarkovData = {
+      ...data,
+      items: [keyItem],
+      mapKeyItemIds: { Customs: [keyItem.id] },
+      meta: { ...data.meta, counts: { ...data.meta.counts, items: 1 } },
+    };
+    renderPage({}, true, pageData);
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+
+    const keyToggle = screen.getByRole("checkbox", { name: "키 기숙사 103 표시" });
+    expect(keyToggle).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "키 위치 등록" }));
+    fireEvent.click(screen.getByTestId("map-viewport"), { clientX: 500, clientY: 400 });
+
+    const dialog = await screen.findByRole("dialog", { name: "키 위치 등록" });
+    expect(within(dialog).getByRole("combobox", { name: "키 또는 키카드" })).toHaveValue(keyItem.id);
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "방 또는 건물 이름" }), {
+      target: { value: "기숙사 103호" },
+    });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "귀중품 방 여부" }), {
+      target: { value: "high" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "위치 저장" }));
+
+    expect(profileState().keyMarkers).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /키 마커 기숙사 열쇠/ })).toBeInTheDocument();
+
+    const originalCoordinates = profileState().keyMarkers?.[0];
+    fireEvent.click(screen.getByRole("button", { name: "기숙사 103 위치 편집" }));
+    const editDialog = await screen.findByRole("dialog", { name: "키 위치 수정" });
+    fireEvent.click(within(editDialog).getByRole("button", { name: "지도에서 위치 다시 지정" }));
+    fireEvent.click(screen.getByTestId("map-viewport"), { clientX: 560, clientY: 430 });
+    const repositionDialog = await screen.findByRole("dialog", { name: "키 위치 수정" });
+    fireEvent.click(within(repositionDialog).getByRole("button", { name: "위치 저장" }));
+    expect(profileState().keyMarkers?.[0]?.x).not.toBe(originalCoordinates?.x);
+
+    const viewport = screen.getByTestId("map-viewport");
+    fireEvent.keyDown(viewport, { key: "k", shiftKey: true });
+    expect(screen.getByRole("button", { name: "지도에서 위치를 클릭하세요" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.keyDown(viewport, { key: "Escape" });
+
+    fireEvent.click(keyToggle);
+    expect(screen.queryByRole("button", { name: /키 마커 기숙사 열쇠/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "키 기숙사 103 표시" }));
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const miniMap = await screen.findByTestId("map-minimap-fallback");
+    expect(within(miniMap).getByRole("img", { name: /키 위치 · 기숙사 열쇠/ })).toBeInTheDocument();
+  });
+
   it("opens independent mini-map settings from the map selector and searches every quest in the selected region", () => {
     const onOpenMiniMapSettings = vi.fn();
     const onOpenQuest = vi.fn();

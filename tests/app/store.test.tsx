@@ -45,6 +45,7 @@ describe("AppStoreProvider", () => {
       hideoutLevels: {},
       inventory: {},
       customMarkers: [],
+      keyMarkers: [],
     });
     expect(state.profiles.pve).toEqual(state.profiles.pvp);
     expect(state.profiles.pve).not.toBe(state.profiles.pvp);
@@ -70,6 +71,7 @@ describe("AppStoreProvider", () => {
       miniMapShowTransits: true,
       miniMapShowCustomMarkers: true,
       miniMapHiddenMarkerTypes: [],
+      hiddenKeyItemIds: [],
     });
   });
 

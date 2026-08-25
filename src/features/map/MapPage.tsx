@@ -17,6 +17,7 @@ import {
   Crosshair,
   ExternalLink,
   Focus,
+  KeyRound,
   LocateFixed,
   Maximize2,
   MapPin,
@@ -39,6 +40,7 @@ import {
   type MapMiniMapMarker,
 } from "./MapMiniMap";
 import { MapMarkerLayerPanel } from "./MapMarkerLayerPanel";
+import { KeyMarkerEditor } from "./KeyMarkerEditor";
 import {
   applySvgFloorVisibility,
   detectFloorByY,
@@ -52,6 +54,12 @@ import {
 } from "../../domain/map";
 import { createQuestStatusResolver } from "../../domain/quests";
 import { objectiveDisplayText } from "../quests/quest-language";
+import {
+  keyItemFullName,
+  keyItemLabel,
+  keyItemsForMap,
+  keyMarkerIsVisible,
+} from "../../domain/key-markers";
 import {
   findRouteMapConfig,
   MAX_MAP_ROUTE_QUESTS,
@@ -75,7 +83,12 @@ import type {
   TarkovData,
   WorldPoint,
 } from "../../types/data";
-import type { CustomMapMarker, MapDisplaySettings } from "../../types/state";
+import type {
+  CustomMapMarker,
+  KeyMapMarker,
+  MapDisplaySettings,
+} from "../../types/state";
+import { MAP_KEY_ITEM_IDS } from "./key-map-index";
 import "../../styles/map.css";
 
 export interface MapPageProps {
@@ -146,6 +159,11 @@ interface MarkerEditorState {
   isNew: boolean;
 }
 
+interface KeyMarkerEditorState {
+  marker: KeyMapMarker;
+  isNew: boolean;
+}
+
 const EMPTY_MAP: MapConfig = {
   key: "",
   displayName: "지도 없음",
@@ -213,6 +231,10 @@ function localTrackerNote(tracker: LocalTrackerViewState): {
 
 function bundledAsset(path: string): string {
   return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
+}
+
+function itemIconAsset(item: TarkovData["items"][number]): string | undefined {
+  return item.localIcon ? bundledAsset(item.localIcon) : undefined;
 }
 
 const CUSTOM_MARKER_COLORS = [
@@ -815,6 +837,8 @@ export function MapPage({
     setQuestMapRoute,
     upsertCustomMarker,
     deleteCustomMarker,
+    upsertKeyMarker,
+    deleteKeyMarker,
     updateMapSettings,
   } = useAppStore();
   const mapSettings = settings.map;
@@ -870,6 +894,9 @@ export function MapPage({
   const [fullMapMarkerMenuOpen, setFullMapMarkerMenuOpen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState("");
   const [editor, setEditor] = useState<MarkerEditorState>();
+  const [keyMarkerEditor, setKeyMarkerEditor] = useState<KeyMarkerEditorState>();
+  const [keyMarkerPlacementMode, setKeyMarkerPlacementMode] = useState(false);
+  const [keyMarkerRepositionId, setKeyMarkerRepositionId] = useState<string>();
   const [deleteCandidate, setDeleteCandidate] = useState<CustomMapMarker>();
   const pageRef = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -1329,6 +1356,28 @@ export function MapPage({
     [config, data.mapMarkers],
   );
 
+  const keyItems = useMemo(() => {
+    const configuredIds = data.mapKeyItemIds?.[config.key] ?? MAP_KEY_ITEM_IDS[config.key] ?? [];
+    return keyItemsForMap(data, configuredIds);
+  }, [config.key, data]);
+  const keyItemsById = useMemo(
+    () => new Map(keyItems.map((item) => [item.id, item])),
+    [keyItems],
+  );
+  const hiddenKeyItemIds = useMemo(
+    () => new Set(mapSettings.hiddenKeyItemIds),
+    [mapSettings.hiddenKeyItemIds],
+  );
+  const keyMarkersForMap = useMemo(
+    () => (profile.keyMarkers ?? []).filter((marker) => {
+      if (!mapSettings.showKeyMarkers) return false;
+      if (!mapMatches(config, marker.mapKey)) return false;
+      if (!keyItemsById.has(marker.itemId)) return false;
+      return keyMarkerIsVisible(marker, selectedFloor, hiddenKeyItemIds);
+    }),
+    [config, hiddenKeyItemIds, keyItemsById, mapSettings.showKeyMarkers, profile.keyMarkers, selectedFloor],
+  );
+
   const basicMarkerTypes = useMemo(
     () =>
       [...new Set(mapMarkers.filter((marker) => !isExtractionType(marker.markerType)).map((marker) => marker.markerType))]
@@ -1454,6 +1503,15 @@ export function MapPage({
     [config, data.mapConfigs, profile.customMarkers],
   );
 
+  const profileKeyMarkers = useMemo(
+    () => [...(profile.keyMarkers ?? [])].filter((marker) => mapMatches(config, marker.mapKey) && keyItemsById.has(marker.itemId)).sort((left, right) => {
+      const leftMap = findMapConfig(data.mapConfigs, left.mapKey)?.displayName ?? left.mapKey;
+      const rightMap = findMapConfig(data.mapConfigs, right.mapKey)?.displayName ?? right.mapKey;
+      return leftMap.localeCompare(rightMap, "ko") || left.itemId.localeCompare(right.itemId);
+    }),
+    [config, data.mapConfigs, keyItemsById, profile.keyMarkers],
+  );
+
   const miniMapMarkers = useMemo<MapMiniMapMarker[]>(
     () => [
       ...miniMapVisibleQuestPoints.map((point) => ({
@@ -1484,6 +1542,24 @@ export function MapPage({
           selected: selectedMarkerId === marker.id,
         }];
       }),
+      ...keyMarkersForMap.flatMap((marker) => {
+        const item = keyItemsById.get(marker.itemId);
+        const screen = markerScreenPosition(config, marker);
+        if (!item || !screen) return [];
+        const label = keyItemLabel(item);
+        return [{
+          id: marker.id,
+          kind: "data" as const,
+          shape: "icon" as const,
+          iconUrl: itemIconAsset(item),
+          color: marker.lootTier === "high" ? "#ffcc58" : undefined,
+          size: marker.lootTier === "high" ? 24 : 20,
+          label,
+          screen,
+          summary: `키 위치 · ${keyItemFullName(item)}${marker.roomName ? ` · ${marker.roomName}` : ""}${marker.lootTier === "high" ? " · 귀중품 방" : ""}`,
+          selected: selectedMarkerId === marker.id,
+        }];
+      }),
       ...miniMapCustomMarkers.flatMap((marker) => {
         const screen = markerScreenPosition(config, marker);
         if (!screen) return [];
@@ -1504,6 +1580,8 @@ export function MapPage({
       miniMapCustomMarkers,
       miniMapVisibleDataMarkers,
       miniMapVisibleQuestPoints,
+      keyItemsById,
+      keyMarkersForMap,
       mapSettings.miniMapShowExtractLabels,
       profile.objectiveProgress,
       selectedMarkerId,
@@ -1641,6 +1719,8 @@ export function MapPage({
   const changeMap = (event: ChangeEvent<HTMLSelectElement>) => {
     setFocusedQuestId(undefined);
     pendingMapFocusRef.current = undefined;
+    setKeyMarkerPlacementMode(false);
+    setKeyMarkerRepositionId(undefined);
     setRegionQuestQuery("");
     setRouteNotice("");
     setRouteNoticeFloor(undefined);
@@ -1687,7 +1767,12 @@ export function MapPage({
       viewIntentRef.current = { kind: "manual", mapKey: config.key };
       setView((current) => ({ ...current, x: current.x + x, y: current.y + y }));
     };
-    if (event.key === "ArrowLeft") pan(KEYBOARD_PAN_STEP, 0);
+    if (event.key === "Escape" && (keyMarkerPlacementMode || keyMarkerRepositionId)) {
+      setKeyMarkerPlacementMode(false);
+      setKeyMarkerRepositionId(undefined);
+    } else if (event.shiftKey && event.key.toLocaleLowerCase("en-US") === "k" && keyItems.length > 0) {
+      setKeyMarkerPlacementMode(true);
+    } else if (event.key === "ArrowLeft") pan(KEYBOARD_PAN_STEP, 0);
     else if (event.key === "ArrowRight") pan(-KEYBOARD_PAN_STEP, 0);
     else if (event.key === "ArrowUp") pan(0, KEYBOARD_PAN_STEP);
     else if (event.key === "ArrowDown") pan(0, -KEYBOARD_PAN_STEP);
@@ -2140,6 +2225,16 @@ export function MapPage({
     });
   }, []);
 
+  const closeKeyMarkerEditor = useCallback(() => {
+    const opener = editorOpenerRef.current;
+    editorOpenerRef.current = null;
+    setKeyMarkerEditor(undefined);
+    queueMicrotask(() => {
+      if (opener?.isConnected) opener.focus();
+      else document.querySelector<HTMLButtonElement>(".map-key-add-button")?.focus();
+    });
+  }, []);
+
   const openMarkerEditorAt = useCallback(
     (screenX: number, screenY: number) => {
       const world = inverseMapPosition(config, screenX, screenY);
@@ -2182,6 +2277,67 @@ export function MapPage({
     setEditor({ marker: { ...marker }, isNew: false });
   };
 
+  const openKeyMarkerEditorAt = useCallback(
+    (screenX: number, screenY: number) => {
+      const world = inverseMapPosition(config, screenX, screenY);
+      const firstItem = keyItems[0];
+      if (!world || !firstItem) return;
+      const floorId = selectedFloor ?? defaultFloor(config);
+      rememberEditorOpener();
+      setKeyMarkerEditor({
+        isNew: true,
+        marker: {
+          id: `key-${createMarkerId()}`,
+          mapKey: config.key,
+          itemId: firstItem.id,
+          x: world.x,
+          y: floorWorldY(floorId),
+          z: world.z,
+          floorId,
+          lootTier: "normal",
+          createdAt: new Date().toISOString(),
+        },
+      });
+    },
+    [config, floorWorldY, keyItems, rememberEditorOpener, selectedFloor],
+  );
+
+  const focusKeyMarker = (marker: KeyMapMarker) => {
+    const targetConfig = findMapConfig(data.mapConfigs, marker.mapKey);
+    if (!targetConfig) return;
+    const screen = markerScreenPosition(targetConfig, marker);
+    if (!screen) return;
+    setFocusedQuestId(undefined);
+    if (targetConfig.key === config.key) {
+      if (marker.floorId) selectFloor(marker.floorId);
+      setSelectedMarkerId(marker.id);
+      centerOnPoint(screen);
+      return;
+    }
+    pendingMapFocusRef.current = {
+      mapKey: targetConfig.key,
+      screen,
+      markerId: marker.id,
+      floorId: marker.floorId,
+    };
+    setSelectedMapKey(targetConfig.key);
+  };
+
+  const openExistingKeyMarkerEditor = (marker: KeyMapMarker) => {
+    rememberEditorOpener();
+    setKeyMarkerRepositionId(undefined);
+    focusKeyMarker(marker);
+    setKeyMarkerEditor({ marker: { ...marker }, isNew: false });
+  };
+
+  const startKeyMarkerReposition = useCallback(() => {
+    if (!keyMarkerEditor) return;
+    setKeyMarkerRepositionId(keyMarkerEditor.marker.id);
+    setKeyMarkerEditor(undefined);
+    setKeyMarkerPlacementMode(true);
+    queueMicrotask(() => viewportRef.current?.focus());
+  }, [keyMarkerEditor]);
+
   const openMarkerEditorAtCenter = () => {
     const viewport = viewportRef.current;
     const width = viewport?.clientWidth ?? 0;
@@ -2199,10 +2355,58 @@ export function MapPage({
     );
   };
 
+  const handleMapClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!keyMarkerPlacementMode) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("button, input, select, label")) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const screenX = (event.clientX - rect.left - view.x) / view.scale;
+    const screenY = (event.clientY - rect.top - view.y) / view.scale;
+    const world = inverseMapPosition(config, screenX, screenY);
+    const repositionedMarker = keyMarkerRepositionId
+      ? profile.keyMarkers?.find((marker) => marker.id === keyMarkerRepositionId)
+      : undefined;
+    if (world && repositionedMarker) {
+      const floorId = selectedFloor ?? repositionedMarker.floorId ?? defaultFloor(config);
+      setKeyMarkerEditor({
+        isNew: false,
+        marker: {
+          ...repositionedMarker,
+          mapKey: config.key,
+          x: world.x,
+          y: floorWorldY(floorId),
+          z: world.z,
+          floorId,
+        },
+      });
+      setKeyMarkerRepositionId(undefined);
+    } else {
+      setKeyMarkerRepositionId(undefined);
+      openKeyMarkerEditorAt(screenX, screenY);
+    }
+    setKeyMarkerPlacementMode(false);
+  };
+
   const saveEditor = () => {
     if (!editor) return;
     upsertCustomMarker({ ...editor.marker, name: editor.marker.name.trim() });
     closeEditor();
+  };
+
+  const saveKeyMarkerEditor = () => {
+    if (!keyMarkerEditor) return;
+    upsertKeyMarker({
+      ...keyMarkerEditor.marker,
+      roomName: keyMarkerEditor.marker.roomName?.trim() || undefined,
+      note: keyMarkerEditor.marker.note?.trim() || undefined,
+    });
+    closeKeyMarkerEditor();
+  };
+
+  const deleteKeyMarkerEditor = () => {
+    if (!keyMarkerEditor) return;
+    deleteKeyMarker(keyMarkerEditor.marker.id);
+    closeKeyMarkerEditor();
   };
 
   const requestMarkerDelete = (
@@ -2644,6 +2848,14 @@ export function MapPage({
                     type="checkbox"
                   />
                   <span>사용자 마커 표시</span>
+                </label>
+                <label>
+                  <input
+                    checked={mapSettings.showKeyMarkers}
+                    onChange={(event) => updateMapSettings({ showKeyMarkers: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>키/키카드 위치 표시</span>
                 </label>
                 {basicMarkerTypes.map((type) => (
                   <label key={`full-map-menu-${type}`}>
@@ -3107,6 +3319,92 @@ export function MapPage({
             )}
           </section>
 
+          <section aria-labelledby="map-key-markers-title" className="map-side-section map-key-markers-section">
+            <div className="map-section-heading">
+              <div>
+                <p className="map-eyebrow">키/키카드</p>
+                <h2 id="map-key-markers-title">현재 지도 키 위치</h2>
+              </div>
+              <span className="badge">{keyItems.length}</span>
+            </div>
+            <p className="map-search-note">
+              체크한 키 위치가 일반 지도와 미니맵에 함께 표시됩니다. 위치가 틀리면 마커를 선택해 수정하세요. 지도에서 Shift+K를 눌러 바로 등록할 수도 있습니다.
+            </p>
+            <button
+              aria-pressed={keyMarkerPlacementMode}
+              className={`map-key-add-button${keyMarkerPlacementMode ? " active" : ""}`}
+              disabled={keyItems.length === 0}
+              onClick={() => setKeyMarkerPlacementMode((active) => !active)}
+              type="button"
+            >
+              <KeyRound aria-hidden="true" size={16} />
+              {keyMarkerPlacementMode
+                ? keyMarkerRepositionId ? "새 위치를 클릭하세요" : "지도에서 위치를 클릭하세요"
+                : "키 위치 등록"}
+            </button>
+            {keyItems.length > 0 ? (
+              <div className="map-key-item-filter-list">
+                {keyItems.map((item) => {
+                  const checked = !hiddenKeyItemIds.has(item.id);
+                  const label = keyItemLabel(item);
+                  const icon = itemIconAsset(item);
+                  return (
+                    <label className="map-key-item-filter" key={item.id}>
+                      <input
+                        aria-label={`키 ${label} 표시`}
+                        checked={checked}
+                        onChange={(event) => {
+                          const next = new Set(hiddenKeyItemIds);
+                          if (event.target.checked) next.delete(item.id);
+                          else next.add(item.id);
+                          updateMapSettings({ hiddenKeyItemIds: [...next] });
+                        }}
+                        type="checkbox"
+                      />
+                      {icon ? <img alt="" src={icon} /> : <KeyRound aria-hidden="true" size={16} />}
+                      <span title={keyItemFullName(item)}>{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="map-empty-copy">이 지도에 연결된 키 목록이 없습니다. 데이터 새로고침 후 다시 확인하세요.</p>
+            )}
+            {profileKeyMarkers.length > 0 ? (
+              <ul className="map-key-marker-list">
+                {profileKeyMarkers.map((marker) => {
+                  const item = keyItemsById.get(marker.itemId);
+                  if (!item) return null;
+                  return (
+                    <li className={selectedMarkerId === marker.id ? "selected" : ""} key={marker.id}>
+                      <button
+                        aria-label={`${keyItemLabel(item)} 위치로 이동`}
+                        className="map-key-marker-focus"
+                        onClick={() => focusKeyMarker(marker)}
+                        type="button"
+                      >
+                        {itemIconAsset(item) ? <img alt="" src={itemIconAsset(item)} /> : <KeyRound aria-hidden="true" size={18} />}
+                        <span>
+                          <strong>{keyItemLabel(item)}</strong>
+                          <small>{marker.roomName || "방 이름 미등록"}{marker.lootTier === "high" ? " · 귀중품 방" : ""}</small>
+                        </span>
+                      </button>
+                      <button
+                        aria-label={`${keyItemLabel(item)} 위치 편집`}
+                        className="ghost icon-button compact"
+                        onClick={() => openExistingKeyMarkerEditor(marker)}
+                        title="키 위치 편집"
+                        type="button"
+                      >
+                        <Pencil aria-hidden="true" size={14} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </section>
+
           <section aria-labelledby="map-custom-markers-title" className="map-side-section">
             <div className="map-section-heading">
               <div>
@@ -3268,8 +3566,9 @@ export function MapPage({
           <div
             aria-describedby="map-keyboard-hint"
             aria-label={`${config.displayName} 대화형 지도`}
-            className="map-viewport"
+            className={`map-viewport${keyMarkerPlacementMode ? " key-marker-placement-mode" : ""}`}
             data-testid="map-viewport"
+            onClick={handleMapClick}
             onDoubleClick={handleMapDoubleClick}
             onKeyDown={handleViewportKeyDown}
             onPointerCancel={stopDragging}
@@ -3347,6 +3646,45 @@ export function MapPage({
                   ))}
                 </svg>
               ) : null}
+
+              {keyMarkersForMap.map((marker) => {
+                const item = keyItemsById.get(marker.itemId);
+                const screen = markerScreenPosition(config, marker);
+                if (!item || !screen) return null;
+                const label = keyItemLabel(item);
+                const fullName = keyItemFullName(item);
+                return (
+                  <button
+                    aria-label={`키 마커 ${fullName}${marker.roomName ? ` · ${marker.roomName}` : ""}`}
+                    aria-pressed={selectedMarkerId === marker.id}
+                    className={`map-marker map-key-marker${marker.lootTier === "high" ? " high-value" : ""}`}
+                    key={marker.id}
+                    onClick={() => {
+                      if (selectedMarkerId === marker.id) {
+                        setSelectedMarkerId(undefined);
+                        return;
+                      }
+                      setSelectedMarkerId(marker.id);
+                      centerOnPoint(screen);
+                    }}
+                    onDoubleClick={(event) => {
+                      event.stopPropagation();
+                      openExistingKeyMarkerEditor(marker);
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    style={{
+                      left: screen.x,
+                      top: screen.y,
+                      "--marker-size": `${marker.lootTier === "high" ? 26 : 22}px`,
+                    } as CSSProperties}
+                    title={`${fullName}${marker.roomName ? ` · ${marker.roomName}` : ""}${marker.note ? ` · ${marker.note}` : ""}`}
+                    type="button"
+                  >
+                    {itemIconAsset(item) ? <img alt="" draggable="false" src={itemIconAsset(item)} /> : <KeyRound aria-hidden="true" size={18} />}
+                    <span className="map-marker-label">{label}</span>
+                  </button>
+                );
+              })}
 
               {visibleDataMarkers.map((marker) => {
                 const screen = markerScreenPosition(config, marker);
@@ -3502,6 +3840,11 @@ export function MapPage({
             </div>
 
             <div className="map-viewport-hint" id="map-keyboard-hint">
+              {keyMarkerPlacementMode ? (
+                <strong>
+                  {keyMarkerRepositionId ? "키 위치 수정 모드: 새 위치를 클릭하세요" : "키 위치 등록 모드: 빈 공간을 클릭하세요"}
+                </strong>
+              ) : null}
               <span>드래그 이동</span>
               <span>휠 확대/축소</span>
               <span>방향키: 이동</span>
@@ -3521,6 +3864,19 @@ export function MapPage({
           onChange={(marker) => setEditor((current) => current ? { ...current, marker } : current)}
           onDelete={(opener) => requestMarkerDelete(editor.marker, opener)}
           onSave={saveEditor}
+        />
+      ) : null}
+
+      {keyMarkerEditor ? (
+        <KeyMarkerEditor
+          editor={keyMarkerEditor}
+          floors={orderedFloors}
+          itemOptions={keyItems}
+          onCancel={closeKeyMarkerEditor}
+          onChange={(marker) => setKeyMarkerEditor((current) => current ? { ...current, marker } : current)}
+          onDelete={keyMarkerEditor.isNew ? undefined : deleteKeyMarkerEditor}
+          onReposition={keyMarkerEditor.isNew ? undefined : startKeyMarkerReposition}
+          onSave={saveKeyMarkerEditor}
         />
       ) : null}
 

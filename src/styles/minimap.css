@@ -348,6 +348,11 @@ body:has(.quest-overlay--dock) .map-minimap-fallback {
   white-space: nowrap;
 }
 
+.map-minimap-marker--data .map-minimap-marker-name {
+  border-color: color-mix(in srgb, var(--mini-map-marker-color, #d9b83f), transparent 60%);
+  color: var(--mini-map-marker-color, #f2f1e9);
+}
+
 .map-minimap-marker-fallback {
   width: 72%;
   height: 72%;
