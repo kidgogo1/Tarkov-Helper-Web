@@ -277,11 +277,13 @@ describe("MapMiniMap", () => {
     expect(within(pipWindow.document.body).getByTestId("map-minimap-quest-route-line"))
       .toHaveAttribute("x2", "300");
     expect(pipWorld.style.transform).toBe("translate(275px, 90px) scale(0.45)");
+    expect(pipWorld).toHaveStyle({ "--mini-map-scale": "0.45" });
 
     act(() => pipWindow.dispatchResize(400, 400));
     await waitFor(() => {
       expect(pipWorld.style.transform).toBe("translate(160px, 120px) scale(0.4)");
     });
+    expect(pipWorld).toHaveStyle({ "--mini-map-scale": "0.4" });
     expect(pipWindow.document.head.querySelector('link[rel="stylesheet"]')).toHaveAttribute(
       "href",
       stylesheet.href,

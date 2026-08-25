@@ -1246,7 +1246,8 @@
   left: 50%;
   width: max-content;
   max-width: 190px;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--map-scale, 1));
+  transform-origin: top center;
   border-radius: 2px;
   background: rgb(12 14 13 / 78%);
   color: #f5f6f3;
@@ -1290,7 +1291,8 @@
   top: 50%;
   left: calc(100% + 4px);
   width: max-content;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(var(--map-scale, 1));
+  transform-origin: left center;
   border-radius: 3px;
   background: rgb(255 87 34 / 88%);
   color: #fff;

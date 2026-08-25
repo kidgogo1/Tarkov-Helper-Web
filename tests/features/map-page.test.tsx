@@ -945,6 +945,28 @@ describe("MapPage", () => {
     expect(requestFullscreen).toHaveBeenCalledOnce();
   });
 
+  it("passes the current map scale to marker labels so they shrink with zoom", () => {
+    const viewport = mockMapViewport(600, 500);
+    renderPage();
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Customs" },
+    });
+
+    const world = screen.getByTestId("map-world");
+    const extraction = screen.getByRole("button", { name: "탈출구 마커 Crossroads" });
+    expect(extraction.querySelector(".map-marker-label")).toHaveTextContent("Crossroads");
+    expect(world).toHaveStyle({ "--map-scale": "0.6" });
+
+    fireEvent.wheel(screen.getByTestId("map-viewport"), {
+      clientX: 120,
+      clientY: 80,
+      deltaY: 100,
+    });
+
+    expect(world).toHaveStyle({ "--map-scale": "0.5" });
+    viewport.restore();
+  });
+
   it("fits and centers the selected map using the measured viewport", () => {
     const viewport = mockMapViewport(600, 500);
     renderPage();

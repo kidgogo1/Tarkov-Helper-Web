@@ -400,6 +400,7 @@ function MiniMapSurface({
     height: mapHeight,
     transform: `translate(${x}px, ${y}px) scale(${scale})`,
     "--mini-map-inverse-scale": String(1 / Math.max(scale, 0.0001)),
+    "--mini-map-scale": String(scale),
   };
   const rootStyle: MiniMapStyle = {
     backgroundColor: "transparent",

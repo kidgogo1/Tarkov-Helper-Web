@@ -3290,6 +3290,7 @@ export function MapPage({
                 height: config.imageHeight,
                 transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`,
                 "--map-inverse-scale": `${1 / view.scale}`,
+                "--map-scale": `${view.scale}`,
               } as CSSProperties}
             >
               <object

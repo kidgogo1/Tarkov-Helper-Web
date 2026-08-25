@@ -343,7 +343,8 @@ body:has(.quest-overlay--dock) .map-minimap-fallback {
   line-height: 1.1;
   text-overflow: ellipsis;
   text-shadow: 0 1px 2px #000;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--mini-map-scale, 1));
+  transform-origin: top center;
   white-space: nowrap;
 }
 
