@@ -265,6 +265,30 @@ export function getCompatibleCandidates(
   );
 }
 
+/**
+ * Returns every part accepted by the selected slot's own filters. Unlike
+ * getCompatibleCandidates, this intentionally keeps choices that only conflict
+ * with another installed branch so the workbench can offer an automatic swap.
+ */
+export function getSlotCandidates(
+  catalog: WeaponCatalog,
+  build: WeaponBuild,
+  parentInstanceId: string,
+  slotId: string,
+): WeaponPartItem[] {
+  const index = itemIndex(catalog);
+  const parentNode = findNode(build.root, parentInstanceId);
+  const parentItem = parentNode ? index.get(parentNode.itemId) : undefined;
+  const slot = parentItem?.slots?.find((candidate) => candidate.id === slotId);
+  if (!slot) return [];
+
+  return catalog.items.filter(
+    (item): item is WeaponPartItem =>
+      item.kind === "part" &&
+      slotRuleIssues(slot, item, parentInstanceId).length === 0,
+  );
+}
+
 function factoryNode(
   index: ReadonlyMap<string, WeaponCatalogItem>,
   item: WeaponCatalogItem,
@@ -463,6 +487,97 @@ export function replaceBuildSlot(
     ok: true,
     build: { ...build, root: replace(build.root, 0) },
     removedNodes,
+  };
+}
+
+/**
+ * Performs an in-game-style slot swap. Parts accepted by the slot remain
+ * selectable even when they conflict with another removable installed branch;
+ * those branches are removed atomically before the replacement is installed.
+ * The root weapon and the selected part's ancestor chain are never removed.
+ */
+export function replaceBuildSlotResolvingConflicts(
+  catalog: WeaponCatalog,
+  build: WeaponBuild,
+  parentInstanceId: string,
+  slotId: string,
+  candidateItemId: string,
+): BuildMutationResult {
+  const compatibility = evaluateCandidateCompatibility(
+    catalog,
+    build,
+    parentInstanceId,
+    slotId,
+    candidateItemId,
+  );
+  if (compatibility.isValid) {
+    return replaceBuildSlot(catalog, build, parentInstanceId, slotId, candidateItemId);
+  }
+
+  const conflictIssues = compatibility.issues.filter(
+    (issue) => issue.code === "ITEM_CONFLICT" || issue.code === "SLOT_CONFLICT",
+  );
+  if (conflictIssues.length !== compatibility.issues.length) {
+    return { ok: false, build, issues: compatibility.issues };
+  }
+
+  const flatNodes = flattenBuildTree(build.root);
+  const nodeById = new Map(flatNodes.map((node) => [node.instanceId, node]));
+  const protectedInstanceIds = new Set<string>();
+  let protectedNode = nodeById.get(parentInstanceId);
+  while (protectedNode) {
+    protectedInstanceIds.add(protectedNode.instanceId);
+    protectedNode = protectedNode.parentInstanceId
+      ? nodeById.get(protectedNode.parentInstanceId)
+      : undefined;
+  }
+
+  const conflictInstanceIds = new Set<string>();
+  for (const issue of conflictIssues) {
+    if (
+      !issue.relatedInstanceId ||
+      !nodeById.has(issue.relatedInstanceId) ||
+      protectedInstanceIds.has(issue.relatedInstanceId)
+    ) {
+      return { ok: false, build, issues: compatibility.issues };
+    }
+    conflictInstanceIds.add(issue.relatedInstanceId);
+  }
+
+  const conflictRemovedNodes: FlatBuildNode[] = [];
+  const removeConflicts = (node: BuildNode, depth: number): BuildNode => ({
+    ...node,
+    children: node.children.flatMap((child) => {
+      if (conflictInstanceIds.has(child.instanceId)) {
+        flattenNode(child, node.instanceId, depth + 1, conflictRemovedNodes);
+        return [];
+      }
+      return [removeConflicts(child, depth + 1)];
+    }),
+  });
+  const withoutConflicts = {
+    ...build,
+    root: removeConflicts(build.root, 0),
+  };
+  const replacement = replaceBuildSlot(
+    catalog,
+    withoutConflicts,
+    parentInstanceId,
+    slotId,
+    candidateItemId,
+  );
+  if (!replacement.ok) {
+    return { ok: false, build, issues: replacement.issues };
+  }
+
+  const removedByInstanceId = new Map<string, FlatBuildNode>();
+  for (const removed of [...conflictRemovedNodes, ...replacement.removedNodes]) {
+    removedByInstanceId.set(removed.instanceId, removed);
+  }
+  return {
+    ok: true,
+    build: replacement.build,
+    removedNodes: [...removedByInstanceId.values()],
   };
 }
 

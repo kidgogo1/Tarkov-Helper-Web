@@ -5,9 +5,11 @@ import {
   createFactoryBuild,
   flattenBuildTree,
   getCompatibleCandidates,
+  getSlotCandidates,
   isCompatibleCandidate,
   removeBuildSlot,
   replaceBuildSlot,
+  replaceBuildSlotResolvingConflicts,
   validateWeaponBuild,
 } from "../../src/domain/weapon-build";
 import type {
@@ -211,9 +213,52 @@ describe("weapon slot compatibility", () => {
       ),
     ).toBe(false);
   });
+
+  it("lists every slot-allowed part even when the current build conflicts", () => {
+    const data = catalog();
+    const build = createFactoryBuild(data, "weapon");
+
+    expect(getSlotCandidates(
+      data,
+      build,
+      build.root.instanceId,
+      "magazine",
+    ).map((item) => item.id)).toEqual([
+      "magazine",
+      "drum",
+      "slot-conflict-magazine",
+    ]);
+  });
 });
 
 describe("weapon build mutations", () => {
+  it("can equip a slot-allowed part by removing its conflicting installed branch", () => {
+    const data = catalog();
+    const original = createFactoryBuild(data, "weapon");
+
+    const result = replaceBuildSlotResolvingConflicts(
+      data,
+      original,
+      original.root.instanceId,
+      "magazine",
+      "drum",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.removedNodes.map((node) => node.itemId)).toEqual(expect.arrayContaining([
+      "magazine",
+      "optic",
+    ]));
+    expect(flattenBuildTree(result.build.root).map((node) => node.itemId)).toEqual([
+      "weapon",
+      "receiver-a",
+      "mount",
+      "drum",
+    ]);
+    expect(validateWeaponBuild(data, result.build).isValid).toBe(true);
+  });
+
   it("replaces a slot and atomically removes the previous part's whole descendant tree", () => {
     const data = catalog();
     const original = createFactoryBuild(data, "weapon");

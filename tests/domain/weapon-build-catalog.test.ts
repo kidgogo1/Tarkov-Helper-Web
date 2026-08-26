@@ -6,6 +6,8 @@ import {
   calculateBuildStats,
   createFactoryBuild,
   flattenBuildTree,
+  getSlotCandidates,
+  replaceBuildSlotResolvingConflicts,
   validateWeaponBuild,
 } from "../../src/domain/weapon-build";
 import { parseWeaponModCatalog } from "../../src/services/weapon-mod-data";
@@ -60,5 +62,46 @@ describe("bundled weapon catalog builds", () => {
     const repeatedRailCount = flattenBuildTree(mpxBuild.root)
       .filter((node) => node.itemId === "58a56f8d86f774651579314c").length;
     expect(repeatedRailCount).toBe(2);
+  });
+
+  it("keeps M4A1 combination stocks selectable and removes only their conflicting stock", () => {
+    const catalog = parseWeaponModCatalog(JSON.parse(bundledCatalogJson) as unknown);
+    expect(catalog).not.toBeNull();
+    if (!catalog) return;
+
+    const build = createFactoryBuild(catalog, "5447a9cd4bdc2dbd208b4567");
+    const weapon = catalog.items.find((item) => item.id === build.weaponId);
+    if (!weapon || weapon.kind !== "weapon") throw new Error("missing M4A1");
+    const slot = weapon.slots.find((candidate) => candidate.id === "55d354084bdc2d8c2f8b4568");
+    if (!slot) throw new Error("missing M4A1 pistol grip slot");
+    const candidates = getSlotCandidates(
+      catalog,
+      build,
+      build.root.instanceId,
+      slot.id,
+    );
+    expect(candidates).toHaveLength(40);
+    expect(candidates.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "5a33e75ac4a2826c6e06d759",
+      "5c0e2ff6d174af02a1659d4a",
+    ]));
+
+    const result = replaceBuildSlotResolvingConflicts(
+      catalog,
+      build,
+      build.root.instanceId,
+      slot.id,
+      "5a33e75ac4a2826c6e06d759",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.removedNodes.map((node) => node.itemId)).toEqual(expect.arrayContaining([
+      "55d4ae6c4bdc2d8b2f8b456e",
+      "55d4b9964bdc2d1d4e8b456e",
+    ]));
+    expect(flattenBuildTree(result.build.root).map((node) => node.itemId)).toContain(
+      "5a33e75ac4a2826c6e06d759",
+    );
+    expect(validateWeaponBuild(catalog, result.build).isValid).toBe(true);
   });
 });
