@@ -106,8 +106,11 @@ function browserExecutable() {
   return process.env.PLAYWRIGHT_EXECUTABLE_PATH ?? candidates.find(existsSync);
 }
 
-function isAllowedWikiAsset(url) {
-  return url.protocol === "https:" && url.hostname === "static.wikia.nocookie.net";
+function isAllowedExternalAsset(url) {
+  return url.protocol === "https:" && (
+    url.hostname === "static.wikia.nocookie.net" ||
+    url.hostname === "assets.tarkov.dev"
+  );
 }
 
 async function findFirstFile(directory, extensions) {
@@ -248,14 +251,14 @@ try {
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.origin !== new URL(baseUrl).origin && !isAllowedWikiAsset(url)) externalRequests.push(request.url());
+    if (url.origin !== new URL(baseUrl).origin && !isAllowedExternalAsset(url)) externalRequests.push(request.url());
   });
 
   const documentResponse = await page.goto(baseUrl, { waitUntil: "networkidle" });
   assert(documentResponse?.status() === 200, "Direct release document did not return HTTP 200");
   assert(documentResponse.headers()["x-frame-options"] === "DENY", "Direct release is missing frame protection");
   await page.getByText("TARKOV HELPER", { exact: true }).waitFor();
-  assert(await page.getByRole("tab").count() === 6, "Expected six primary tabs");
+  assert(await page.getByRole("tab").count() === 7, "Expected seven primary tabs");
   const levelInput = page.locator('input[aria-label="레벨"]');
   const expectedLevel = String(Number(await levelInput.inputValue()) + 1);
   await page.getByRole("button", { name: "레벨 증가" }).click();
@@ -279,6 +282,15 @@ try {
   await page.getByRole("tab", { name: "시세" }).click();
   await page.getByRole("searchbox", { name: "아이템 시세 검색" }).fill("LEDX");
   await page.getByRole("button", { name: /LEDX Skin Transilluminator/ }).waitFor();
+
+  const modCatalogResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/data/weapon-modding/catalog.json"),
+  );
+  await page.getByRole("tab", { name: "무기 모딩" }).click();
+  assert((await modCatalogResponse).status() === 200, "Direct modding catalog did not return HTTP 200");
+  await page.getByRole("searchbox", { name: "총기 검색" }).fill("M4A1");
+  await page.getByRole("button", { name: /Colt M4A1/ }).click();
+  await page.getByRole("heading", { name: /Colt M4A1/ }).waitFor();
 
   await page.getByRole("tab", { name: /^지도$/ }).click();
   await page.locator("object.map-svg-image").waitFor();

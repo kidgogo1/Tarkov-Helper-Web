@@ -44,12 +44,15 @@ test("all third-party workflow actions are pinned to a full commit SHA", async (
 
 test("CI is read-only and every browser test remains headless", async () => {
   const workflow = await text(".github/workflows/ci.yml");
+  const releaseWorkflow = await text(".github/workflows/release.yml");
   const qualityJob = workflowJob(workflow, "quality");
   assert.match(workflow, /^permissions:\s*\n\s+contents:\s+read\s*$/m);
   assert.doesNotMatch(workflow, /contents:\s+write/);
   assert.doesNotMatch(workflow, /--headed|headless:\s*false|Start-Process/i);
   assert.match(workflow, /pnpm test:e2e/);
+  assert.match(workflow, /pnpm test:data/);
   assert.match(workflow, /pnpm test:release/);
+  assert.match(workflowJob(releaseWorkflow, "quality"), /pnpm test:data/);
   assert.match(qualityJob, /actions\/checkout@[0-9a-f]{40}[\s\S]*fetch-depth:\s*0/,
     "portable historical first-hop tests require the previous release tags");
 });

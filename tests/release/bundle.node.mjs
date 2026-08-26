@@ -49,8 +49,8 @@ async function createFixture() {
   const staticDirectory = path.join(parent, "static");
   await mkdir(path.join(project, "src"), { recursive: true });
   await mkdir(path.join(project, "portable"), { recursive: true });
-  await mkdir(path.join(direct, "app", "data"), { recursive: true });
-  await mkdir(path.join(staticDirectory, "data"), { recursive: true });
+  await mkdir(path.join(direct, "app", "data", "weapon-modding"), { recursive: true });
+  await mkdir(path.join(staticDirectory, "data", "weapon-modding"), { recursive: true });
 
   const releaseConfig = JSON.parse(await readFile(path.join(repositoryRoot, "release.config.example.json"), "utf8"));
   releaseConfig.updater.signing.trustedKeyId = signingKeyId;
@@ -70,10 +70,12 @@ async function createFixture() {
 
   await writeFile(path.join(staticDirectory, "index.html"), "<!doctype html><title>fixture</title>\n");
   await writeFile(path.join(staticDirectory, "data", "tarkov-data.json"), "{}\n");
+  await writeFile(path.join(staticDirectory, "data", "weapon-modding", "catalog.json"), "{}\n");
   await writeFile(path.join(staticDirectory, "LICENSE"), "fixture license\n");
   await writeFile(path.join(staticDirectory, "THIRD_PARTY_NOTICES.md"), "fixture notices\n");
   await writeFile(path.join(direct, "app", "index.html"), "<!doctype html><title>fixture</title>\n");
   await writeFile(path.join(direct, "app", "data", "tarkov-data.json"), "{}\n");
+  await writeFile(path.join(direct, "app", "data", "weapon-modding", "catalog.json"), "{}\n");
   await writeFile(path.join(direct, "launcher.ps1"), "Write-Output 'fixture'\n");
   await copyFile(path.join(repositoryRoot, "portable", "TarkovHelper.ico"), path.join(direct, "TarkovHelper.ico"));
   await buildWindowsLauncher({
@@ -240,6 +242,9 @@ test("creates a deterministic public release bundle and verifies its provenance"
     ), true);
 
     const directArchive = await readZipArchive(path.join(first, "tarkov-helper-web-direct-v1.2.3.zip"));
+    assert(directArchive.entries.some((entry) => entry.path.endsWith("/app/data/weapon-modding/catalog.json")));
+    const staticArchive = await readZipArchive(path.join(first, "tarkov-helper-web-static-v1.2.3.zip"));
+    assert(staticArchive.entries.some((entry) => entry.path.endsWith("/data/weapon-modding/catalog.json")));
     const configEntry = directArchive.entries.find((entry) => entry.path.endsWith("/UPDATE_CONFIG.json"));
     assert(configEntry);
     const updateConfig = JSON.parse(configEntry.contents.toString("utf8"));
@@ -275,6 +280,39 @@ test("creates a deterministic public release bundle and verifies its provenance"
     assert.equal(report.archives.direct.rootDirectory, "Tarkov Helper 바로 실행 v1.2.3");
     assert.equal(report.archives.direct.forwardSlashPaths, true);
     assert.equal(report.archives.source.commit, fixture.commit);
+  } finally {
+    await rm(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("release creation rejects Direct and static inputs missing the weapon modding catalog", async () => {
+  const fixture = await createFixture();
+  try {
+    await rm(path.join(fixture.direct, "app", "data", "weapon-modding", "catalog.json"));
+    await rm(path.join(fixture.direct, "SHA256SUMS.txt"));
+    await writeFile(path.join(fixture.direct, "SHA256SUMS.txt"), sums(await collect(fixture.direct)));
+
+    const missingDirect = run(createScript, createArguments(
+      fixture,
+      path.join(fixture.parent, "release-missing-direct-catalog"),
+      ["--updater-disabled"],
+    ));
+    assert.notEqual(missingDirect.status, 0);
+    assert.match(`${missingDirect.stdout}\n${missingDirect.stderr}`, /weapon-modding[\\/]catalog\.json/i);
+
+    await mkdir(path.join(fixture.direct, "app", "data", "weapon-modding"), { recursive: true });
+    await writeFile(path.join(fixture.direct, "app", "data", "weapon-modding", "catalog.json"), "{}\n");
+    await rm(path.join(fixture.direct, "SHA256SUMS.txt"));
+    await writeFile(path.join(fixture.direct, "SHA256SUMS.txt"), sums(await collect(fixture.direct)));
+    await rm(path.join(fixture.staticDirectory, "data", "weapon-modding", "catalog.json"));
+
+    const missingStatic = run(createScript, createArguments(
+      fixture,
+      path.join(fixture.parent, "release-missing-static-catalog"),
+      ["--updater-disabled"],
+    ));
+    assert.notEqual(missingStatic.status, 0);
+    assert.match(`${missingStatic.stdout}\n${missingStatic.stderr}`, /weapon-modding[\\/]catalog\.json/i);
   } finally {
     await rm(fixture.parent, { recursive: true, force: true });
   }

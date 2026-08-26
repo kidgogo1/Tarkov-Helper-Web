@@ -25,6 +25,7 @@ import {
 } from "../features/overlay/QuestOverlay";
 import { QuestsPage } from "../features/quests/QuestsPage";
 import { PriceSearchPage } from "../features/prices/PriceSearchPage";
+import { WeaponModdingPage } from "../features/modding/WeaponModdingPage";
 import { InProgressQuestDialog } from "../features/settings/InProgressQuestDialog";
 import { SettingsDialog } from "../features/settings/SettingsDialog";
 import { usePublicUpdate } from "../features/settings/usePublicUpdate";
@@ -391,6 +392,18 @@ export function App() {
         return <CollectorPage data={data} />;
       case "prices":
         return <PriceSearchPage activeProfile={store.activeProfile} />;
+      case "modding":
+        return (
+          <WeaponModdingPage
+            activeProfile={store.activeProfile}
+            focusWeaponId={route.tab === "modding" ? route.weaponId : undefined}
+            onWeaponSelect={(weaponId) => navigate(
+              { tab: "modding", weaponId },
+              true,
+              "selection",
+            )}
+          />
+        );
       case "map":
         return null;
     }

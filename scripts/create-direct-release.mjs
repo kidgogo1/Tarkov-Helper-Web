@@ -91,6 +91,7 @@ if (
 
 await requireFile(path.join(distDirectory, "index.html"));
 await requireFile(path.join(distDirectory, "data", "tarkov-data.json"));
+await requireFile(path.join(distDirectory, "data", "weapon-modding", "catalog.json"));
 await requireFile(path.join(distDirectory, "LICENSE"));
 await requireFile(path.join(distDirectory, "THIRD_PARTY_NOTICES.md"));
 await requireFile(path.join(portableDirectory, "launcher.ps1"));

@@ -430,8 +430,10 @@ export async function createReleaseBundle(options) {
     assertSafeOutput(output, [projectRoot, direct, staticDirectory]);
     await requireRegularFile(path.join(direct, "PACKAGE_INFO.txt"));
     await requireRegularFile(path.join(direct, "SHA256SUMS.txt"));
+    await requireRegularFile(path.join(direct, "app", "data", "weapon-modding", "catalog.json"));
     await requireRegularFile(path.join(staticDirectory, "index.html"));
     await requireRegularFile(path.join(staticDirectory, "data", "tarkov-data.json"));
+    await requireRegularFile(path.join(staticDirectory, "data", "weapon-modding", "catalog.json"));
     await requireRegularFile(path.join(staticDirectory, "LICENSE"));
     await requireRegularFile(path.join(staticDirectory, "THIRD_PARTY_NOTICES.md"));
     prepared = await prepareDirectInput({

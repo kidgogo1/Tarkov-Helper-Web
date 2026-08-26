@@ -21,6 +21,7 @@ const stats = {
   horizontalRecoil: 200,
   ergonomics: 50,
   weight: 2,
+  centerOfImpact: 0.01,
 };
 
 function part(
@@ -68,7 +69,13 @@ function catalog(): WeaponCatalog {
       },
       part("receiver-a", ["receiver"], {
         factoryPartIds: ["mount"],
-        stats: { ergonomics: -2, weight: 0.4 },
+        stats: {
+          recoilModifier: -10,
+          ergonomics: -2,
+          weight: 0.4,
+          centerOfImpact: 0.053,
+          muzzleVelocityModifier: 3,
+        },
         slots: [
           {
             id: "optic-mount",
@@ -327,11 +334,14 @@ describe("weapon build validation and stats", () => {
     const data = catalog();
     const build = createFactoryBuild(data, "weapon");
 
-    expect(calculateBuildStats(data, build)).toEqual({
-      verticalRecoil: 100,
-      horizontalRecoil: 200,
+    const buildStats = calculateBuildStats(data, build);
+    expect(buildStats).toMatchObject({
+      verticalRecoil: 90,
+      horizontalRecoil: 180,
       ergonomics: 44,
       weight: 3.2,
+      muzzleVelocityModifier: 3,
     });
+    expect(buildStats.accuracyMoa).toBeCloseTo(2.17, 2);
   });
 });

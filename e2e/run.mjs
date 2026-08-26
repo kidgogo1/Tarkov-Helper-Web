@@ -23,8 +23,11 @@ function isExpectedHostedBridgeProbe(pathname) {
     pathname === "/api/v1/app-update/session";
 }
 
-function isAllowedWikiAsset(url) {
-  return url.protocol === "https:" && url.hostname === "static.wikia.nocookie.net";
+function isAllowedExternalAsset(url) {
+  return url.protocol === "https:" && (
+    url.hostname === "static.wikia.nocookie.net" ||
+    url.hostname === "assets.tarkov.dev"
+  );
 }
 
 function browserExecutable() {
@@ -101,6 +104,7 @@ try {
   const browserErrors = [];
   const failedResponses = [];
   const externalRequests = [];
+  let weaponCatalogRequests = 0;
 
   page.on("console", (message) => {
     const location = message.location();
@@ -122,7 +126,10 @@ try {
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.origin !== BASE_URL && !isAllowedWikiAsset(url)) externalRequests.push(request.url());
+    if (url.origin === BASE_URL && url.pathname.endsWith("/data/weapon-modding/catalog.json")) {
+      weaponCatalogRequests += 1;
+    }
+    if (url.origin !== BASE_URL && !isAllowedExternalAsset(url)) externalRequests.push(request.url());
   });
 
   await page.goto(BASE_URL, { waitUntil: "networkidle" });
@@ -133,7 +140,7 @@ try {
     return data.meta.counts;
   });
   await page.getByText("TARKOV HELPER", { exact: true }).waitFor();
-  assert(await page.getByRole("tab").count() === 6, "Expected six primary tabs");
+  assert(await page.getByRole("tab").count() === 7, "Expected seven primary tabs");
 
   const levelInput = page.locator('input[aria-label="레벨"]');
   assert(await levelInput.inputValue() === "15", "PVP should start at level 15");
@@ -183,6 +190,35 @@ try {
   await priceSearch.fill("LEDX");
   await page.getByRole("button", { name: /LEDX Skin Transilluminator/ }).click();
   await page.getByRole("article").getByText("LEDX Skin Transilluminator", { exact: true }).waitFor();
+
+  await page.getByRole("tab", { name: "무기 모딩" }).click();
+  const weaponSearch = page.getByRole("searchbox", { name: "총기 검색" });
+  await weaponSearch.fill("M4A1");
+  await page.getByRole("button", { name: /Colt M4A1/ }).click();
+  await page.getByRole("heading", { name: /Colt M4A1/ }).waitFor();
+  await page.getByRole("group", { name: "총기 부위 선택" }).getByRole("button").first().click();
+  await page.locator(".modding-part-grid > button").first().waitFor();
+  await assertNoHorizontalOverflow(page, "weapon modding desktop");
+  await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1440.png"), fullPage: true });
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  await assertNoHorizontalOverflow(page, "weapon modding 320px viewport");
+  assert(
+    await page.locator(".modding-hotspots").evaluate((element) =>
+      globalThis.getComputedStyle(element).display,
+    ) === "none",
+    "Weapon hotspots should defer to the slot tree on narrow screens",
+  );
+  await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-320.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  assert(weaponCatalogRequests === 1, `Expected one modding catalog request, got ${weaponCatalogRequests}`);
+  await page.getByRole("tab", { name: "아이템" }).click();
+  await page.getByRole("tab", { name: "무기 모딩" }).click();
+  await page.getByRole("searchbox", { name: "총기 검색" }).waitFor();
+  assert(
+    weaponCatalogRequests === 1,
+    `Modding catalog was requested again after tab re-entry: ${weaponCatalogRequests}`,
+  );
 
   await page.getByRole("tab", { name: /^지도$/ }).click();
   await page.getByRole("combobox", { name: "지도 선택" }).selectOption("Customs");

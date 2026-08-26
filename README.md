@@ -184,9 +184,14 @@ git push origin v1.2.3
 ```bash
 python scripts/export_data.py --source /path/to/SIGDrone-Tarkov-Helper --output public
 pnpm data:refresh-prices
+pnpm data:refresh-weapon-modding
 ```
 
 시세 카탈로그를 갱신하면 같은 검증된 한글·영문 이름을 아이템 데이터에도 반영합니다. 외부 접속 없이 현재 번들만 다시 적용하려면 `pnpm data:localize-items`를 사용합니다.
+무기 모딩 갱신은 Tarkov.dev 공개 아이템 JSON에서 버전형 총기·부품·기본 프리셋 카탈로그를 다시 만들고,
+실행 중 호환성 계산은 이 번들만 사용합니다. 총기·부품 이미지는 Tarkov.dev의 `assets.tarkov.dev` CDN을 사용하며
+통신 실패 시 대체 아이콘으로 유지됩니다. 설계와 구 빌드 호환 규칙은
+[ADR-005](./docs/decisions/005-versioned-weapon-modding-catalog.md)를 참고하세요.
 
 내보내기는 수정본의 `TarkovHelper/Assets/tarkov_data.db`를 읽기 전용으로 열고,
 예상 테이블 행 수와 복사한 파일을 검증합니다. 번들 글꼴은 재배포하지 않았으며,

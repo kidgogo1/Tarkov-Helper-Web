@@ -13,6 +13,7 @@ import "./styles/settings.css";
 import "./styles/quests.css";
 import "./styles/items.css";
 import "./styles/prices.css";
+import "./styles/weapon-modding.css";
 import "./styles/map.css";
 import "./styles/app.css";
 

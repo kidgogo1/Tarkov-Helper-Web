@@ -1,10 +1,26 @@
+export interface WeaponBaseStats {
+  verticalRecoil: number;
+  horizontalRecoil: number;
+  ergonomics: number;
+  weight: number;
+  centerOfImpact?: number;
+}
+
 export interface WeaponStats {
   verticalRecoil: number;
   horizontalRecoil: number;
   ergonomics: number;
   weight: number;
-  accuracy?: number;
-  muzzleVelocity?: number;
+  accuracyMoa?: number;
+  muzzleVelocityModifier?: number;
+}
+
+export interface WeaponPartStats {
+  recoilModifier?: number;
+  ergonomics?: number;
+  weight?: number;
+  centerOfImpact?: number;
+  muzzleVelocityModifier?: number;
 }
 
 export interface WeaponSlotRule {
@@ -26,23 +42,43 @@ export interface WeaponConflictRule {
 export interface TraderUnlock {
   questId: string;
   questName: string;
+  minimumPlayerLevel?: number;
 }
 
 export interface TraderOffer {
   traderId: string;
   traderName: string;
   price: number;
+  /** Offer price normalized to roubles by the source data, for cross-currency comparison. */
+  priceRoubles?: number;
   currency: string;
   loyaltyLevel: number;
   questUnlock?: TraderUnlock;
+}
+
+export interface TraderOffersByProfile {
+  pvp?: TraderOffer[];
+  pve?: TraderOffer[];
 }
 
 export interface FleaMarketSnapshot {
   price: number;
   currency: string;
   updatedAt: string;
+  minimumPlayerLevel?: number;
   lowPrice?: number;
   average24h?: number;
+}
+
+export interface FleaMarketSnapshots {
+  pvp?: FleaMarketSnapshot;
+  pve?: FleaMarketSnapshot;
+}
+
+export interface FactoryPresetNode {
+  itemId: string;
+  slotId: string;
+  children: FactoryPresetNode[];
 }
 
 interface WeaponCatalogItemBase {
@@ -58,6 +94,9 @@ interface WeaponCatalogItemBase {
   factoryPartIds?: string[];
   conflicts?: WeaponConflictRule;
   traderOffers?: TraderOffer[];
+  traderOffersByProfile?: TraderOffersByProfile;
+  fleaByProfile?: FleaMarketSnapshots;
+  /** Legacy single-profile snapshot retained for old generated packs. */
   flea?: FleaMarketSnapshot;
 }
 
@@ -65,12 +104,18 @@ export interface WeaponItem extends WeaponCatalogItemBase {
   kind: "weapon";
   slots: WeaponSlotRule[];
   factoryPartIds: string[];
-  baseStats: WeaponStats;
+  factoryPresetId?: string;
+  factoryImageUrl?: string;
+  /** Default-preset children scoped to this weapon, keyed by parent item id. */
+  factoryPartsByParent?: Record<string, string[]>;
+  /** Exact slot tree for the default preset, including repeated identical parts. */
+  factoryPresetBuild?: FactoryPresetNode[];
+  baseStats: WeaponBaseStats;
 }
 
 export interface WeaponPartItem extends WeaponCatalogItemBase {
   kind: "part";
-  stats?: Partial<WeaponStats>;
+  stats?: WeaponPartStats;
 }
 
 export type WeaponCatalogItem = WeaponItem | WeaponPartItem;

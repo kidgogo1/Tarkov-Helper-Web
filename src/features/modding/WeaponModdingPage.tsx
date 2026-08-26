@@ -1,0 +1,259 @@
+import { LoaderCircle, Search, TriangleAlert, Wrench } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  createFactoryBuild,
+  validateWeaponBuild,
+} from "../../domain/weapon-build";
+import {
+  loadWeaponBuild,
+  resetWeaponBuild,
+  saveWeaponBuild,
+} from "../../services/weapon-build-storage";
+import { recordClientDiagnostic } from "../../services/client-diagnostics";
+import {
+  loadWeaponModCatalog,
+  type WeaponModCatalogFailureCode,
+} from "../../services/weapon-mod-data";
+import type { ProfileType } from "../../types/data";
+import type {
+  WeaponBuild,
+  WeaponCatalog,
+  WeaponCatalogItem,
+} from "../../types/weapon-modding";
+import { WeaponWorkbench } from "./WeaponWorkbench";
+import { WeaponItemImage } from "./WeaponItemImage";
+import type { SlotSelection } from "./WeaponSlotTree";
+
+interface WeaponModdingPageProps {
+  activeProfile: ProfileType;
+  focusWeaponId?: string;
+  loadCatalog?: (signal?: AbortSignal) => Promise<WeaponCatalog>;
+  onWeaponSelect?: (weaponId: string) => void;
+}
+
+export function WeaponModdingPage({
+  activeProfile,
+  focusWeaponId,
+  loadCatalog,
+  onWeaponSelect,
+}: WeaponModdingPageProps) {
+  const [catalog, setCatalog] = useState<WeaponCatalog>();
+  const [error, setError] = useState<string>();
+  const [search, setSearch] = useState("");
+  const [build, setBuild] = useState<WeaponBuild>();
+  const [selectedSlot, setSelectedSlot] = useState<SlotSelection | null>(null);
+  const [storageWarning, setStorageWarning] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const reportFailure = (code: WeaponModCatalogFailureCode) => {
+      recordClientDiagnostic({
+        source: "data",
+        code: `WEAPON_MOD_${code}`,
+        message: `Weapon modding catalog failed: ${code}`,
+        operation: "LOAD_WEAPON_MOD_CATALOG",
+      });
+    };
+    const request = loadCatalog
+      ? loadCatalog(controller.signal)
+      : loadWeaponModCatalog(controller.signal, fetch, reportFailure);
+    request
+      .then((nextCatalog) => {
+        if (nextCatalog.dataVersion === "unavailable") {
+          setCatalog(undefined);
+          setError("설치된 데이터 묶음이 누락되었거나 현재 버전과 호환되지 않습니다.");
+          return;
+        }
+        setCatalog(nextCatalog);
+        setError(undefined);
+      })
+      .catch((loadError: unknown) => {
+        if (loadError instanceof DOMException && loadError.name === "AbortError") return;
+        recordClientDiagnostic({
+          source: "data",
+          code: "WEAPON_MOD_CATALOG_LOAD_FAILED",
+          error: loadError,
+          message: "Weapon modding catalog load failed.",
+          operation: "LOAD_WEAPON_MOD_CATALOG",
+        });
+        setError(loadError instanceof Error ? loadError.message : "알 수 없는 오류");
+      });
+    return () => controller.abort();
+  }, [loadCatalog]);
+
+  const itemById = useMemo(
+    () => new Map(catalog?.items.map((item) => [item.id, item]) ?? []),
+    [catalog],
+  );
+
+  const weapons = useMemo(() => {
+    if (!catalog) return [];
+    const needle = search.normalize("NFKC").trim().toLocaleLowerCase();
+    return catalog.weaponIds
+      .map((id) => itemById.get(id))
+      .filter((item): item is WeaponCatalogItem => Boolean(item?.kind === "weapon"))
+      .filter((item) => !needle || [
+        item.name,
+        item.nameEn,
+        item.nameKo,
+        item.shortName,
+      ].some((value) => value?.normalize("NFKC").toLocaleLowerCase().includes(needle)))
+      .sort((left, right) => (left.nameKo ?? left.name).localeCompare(
+        right.nameKo ?? right.name,
+        "ko",
+      ));
+  }, [catalog, itemById, search]);
+
+  const routeBuild = useMemo(() => (
+    catalog && focusWeaponId && build?.weaponId !== focusWeaponId &&
+      catalog.weaponIds.includes(focusWeaponId)
+      ? restoreOrCreateBuild(catalog, focusWeaponId)
+      : undefined
+  ), [build?.weaponId, catalog, focusWeaponId]);
+  const displayedBuild = routeBuild ?? build;
+  const displayedSlot = displayedBuild && selectedSlot?.parentInstanceId.startsWith(
+    `root:${displayedBuild.weaponId}`,
+  ) ? selectedSlot : null;
+
+  const selectWeapon = (weaponId: string) => {
+    if (!catalog) return;
+    setBuild(restoreOrCreateBuild(catalog, weaponId));
+    setSelectedSlot(null);
+    onWeaponSelect?.(weaponId);
+  };
+
+  const updateBuild = (nextBuild: WeaponBuild) => {
+    setBuild(nextBuild);
+    if (!saveWeaponBuild(nextBuild)) setStorageWarning(true);
+  };
+
+  const resetBuild = () => {
+    if (!catalog || !displayedBuild) return;
+    if (!resetWeaponBuild(displayedBuild.weaponId)) setStorageWarning(true);
+    setBuild(createFactoryBuild(catalog, displayedBuild.weaponId));
+    setSelectedSlot(null);
+  };
+
+  if (error) {
+    return (
+      <section className="modding-page">
+        <div className="modding-load-state error" role="alert">
+          <TriangleAlert aria-hidden="true" size={30} />
+          <strong>무기 모딩 자료를 불러오지 못했습니다.</strong>
+          <span>{error}</span>
+          <span>퀘스트·지도·아이템 기능에는 영향을 주지 않습니다.</span>
+        </div>
+      </section>
+    );
+  }
+  if (!catalog) {
+    return (
+      <section className="modding-page">
+        <div aria-busy="true" className="modding-load-state">
+          <LoaderCircle aria-hidden="true" className="spin" size={30} />
+          <strong>무기 모딩 자료를 불러오는 중…</strong>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="modding-page">
+      <header className="modding-page-header">
+        <div>
+          <span className="eyebrow"><Wrench aria-hidden="true" size={15} /> WORKBENCH</span>
+          <h1>무기 모딩</h1>
+          <p>상점 기본 외형을 보면서 부착 부위와 호환 부품을 구성합니다.</p>
+          <small className="modding-data-note">
+            {`가격·호환성 데이터: 번들 기준 ${formatCatalogDate(catalog.dataVersion)} · 실시간 아님`}
+          </small>
+        </div>
+        <label className="modding-weapon-search">
+          <span>총기 검색</span>
+          <div>
+            <Search aria-hidden="true" size={16} />
+            <input
+              aria-label="총기 검색"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="M4A1, AK-74, MPX…"
+              type="search"
+              value={search}
+            />
+          </div>
+        </label>
+      </header>
+
+      {storageWarning ? (
+        <p className="modding-storage-warning" role="status">
+          이 브라우저에서는 모딩 구성을 저장할 수 없습니다. 현재 화면에서는 계속 사용할 수 있습니다.
+        </p>
+      ) : null}
+
+      {!catalog.weaponIds.length ? (
+        <div className="modding-load-state">
+          <strong>사용 가능한 총기가 없습니다</strong>
+          <span>모딩 데이터 묶음을 새로 고친 뒤 다시 시도하세요.</span>
+        </div>
+      ) : (
+        <>
+          <nav aria-label="총기 선택" className="modding-weapon-list">
+            {weapons.length ? weapons.map((weapon) => (
+              <button
+                aria-current={displayedBuild?.weaponId === weapon.id ? "true" : undefined}
+                className={displayedBuild?.weaponId === weapon.id ? "active" : ""}
+                key={weapon.id}
+                onClick={() => selectWeapon(weapon.id)}
+                type="button"
+              >
+                <span aria-hidden="true">
+                  <WeaponItemImage
+                    alt=""
+                    fallbackSize={22}
+                    loading="lazy"
+                    src={weapon.iconUrl ?? weapon.imageUrl}
+                  />
+                </span>
+                <strong>{weapon.nameKo ?? weapon.name}</strong>
+                <small>{weapon.shortName ?? weapon.nameEn ?? weapon.name}</small>
+              </button>
+            )) : <p>조건에 맞는 총기가 없습니다</p>}
+          </nav>
+
+          {displayedBuild ? (
+            <WeaponWorkbench
+              activeProfile={activeProfile}
+              build={displayedBuild}
+              catalog={catalog}
+              itemById={itemById}
+              onBuildChange={updateBuild}
+              onReset={resetBuild}
+              onSlotSelect={setSelectedSlot}
+              selectedSlot={displayedSlot}
+            />
+          ) : (
+            <div className="modding-empty-workbench">
+              <Wrench aria-hidden="true" size={42} />
+              <strong>총기를 선택하세요</strong>
+              <span>선택한 총기의 상점 기본 외형과 장착 슬롯이 여기에 표시됩니다.</span>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function restoreOrCreateBuild(catalog: WeaponCatalog, weaponId: string): WeaponBuild {
+  const saved = loadWeaponBuild(weaponId);
+  if (saved) {
+    const migrated = { ...saved, catalogDataVersion: catalog.dataVersion };
+    if (validateWeaponBuild(catalog, migrated).isValid) return migrated;
+  }
+  return createFactoryBuild(catalog, weaponId);
+}
+
+function formatCatalogDate(dataVersion: string): string {
+  const date = dataVersion.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return date ?? dataVersion;
+}

@@ -276,6 +276,7 @@ test("direct release contains the built app, launchers, guide, and notices", asy
 
     assert.equal((await stat(path.join(output, "app", "index.html"))).isFile(), true);
     assert.equal((await stat(path.join(output, "app", "data", "tarkov-data.json"))).isFile(), true);
+    assert.equal((await stat(path.join(output, "app", "data", "weapon-modding", "catalog.json"))).isFile(), true);
     assert.equal((await stat(path.join(output, "app", "LICENSE"))).isFile(), true);
     assert.equal((await stat(path.join(output, "app", "THIRD_PARTY_NOTICES.md"))).isFile(), true);
     assert.equal((await stat(path.join(output, "launcher.ps1"))).isFile(), true);

@@ -171,6 +171,7 @@ function verifyDirectArchive(archive, rootDirectory, context, config, signing, u
   for (const filename of [
     config.updater.configFile,
     "app/index.html",
+    "app/data/weapon-modding/catalog.json",
     "app/version.json",
     "launcher.ps1",
     "app-update-worker.ps1",
@@ -250,7 +251,13 @@ function verifyDirectArchive(archive, rootDirectory, context, config, signing, u
 
 function verifyStaticArchive(archive, rootDirectory) {
   const files = archiveFiles(archive, rootDirectory, "Static archive");
-  for (const required of ["index.html", "data/tarkov-data.json", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+  for (const required of [
+    "index.html",
+    "data/tarkov-data.json",
+    "data/weapon-modding/catalog.json",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+  ]) {
     requireArchiveFile(files, required, "Static archive");
   }
   return { entryCount: files.length, unpacked: unpackedMetadata(files) };

@@ -3,6 +3,7 @@ import type {
   BuildMutationResult,
   BuildNode,
   BuildValidationResult,
+  FactoryPresetNode,
   FlatBuildNode,
   WeaponBuild,
   WeaponCatalog,
@@ -13,8 +14,19 @@ import type {
   WeaponStats,
 } from "../types/weapon-modding";
 
+const itemIndexes = new WeakMap<WeaponCatalog, Map<string, WeaponCatalogItem>>();
+const CENTER_OF_IMPACT_TO_MOA = (180 / Math.PI) * 60 / 100;
+
+export function centerOfImpactToMoa(centerOfImpact: number): number {
+  return Math.max(0, centerOfImpact) * CENTER_OF_IMPACT_TO_MOA;
+}
+
 function itemIndex(catalog: WeaponCatalog): Map<string, WeaponCatalogItem> {
-  return new Map(catalog.items.map((item) => [item.id, item]));
+  const existing = itemIndexes.get(catalog);
+  if (existing) return existing;
+  const created = new Map(catalog.items.map((item) => [item.id, item]));
+  itemIndexes.set(catalog, created);
+  return created;
 }
 
 function hasCategory(
@@ -53,8 +65,8 @@ function slotRuleIssues(
   );
   const isAllowed =
     item.kind === "part" &&
-    (!hasAllowFilter ||
-      Boolean(slot.allowedItemIds?.includes(item.id)) ||
+    hasAllowFilter &&
+    (Boolean(slot.allowedItemIds?.includes(item.id)) ||
       hasCategory(item, slot.allowedCategories));
 
   return isAllowed
@@ -259,28 +271,54 @@ function factoryNode(
   instanceId: string,
   slotId: string | undefined,
   ancestors: ReadonlySet<string>,
+  factoryPartsByParent: Readonly<Record<string, string[]>> | undefined,
 ): BuildNode {
   if (ancestors.has(item.id)) {
     throw new Error(`Factory part cycle detected at ${item.id}.`);
   }
   const nextAncestors = new Set(ancestors).add(item.id);
-  const availableSlots = [...(item.slots ?? [])];
   const children: BuildNode[] = [];
-
-  for (const factoryPartId of item.factoryPartIds ?? []) {
+  const slots = item.slots ?? [];
+  const factoryPartIds = factoryPartsByParent?.[item.id] ?? item.factoryPartIds ?? [];
+  const factoryParts = factoryPartIds.map((factoryPartId) => {
     const factoryPart = index.get(factoryPartId);
     if (!factoryPart || factoryPart.kind !== "part") {
       throw new Error(`Factory part ${factoryPartId} does not exist.`);
     }
-    const slotIndex = availableSlots.findIndex(
-      (slot) => slotRuleIssues(slot, factoryPart, instanceId).length === 0,
-    );
-    if (slotIndex < 0) {
-      throw new Error(
-        `Factory part ${factoryPartId} cannot be placed on ${item.id}.`,
-      );
+    return factoryPart;
+  });
+  const candidates = factoryParts.map((factoryPart) => slots.flatMap((slot, slotIndex) =>
+    slotRuleIssues(slot, factoryPart, instanceId).length === 0 ? [slotIndex] : [],
+  ));
+  const partOrder = factoryParts.map((_, partIndex) => partIndex).sort((left, right) =>
+    candidates[left].length - candidates[right].length,
+  );
+  const slotByPart = new Map<number, number>();
+  const occupiedSlots = new Set<number>();
+
+  const assignSlots = (orderIndex: number): boolean => {
+    if (orderIndex === partOrder.length) return true;
+    const partIndex = partOrder[orderIndex];
+    for (const slotIndex of candidates[partIndex]) {
+      if (occupiedSlots.has(slotIndex)) continue;
+      occupiedSlots.add(slotIndex);
+      slotByPart.set(partIndex, slotIndex);
+      if (assignSlots(orderIndex + 1)) return true;
+      slotByPart.delete(partIndex);
+      occupiedSlots.delete(slotIndex);
     }
-    const [factorySlot] = availableSlots.splice(slotIndex, 1);
+    return false;
+  };
+
+  if (!assignSlots(0)) {
+    const unplaceable = factoryParts.find((_, partIndex) => !candidates[partIndex].length);
+    throw new Error(
+      `Factory part ${unplaceable?.id ?? factoryParts[0]?.id ?? "unknown"} cannot be placed on ${item.id}.`,
+    );
+  }
+
+  for (const [partIndex, factoryPart] of factoryParts.entries()) {
+    const factorySlot = slots[slotByPart.get(partIndex) ?? -1];
     children.push(
       factoryNode(
         index,
@@ -288,11 +326,51 @@ function factoryNode(
         `${instanceId}/${factorySlot.id}`,
         factorySlot.id,
         nextAncestors,
+        factoryPartsByParent,
       ),
     );
   }
 
   return { instanceId, itemId: item.id, slotId, children };
+}
+
+function factoryPresetNodes(
+  index: ReadonlyMap<string, WeaponCatalogItem>,
+  parentItem: WeaponCatalogItem,
+  parentInstanceId: string,
+  templates: readonly FactoryPresetNode[],
+  ancestors: ReadonlySet<string>,
+): BuildNode[] {
+  const occupiedSlots = new Set<string>();
+  return templates.map((template) => {
+    if (occupiedSlots.has(template.slotId)) {
+      throw new Error(`Factory preset uses slot ${template.slotId} more than once on ${parentItem.id}.`);
+    }
+    occupiedSlots.add(template.slotId);
+    const slot = parentItem.slots?.find((candidate) => candidate.id === template.slotId);
+    const part = index.get(template.itemId);
+    if (!slot || !part || part.kind !== "part" ||
+        slotRuleIssues(slot, part, parentInstanceId).length) {
+      throw new Error(`Factory part ${template.itemId} cannot use slot ${template.slotId} on ${parentItem.id}.`);
+    }
+    if (ancestors.has(part.id)) {
+      throw new Error(`Factory part cycle detected at ${part.id}.`);
+    }
+    const instanceId = `${parentInstanceId}/${template.slotId}`;
+    const nextAncestors = new Set(ancestors).add(part.id);
+    return {
+      instanceId,
+      itemId: part.id,
+      slotId: slot.id,
+      children: factoryPresetNodes(
+        index,
+        part,
+        instanceId,
+        template.children,
+        nextAncestors,
+      ),
+    };
+  });
 }
 
 export function createFactoryBuild(
@@ -305,11 +383,29 @@ export function createFactoryBuild(
     throw new Error(`Catalog weapon ${weaponId} does not exist.`);
   }
 
+  const rootInstanceId = `root:${weaponId}`;
   return {
     schemaVersion: 1,
     catalogDataVersion: catalog.dataVersion,
     weaponId,
-    root: factoryNode(index, weapon, `root:${weaponId}`, undefined, new Set()),
+    root: weapon.factoryPresetBuild ? {
+      instanceId: rootInstanceId,
+      itemId: weapon.id,
+      children: factoryPresetNodes(
+        index,
+        weapon,
+        rootInstanceId,
+        weapon.factoryPresetBuild,
+        new Set([weapon.id]),
+      ),
+    } : factoryNode(
+      index,
+      weapon,
+      rootInstanceId,
+      undefined,
+      new Set(),
+      weapon.factoryPartsByParent,
+    ),
   };
 }
 
@@ -548,19 +644,33 @@ export function calculateBuildStats(
     throw new Error(`Catalog weapon ${build.weaponId} does not exist.`);
   }
 
-  const result: WeaponStats = { ...weapon.baseStats };
-  const optionalKeys = ["accuracy", "muzzleVelocity"] as const;
+  const result: WeaponStats = {
+    verticalRecoil: weapon.baseStats.verticalRecoil,
+    horizontalRecoil: weapon.baseStats.horizontalRecoil,
+    ergonomics: weapon.baseStats.ergonomics,
+    weight: weapon.baseStats.weight,
+  };
+  let recoilModifier = 0;
+  let centerOfImpact = weapon.baseStats.centerOfImpact ?? 0;
+  let hasCenterOfImpact = weapon.baseStats.centerOfImpact !== undefined;
+  let muzzleVelocityModifier = 0;
   for (const node of flattenBuildTree(build.root).slice(1)) {
     const item = index.get(node.itemId);
     if (!item || item.kind !== "part" || !item.stats) continue;
-    result.verticalRecoil += item.stats.verticalRecoil ?? 0;
-    result.horizontalRecoil += item.stats.horizontalRecoil ?? 0;
+    recoilModifier += item.stats.recoilModifier ?? 0;
     result.ergonomics += item.stats.ergonomics ?? 0;
     result.weight += item.stats.weight ?? 0;
-    for (const key of optionalKeys) {
-      const modifier = item.stats[key];
-      if (modifier !== undefined) result[key] = (result[key] ?? 0) + modifier;
+    if (item.stats.centerOfImpact !== undefined) {
+      centerOfImpact += item.stats.centerOfImpact;
+      hasCenterOfImpact = true;
     }
+    muzzleVelocityModifier += item.stats.muzzleVelocityModifier ?? 0;
   }
+  result.verticalRecoil *= 1 + recoilModifier / 100;
+  result.horizontalRecoil *= 1 + recoilModifier / 100;
+  if (hasCenterOfImpact) {
+    result.accuracyMoa = centerOfImpactToMoa(centerOfImpact);
+  }
+  if (muzzleVelocityModifier !== 0) result.muzzleVelocityModifier = muzzleVelocityModifier;
   return result;
 }

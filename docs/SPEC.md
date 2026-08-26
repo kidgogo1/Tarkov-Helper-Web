@@ -23,6 +23,7 @@ The modified fork wins where behavior conflicts. Its PVP/PVE profiles, fixed-vie
 - Install: `pnpm install`
 - Export bundled data/assets: `pnpm data:export`
 - Refresh the generated PVP/PVE price catalog: `pnpm data:refresh-prices`
+- Refresh the versioned weapon/mod/default-preset catalog: `pnpm data:refresh-weapon-modding`
 - Develop: `pnpm dev --host 127.0.0.1`
 - Test: `pnpm test --run`
 - Type-check: `pnpm typecheck`
@@ -34,7 +35,7 @@ The modified fork wins where behavior conflicts. Its PVP/PVE profiles, fixed-vie
 
 - `src/app` — shell, routing, persistent application state
 - `src/components` — reusable controls, drawers, dialogs, list/detail layout
-- `src/features` — quests, hideout, items, collector, prices, map, settings
+- `src/features` — quests, hideout, items, collector, prices, weapon modding, map, settings
 - `src/domain` — status, aggregation, recommendations, log/screenshot parsing, map transforms
 - `src/types` — exported-data and state contracts
 - `src/styles` — tokens, base styles, responsive layout
@@ -111,6 +112,15 @@ Use semantic HTML, accessible names for icon buttons, Korean visible copy, and a
 - Follow the active PVP/PVE profile and always show the bundled release-time snapshot as an offline fallback.
 - In Windows Direct only, request a selected item's bounded live history through the same-origin launcher endpoint; reject cross-site requests, redirects, proxies, arbitrary URLs, malformed data, and oversized bodies.
 - Show source/update time, flea low/average/range/change/offer count, and the bundled best trader sale. Price data is advisory.
+
+### Weapon modding
+
+- Expose all bundled weapons from the main navigation and search by Korean, English, or short name.
+- Build a recursive, slot-compatible configuration from the exact default-preset slot tree, preserving repeated identical parts.
+- Show each candidate's image, recoil/ergonomics/weight/MOA/velocity contribution, profile-specific flea snapshot, normalized best trader offer, and quest unlock.
+- Calculate total recoil, ergonomics, weight, muzzle-velocity modifier, and MOA from weapon plus installed-part COI values.
+- Save bounded per-weapon builds separately from quest progress; reject incompatible saved builds after a catalog refresh.
+- Load the versioned bundled catalog once per app session; isolate and diagnose a missing or invalid optional catalog.
 
 ### Map
 
