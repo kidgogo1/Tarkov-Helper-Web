@@ -6,6 +6,7 @@ const VALID_TABS: readonly AppTab[] = [
   "items",
   "collector",
   "prices",
+  "modding",
   "map",
 ];
 
@@ -17,6 +18,7 @@ export type AppRouteLocation =
   | { tab: "items"; itemId?: string }
   | { tab: "collector" }
   | { tab: "prices" }
+  | { tab: "modding"; weaponId?: string }
   | { tab: "map" };
 
 export type AppRoute = AppRouteLocation & {
@@ -41,6 +43,11 @@ function safeIdentifier(value: string | null): string | undefined {
   return normalized;
 }
 
+function safeTarkovItemId(value: string | null): string | undefined {
+  const normalized = value?.trim().toLocaleLowerCase();
+  return normalized && /^[0-9a-f]{24}$/.test(normalized) ? normalized : undefined;
+}
+
 function historyIntent(
   value: unknown,
   location: AppRouteLocation,
@@ -62,7 +69,8 @@ function withIntent(
   const hasTarget =
     (location.tab === "quests" && Boolean(location.questId)) ||
     (location.tab === "items" && Boolean(location.itemId)) ||
-    (location.tab === "hideout" && Boolean(location.stationId));
+    (location.tab === "hideout" && Boolean(location.stationId)) ||
+    (location.tab === "modding" && Boolean(location.weaponId));
   return {
     ...location,
     navigationIntent: recordedIntent ?? (hasTarget ? "focus" : "selection"),
@@ -99,6 +107,12 @@ export function parseAppRoute(hash: string, historyState?: unknown): AppRoute {
       historyState,
     );
   }
+  if (tab === "modding") {
+    return withIntent(
+      { tab, weaponId: safeTarkovItemId(parameters.get("weapon")) },
+      historyState,
+    );
+  }
   return withIntent({ tab }, historyState);
 }
 
@@ -110,6 +124,7 @@ export function serializeAppRoute(route: AppRouteLocation): string {
     parameters.set("station", route.stationId);
     if (route.stationLevel) parameters.set("level", String(route.stationLevel));
   }
+  if (route.tab === "modding" && route.weaponId) parameters.set("weapon", route.weaponId);
   const query = parameters.toString();
   return `#/${route.tab}${query ? `?${query}` : ""}`;
 }

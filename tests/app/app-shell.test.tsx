@@ -36,7 +36,7 @@ describe("AppShell tabs", () => {
     renderShell("items");
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, -1, 0, -1, -1, -1]);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, -1, 0, -1, -1, -1, -1]);
     expect(tabs[2]).toHaveAttribute("id", "app-tab-items");
     expect(tabs[2]).toHaveAttribute("aria-controls", "app-panel-items");
 
@@ -45,21 +45,29 @@ describe("AppShell tabs", () => {
     expect(panel).toHaveAttribute("aria-labelledby", "app-tab-items");
   });
 
+  it("shows a weapon modding tab and reports its selection", () => {
+    const { onTabChange } = renderShell();
+
+    fireEvent.click(screen.getByRole("tab", { name: "무기 모딩" }));
+
+    expect(onTabChange).toHaveBeenLastCalledWith("modding");
+  });
+
   it("moves focus and selection with Arrow, Home, and End keys", () => {
     const { onTabChange } = renderShell("quests");
     const tabs = screen.getAllByRole("tab");
 
     tabs[0].focus();
     fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
-    expect(tabs[5]).toHaveFocus();
+    expect(tabs[6]).toHaveFocus();
     expect(onTabChange).toHaveBeenLastCalledWith("map");
 
-    fireEvent.keyDown(tabs[5], { key: "Home" });
+    fireEvent.keyDown(tabs[6], { key: "Home" });
     expect(tabs[0]).toHaveFocus();
     expect(onTabChange).toHaveBeenLastCalledWith("quests");
 
     fireEvent.keyDown(tabs[0], { key: "End" });
-    expect(tabs[5]).toHaveFocus();
+    expect(tabs[6]).toHaveFocus();
     expect(onTabChange).toHaveBeenLastCalledWith("map");
   });
 });

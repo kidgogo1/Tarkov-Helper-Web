@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Settings,
   Trophy,
+  Wrench,
 } from "lucide-react";
 import { useRef } from "react";
 import type { ComponentType, KeyboardEvent, ReactNode } from "react";
@@ -16,7 +17,14 @@ import { QuantityStepper } from "../components/QuantityStepper";
 import type { ProfileType } from "../types/data";
 import packageManifest from "../../package.json";
 
-export type AppTab = "quests" | "hideout" | "items" | "collector" | "prices" | "map";
+export type AppTab =
+  | "quests"
+  | "hideout"
+  | "items"
+  | "collector"
+  | "prices"
+  | "modding"
+  | "map";
 
 interface AppShellProps {
   activeTab: AppTab;
@@ -46,6 +54,7 @@ const TABS: readonly TabDefinition[] = [
   { id: "items", label: "아이템", icon: Boxes },
   { id: "collector", label: "수집가 · 카파", icon: Trophy },
   { id: "prices", label: "시세", icon: BadgeDollarSign },
+  { id: "modding", label: "무기 모딩", icon: Wrench },
   { id: "map", label: "지도", icon: Map },
 ];
 
