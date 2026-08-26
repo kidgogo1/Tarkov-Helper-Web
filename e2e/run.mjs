@@ -326,8 +326,21 @@ try {
   await weaponSearch.fill("M4A1");
   await page.getByRole("button", { name: /Colt M4A1/ }).click();
   await page.getByRole("heading", { name: /Colt M4A1/ }).waitFor();
-  await page.getByRole("group", { name: "총기 부위 선택" }).getByRole("button").first().click();
-  await page.getByRole("list", { name: "호환 부품 목록" }).getByRole("button").first().waitFor();
+  const weaponHotspots = page.getByRole("group", { name: "총기 부위 선택" })
+    .getByRole("button");
+  assert(
+    await weaponHotspots.count() > 6,
+    "M4A1 must expose installed-part nested slots as central hotspots",
+  );
+  await weaponHotspots.first().click();
+  const compatiblePartList = page.getByRole("list", { name: "호환 부품 목록" });
+  await compatiblePartList.getByRole("button").first().waitFor();
+  const cqrChoice = compatiblePartList.getByRole("button", { name: /Hera Arms CQR/ });
+  await cqrChoice.waitFor();
+  assert(
+    (await cqrChoice.textContent())?.includes("선택 시 자동 해제"),
+    "M4A1 combination stock must remain visible with its automatic-removal warning",
+  );
   await assertWeaponModdingDesktopLayout(page);
   await assertNoHorizontalOverflow(page, "weapon modding desktop");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1440.png"), fullPage: true });
