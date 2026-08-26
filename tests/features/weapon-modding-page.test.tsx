@@ -143,7 +143,7 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("button", { name: /EOTech EXPS3 holographic sight/ }),
     );
 
-    expect(within(screen.getByRole("region", { name: "장착 부위" })).getByRole(
+    expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
       "button",
       { name: /조준경.*EOTech EXPS3/ },
     )).toHaveTextContent(
@@ -152,6 +152,36 @@ describe("WeaponModdingPage", () => {
     const stats = screen.getByRole("region", { name: "무기 능력치" });
     expect(stats).toHaveTextContent(/인체공학\s*48/);
     expect(stats).toHaveTextContent(/무게\s*3\.34\s*kg/);
+  });
+
+  it("places build stats with the weapon and exposes compatible parts as a list", async () => {
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+
+    const weaponHeading = await screen.findByRole("heading", { name: /Colt M4A1/ });
+    const weaponStage = weaponHeading.closest(".modding-weapon-stage");
+    const buildStats = screen.getByRole("region", { name: "무기 능력치" });
+    const installedParts = screen.getByRole("region", { name: "장착·필수 파츠" });
+
+    expect(weaponStage).toContainElement(buildStats);
+    expect(weaponStage).not.toContainElement(installedParts);
+
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+
+    expect(screen.getByRole("complementary", { name: "호환 부품 선택" })).toHaveFocus();
+    const candidateList = screen.getByRole("list", { name: "호환 부품 목록" });
+    const candidateRow = within(candidateList).getByRole("listitem");
+    expect(within(candidateRow).getByText("EOTech EXPS3 holographic sight"))
+      .toBeInTheDocument();
+    expect(within(candidateRow).getByText("EXPS3")).toBeInTheDocument();
+    expect(within(candidateRow).getByText("인체공학 -2")).toBeInTheDocument();
   });
 
   it("honors a weapon selected by a safe deep link", async () => {

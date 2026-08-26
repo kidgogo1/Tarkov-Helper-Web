@@ -3,6 +3,7 @@ import {
   CircleAlert,
   RotateCcw,
 } from "lucide-react";
+import { useRef } from "react";
 
 import {
   calculateBuildStats,
@@ -46,6 +47,7 @@ export function WeaponWorkbench({
   onReset,
   onSlotSelect,
 }: WeaponWorkbenchProps) {
+  const partPickerRef = useRef<HTMLElement>(null);
   const weapon = itemById.get(build.weaponId);
   if (!weapon || weapon.kind !== "weapon") return null;
 
@@ -59,6 +61,11 @@ export function WeaponWorkbench({
         selectedSlot.slotId,
       )
     : [];
+
+  const selectSlot = (selection: SlotSelection) => {
+    onSlotSelect(selection);
+    partPickerRef.current?.focus();
+  };
 
   const replacePart = (itemId: string) => {
     if (!selectedSlot) return;
@@ -85,35 +92,6 @@ export function WeaponWorkbench({
 
   return (
     <div className="modding-workbench">
-      <aside className="modding-part-picker" aria-label="호환 부품 선택">
-        <header>
-          <span>부품 선택</span>
-          <small>{selectedSlot ? `${candidates.length}개 호환` : "먼저 부위를 선택하세요"}</small>
-        </header>
-        {selectedSlot ? (
-          candidates.length ? (
-            <div className="modding-part-grid">
-              {candidates.map((candidate) => (
-                <button key={candidate.id} onClick={() => replacePart(candidate.id)} type="button">
-                  <span className="modding-part-image" aria-hidden="true">
-                    <WeaponItemImage
-                      alt=""
-                      fallbackSize={25}
-                      loading="lazy"
-                      src={candidate.iconUrl ?? candidate.imageUrl}
-                    />
-                  </span>
-                  <strong>{candidate.nameKo ?? candidate.name}</strong>
-                  <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
-                  <PartPerformance item={candidate} />
-                  <PartPrice activeProfile={activeProfile} item={candidate} />
-                </button>
-              ))}
-            </div>
-          ) : <p className="modding-picker-empty">현재 구성과 호환되는 부품이 없습니다.</p>
-        ) : <p className="modding-picker-empty">총기 이미지 주변이나 장착 트리에서 부위를 선택하세요.</p>}
-      </aside>
-
       <section className="modding-weapon-stage">
         <header>
           <div>
@@ -138,60 +116,117 @@ export function WeaponWorkbench({
           />
           <WeaponHotspots
             itemById={itemById}
-            onSelect={onSlotSelect}
+            onSelect={selectSlot}
             root={build.root}
             selectedSlot={selectedSlot}
             slots={weapon.slots}
           />
         </div>
 
-        <section className="modding-installed-parts" aria-label="장착 부위">
+        <BuildStats stats={stats} validation={validation} />
+      </section>
+
+      <aside aria-label="장착·필수 파츠" className="modding-installed-parts" role="region">
+        <header>
+          <span>장착·필수 파츠</span>
+          <small>부위를 눌러 교체</small>
+        </header>
+        <div className="modding-installed-parts-body">
           <WeaponSlotTree
             itemById={itemById}
             node={build.root}
             onRemove={removePart}
-            onSelect={(parentInstanceId, slot) => onSlotSelect({
+            onSelect={(parentInstanceId, slot) => selectSlot({
               parentInstanceId,
               slotId: slot.id,
             })}
             selectedSlot={selectedSlot}
           />
-        </section>
-      </section>
+        </div>
+      </aside>
 
-      <aside className="modding-stats" aria-label="무기 능력치" role="region">
-        <header>
-          <span>현재 빌드</span>
-          <strong className={validation.isValid ? "valid" : "invalid"}>
-            {validation.isValid ? "사용 가능" : "확인 필요"}
-          </strong>
+      <aside
+        aria-label="호환 부품 선택"
+        className="modding-part-picker"
+        ref={partPickerRef}
+        tabIndex={-1}
+      >
+        <header aria-live="polite">
+          <span>부품 선택</span>
+          <small>{selectedSlot ? `${candidates.length}개 호환` : "먼저 부위를 선택하세요"}</small>
         </header>
-        <dl>
-          <Stat label="수직 반동" value={formatNumber(stats.verticalRecoil)} />
-          <Stat label="수평 반동" value={formatNumber(stats.horizontalRecoil)} />
-          <Stat label="인체공학" value={formatNumber(stats.ergonomics)} />
-          <Stat label="무게" value={`${formatNumber(stats.weight, 2)} kg`} />
-          {stats.accuracyMoa != null ? (
-            <Stat label="정확도" value={`${formatNumber(stats.accuracyMoa, 2)} MOA`} />
-          ) : null}
-          {stats.muzzleVelocityModifier != null ? (
-            <Stat
-              label="총구 속도 보정"
-              value={`${stats.muzzleVelocityModifier > 0 ? "+" : ""}${formatNumber(stats.muzzleVelocityModifier, 2)}%`}
-            />
-          ) : null}
-        </dl>
-        {!validation.isValid ? (
-          <div className="modding-issues">
-            {validation.issues.slice(0, 6).map((issue, index) => (
-              <p key={`${issue.code}:${index}`}>
-                <CircleAlert aria-hidden="true" size={14} />{issue.message}
-              </p>
-            ))}
-          </div>
-        ) : null}
+        {selectedSlot ? (
+          candidates.length ? (
+            <ul aria-label="호환 부품 목록" className="modding-part-list">
+              {candidates.map((candidate) => (
+                <li key={candidate.id}>
+                  <button onClick={() => replacePart(candidate.id)} type="button">
+                    <span className="modding-part-image" aria-hidden="true">
+                      <WeaponItemImage
+                        alt=""
+                        fallbackSize={25}
+                        loading="lazy"
+                        src={candidate.iconUrl ?? candidate.imageUrl}
+                      />
+                    </span>
+                    <span className="modding-part-details">
+                      <strong className="modding-part-name">
+                        {candidate.nameKo ?? candidate.name}
+                      </strong>
+                      <span className="modding-part-summary">
+                        <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
+                        <PartPerformance item={candidate} />
+                      </span>
+                      <PartPrice activeProfile={activeProfile} item={candidate} />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="modding-picker-empty">현재 구성과 호환되는 부품이 없습니다.</p>
+        ) : <p className="modding-picker-empty">총기 이미지 주변이나 장착 트리에서 부위를 선택하세요.</p>}
       </aside>
     </div>
+  );
+}
+
+function BuildStats({ stats, validation }: {
+  stats: ReturnType<typeof calculateBuildStats>;
+  validation: ReturnType<typeof validateWeaponBuild>;
+}) {
+  return (
+    <aside className="modding-stats" aria-label="무기 능력치" role="region">
+      <header>
+        <span>현재 빌드</span>
+        <strong className={validation.isValid ? "valid" : "invalid"}>
+          {validation.isValid ? "사용 가능" : "확인 필요"}
+        </strong>
+      </header>
+      <dl>
+        <Stat label="수직 반동" value={formatNumber(stats.verticalRecoil)} />
+        <Stat label="수평 반동" value={formatNumber(stats.horizontalRecoil)} />
+        <Stat label="인체공학" value={formatNumber(stats.ergonomics)} />
+        <Stat label="무게" value={`${formatNumber(stats.weight, 2)} kg`} />
+        {stats.accuracyMoa != null ? (
+          <Stat label="정확도" value={`${formatNumber(stats.accuracyMoa, 2)} MOA`} />
+        ) : null}
+        {stats.muzzleVelocityModifier != null ? (
+          <Stat
+            label="총구 속도 보정"
+            value={`${stats.muzzleVelocityModifier > 0 ? "+" : ""}${formatNumber(stats.muzzleVelocityModifier, 2)}%`}
+          />
+        ) : null}
+      </dl>
+      {!validation.isValid ? (
+        <div className="modding-issues">
+          {validation.issues.slice(0, 6).map((issue, index) => (
+            <p key={`${issue.code}:${index}`}>
+              <CircleAlert aria-hidden="true" size={14} />{issue.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </aside>
   );
 }
 

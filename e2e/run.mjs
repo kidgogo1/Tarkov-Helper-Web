@@ -56,6 +56,136 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+async function assertWeaponModdingDesktopLayout(page) {
+  const geometry = await page.evaluate(() => {
+    const picker = globalThis.document.querySelector(".modding-part-picker");
+    const stage = globalThis.document.querySelector(".modding-weapon-stage");
+    const installed = globalThis.document.querySelector(".modding-installed-parts");
+    const image = globalThis.document.querySelector(".modding-weapon-image");
+    const stats = globalThis.document.querySelector(".modding-stats");
+    const candidateButtons = [
+      ...globalThis.document.querySelectorAll(".modding-part-picker button"),
+    ];
+    const candidate = candidateButtons.find(
+      (button) => button.querySelector(".modding-part-performance"),
+    ) ?? candidateButtons[0];
+    const candidateImage = candidate?.querySelector(".modding-part-image");
+    const candidateDetails = candidate?.querySelector(".modding-part-details");
+    const candidateName = candidate?.querySelector(".modding-part-name");
+    const candidateSummary = candidate?.querySelector(".modding-part-summary");
+    const candidateShortName = candidateSummary?.querySelector("small");
+    const candidatePerformance = candidateSummary?.querySelector(".modding-part-performance");
+    const candidateCommerce = candidate?.querySelector(".modding-part-commerce");
+    const installedPartName = installed.querySelector(".modding-slot-select strong");
+    if (![picker, stage, installed, image, stats, candidate, candidateImage,
+      candidateDetails, candidateName, candidateSummary, candidateShortName,
+      candidatePerformance, candidateCommerce, installedPartName].every(
+      (element) => element instanceof globalThis.HTMLElement,
+    )) return null;
+    const rect = (element) => element.getBoundingClientRect();
+    const nameStyle = globalThis.getComputedStyle(candidateName);
+    const installedNameStyle = globalThis.getComputedStyle(installedPartName);
+    return {
+      picker: rect(picker),
+      stage: rect(stage),
+      installed: rect(installed),
+      image: rect(image),
+      stats: rect(stats),
+      candidate: rect(candidate),
+      candidateImage: rect(candidateImage),
+      candidateDetails: rect(candidateDetails),
+      candidateName: rect(candidateName),
+      candidateSummary: rect(candidateSummary),
+      candidateShortName: rect(candidateShortName),
+      candidatePerformance: rect(candidatePerformance),
+      candidateCommerce: rect(candidateCommerce),
+      candidateNameWhiteSpace: nameStyle.whiteSpace,
+      candidateNameTextOverflow: nameStyle.textOverflow,
+      installedNameWhiteSpace: installedNameStyle.whiteSpace,
+      installedNameTextOverflow: installedNameStyle.textOverflow,
+    };
+  });
+  assert(geometry, "Weapon modding layout elements were unavailable");
+  assert(
+    geometry.picker.right <= geometry.stage.left + 2 &&
+      geometry.stage.right <= geometry.installed.left + 2,
+    `Weapon workbench columns are out of order: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.stats.top >= geometry.image.bottom - 2 &&
+      Math.abs(geometry.stats.left - geometry.stage.left) <= 2 &&
+      Math.abs(geometry.stats.right - geometry.stage.right) <= 2,
+    `Current build is not below the weapon image: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.candidateImage.left < geometry.candidateDetails.left &&
+      geometry.candidateImage.right <= geometry.candidateDetails.left + 2 &&
+      geometry.candidateName.top < geometry.candidateSummary.top &&
+      Math.abs(geometry.candidateShortName.top - geometry.candidatePerformance.top) <= 4 &&
+      geometry.candidateCommerce.top >= geometry.candidateSummary.bottom - 2 &&
+      geometry.candidateNameWhiteSpace === "normal" &&
+      geometry.candidateNameTextOverflow !== "ellipsis" &&
+      geometry.installedNameWhiteSpace === "normal" &&
+      geometry.installedNameTextOverflow !== "ellipsis",
+    `Compatible part row hierarchy is incorrect: ${JSON.stringify(geometry)}`,
+  );
+}
+
+async function assertWeaponModdingTabletLayout(page) {
+  const geometry = await page.evaluate(() => {
+    const workbench = globalThis.document.querySelector(".modding-workbench");
+    const picker = globalThis.document.querySelector(".modding-part-picker");
+    const stage = globalThis.document.querySelector(".modding-weapon-stage");
+    const installed = globalThis.document.querySelector(".modding-installed-parts");
+    if (![workbench, picker, stage, installed].every(
+      (element) => element instanceof globalThis.HTMLElement,
+    )) return null;
+    const rect = (element) => element.getBoundingClientRect();
+    return {
+      workbench: rect(workbench),
+      picker: rect(picker),
+      stage: rect(stage),
+      installed: rect(installed),
+    };
+  });
+  assert(geometry, "Weapon modding tablet layout elements were unavailable");
+  assert(
+    geometry.stage.right <= geometry.installed.left + 2 &&
+      geometry.picker.top >= Math.max(geometry.stage.bottom, geometry.installed.bottom) - 2 &&
+      Math.abs(geometry.picker.left - geometry.workbench.left) <= 2 &&
+      Math.abs(geometry.picker.right - geometry.workbench.right) <= 2,
+    `Weapon modding tablet layout is incorrect: ${JSON.stringify(geometry)}`,
+  );
+}
+
+async function assertWeaponModdingStackedLayout(page, label) {
+  const geometry = await page.evaluate(() => {
+    const picker = globalThis.document.querySelector(".modding-part-picker");
+    const stage = globalThis.document.querySelector(".modding-weapon-stage");
+    const installed = globalThis.document.querySelector(".modding-installed-parts");
+    const image = globalThis.document.querySelector(".modding-weapon-image");
+    const stats = globalThis.document.querySelector(".modding-stats");
+    if (![picker, stage, installed, image, stats].every(
+      (element) => element instanceof globalThis.HTMLElement,
+    )) return null;
+    const rect = (element) => element.getBoundingClientRect();
+    return {
+      picker: rect(picker),
+      stage: rect(stage),
+      installed: rect(installed),
+      image: rect(image),
+      stats: rect(stats),
+    };
+  });
+  assert(geometry, `${label}: stacked layout elements were unavailable`);
+  assert(
+    geometry.stats.top >= geometry.image.bottom - 2 &&
+      geometry.stage.bottom <= geometry.installed.top + 2 &&
+      geometry.installed.bottom <= geometry.picker.top + 2,
+    `${label}: stacked workbench order is incorrect: ${JSON.stringify(geometry)}`,
+  );
+}
+
 async function assertMapCentered(page, label) {
   const geometry = await page.evaluate(() => {
     const viewport = globalThis.document.querySelector('[data-testid="map-viewport"]');
@@ -197,12 +327,24 @@ try {
   await page.getByRole("button", { name: /Colt M4A1/ }).click();
   await page.getByRole("heading", { name: /Colt M4A1/ }).waitFor();
   await page.getByRole("group", { name: "총기 부위 선택" }).getByRole("button").first().click();
-  await page.locator(".modding-part-grid > button").first().waitFor();
+  await page.getByRole("list", { name: "호환 부품 목록" }).getByRole("button").first().waitFor();
+  await assertWeaponModdingDesktopLayout(page);
   await assertNoHorizontalOverflow(page, "weapon modding desktop");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1440.png"), fullPage: true });
 
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await assertNoHorizontalOverflow(page, "weapon modding 1024px viewport");
+  await assertWeaponModdingTabletLayout(page);
+  await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1024.png"), fullPage: true });
+
+  await page.setViewportSize({ width: 768, height: 800 });
+  await assertNoHorizontalOverflow(page, "weapon modding 768px viewport");
+  await assertWeaponModdingStackedLayout(page, "weapon modding 768px viewport");
+  await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-768.png"), fullPage: true });
+
   await page.setViewportSize({ width: 320, height: 720 });
   await assertNoHorizontalOverflow(page, "weapon modding 320px viewport");
+  await assertWeaponModdingStackedLayout(page, "weapon modding 320px viewport");
   assert(
     await page.locator(".modding-hotspots").evaluate((element) =>
       globalThis.getComputedStyle(element).display,
