@@ -133,17 +133,14 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ });
     fireEvent.click(scopeSlot);
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent(
-      "플리 Lv.15 · 참고가 ₽45,000",
-    );
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent("인체공학 -2");
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent("무게 0.340 kg");
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent(
-      "Peacekeeper LL2 $50 (≈ ₽6,000)",
-    );
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent(
-      "약사 퀘스트 (Lv.10)",
-    );
+    const eotechChoice = screen.getByRole("button", { name: /EOTech EXPS3/ });
+    expect(within(eotechChoice).getByText("플리 참고가 · Lv.15")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("₽45,000")).toBeInTheDocument();
+    expect(eotechChoice).toHaveTextContent("인체공학 -2");
+    expect(eotechChoice).toHaveTextContent("무게 0.340 kg");
+    expect(within(eotechChoice).getByText("상점 · Peacekeeper LL2")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("$50 (≈ ₽6,000)")).toBeInTheDocument();
+    expect(eotechChoice).toHaveTextContent("약사 퀘스트 (Lv.10)");
     fireEvent.click(
       screen.getByRole("button", { name: /EOTech EXPS3 holographic sight/ }),
     );
@@ -284,6 +281,65 @@ describe("WeaponModdingPage", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "인체공학 높은 순이 1순위가 되었습니다",
     );
+  });
+
+  it("places trader prices before flea references and keeps both price columns stable", async () => {
+    const traderOnlyCatalog = {
+      ...catalog,
+      items: [
+        ...catalog.items,
+        {
+          id: RECOIL_SIGHT_ID,
+          kind: "part" as const,
+          name: "Trader-only sight",
+          shortName: "SHOP",
+          categories: ["Sights"],
+          imageUrl: "/assets/weapon-modding/trader-only.png",
+          stats: { ergonomics: 1, weight: 0.2 },
+          traderOffersByProfile: {
+            pvp: [{
+              traderId: "5a7c2eca46aef81a7ca2145d",
+              traderName: "Mechanic",
+              price: 9_500,
+              priceRoubles: 9_500,
+              currency: "RUB",
+              loyaltyLevel: 1,
+            }],
+          },
+        },
+      ],
+    };
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(traderOnlyCatalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+
+    const candidateList = screen.getByRole("list", { name: "호환 부품 목록" });
+    const eotechRow = within(candidateList).getByText(
+      "EOTech EXPS3 holographic sight",
+    ).closest("li");
+    const priceCells = eotechRow?.querySelectorAll("[data-price-kind]") ?? [];
+    expect([...priceCells].map((cell) => cell.getAttribute("data-price-kind")))
+      .toEqual(["trader", "flea"]);
+    expect(priceCells[0]).toHaveTextContent("상점 · Peacekeeper LL2");
+    expect(priceCells[0]).toHaveTextContent("$50 (≈ ₽6,000)");
+    expect(priceCells[1]).toHaveTextContent("플리 참고가 · Lv.15");
+    expect(priceCells[1]).toHaveTextContent("₽45,000");
+
+    const traderOnlyRow = within(candidateList).getByText("Trader-only sight").closest("li");
+    const traderOnlyCells = traderOnlyRow?.querySelectorAll("[data-price-kind]") ?? [];
+    expect([...traderOnlyCells].map((cell) => cell.getAttribute("data-price-kind")))
+      .toEqual(["trader", "flea"]);
+    expect(traderOnlyCells[1]).toHaveAttribute("data-empty", "true");
+    expect(traderOnlyCells[1]).toHaveTextContent("플리 정보 없음");
   });
 
   it("shows a slot-allowed conflicting part and confirms its automatic swap", async () => {
@@ -439,10 +495,11 @@ describe("WeaponModdingPage", () => {
     ).getByRole("button", { name: /조준경/ });
     expect(scopeSlot).toBeInTheDocument();
     fireEvent.click(scopeSlot);
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent(
-      "플리 Lv.25 · 참고가 ₽55,000",
-    );
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toHaveTextContent("Mechanic LL1 ₽5,000");
+    const eotechChoice = screen.getByRole("button", { name: /EOTech EXPS3/ });
+    expect(within(eotechChoice).getByText("플리 참고가 · Lv.25")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("₽55,000")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("상점 · Mechanic LL1")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("₽5,000")).toBeInTheDocument();
   });
 
   it("clears a nested slot selection when its parent part is removed", async () => {

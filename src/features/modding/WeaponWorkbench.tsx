@@ -1,5 +1,4 @@
 import {
-  BadgeRussianRuble,
   CircleAlert,
   RotateCcw,
 } from "lucide-react";
@@ -14,17 +13,16 @@ import {
   replaceBuildSlotResolvingConflicts,
   validateWeaponBuild,
 } from "../../domain/weapon-build";
-import { formatRoubles } from "../../domain/item-prices";
 import type { ProfileType } from "../../types/data";
 import type {
   BuildMutationResult,
-  TraderOffer,
   WeaponBuild,
   WeaponCatalog,
   WeaponCatalogItem,
   WeaponSlotRule,
 } from "../../types/weapon-modding";
 import { PartCandidateControls } from "./PartCandidateControls";
+import { PartCandidatePrice } from "./PartCandidatePrice";
 import {
   DEFAULT_PART_CANDIDATE_FILTERS,
   filterAndSortPartCandidates,
@@ -323,7 +321,7 @@ export function WeaponWorkbench({
                             {conflictMessage}
                           </span>
                         ) : null}
-                        <PartPrice activeProfile={activeProfile} item={candidate} />
+                        <PartCandidatePrice activeProfile={activeProfile} item={candidate} />
                       </span>
                     </button>
                   </li>
@@ -394,41 +392,6 @@ function BuildStats({ stats, validation }: {
   );
 }
 
-function PartPrice({ activeProfile, item }: {
-  activeProfile: ProfileType;
-  item: WeaponCatalogItem;
-}) {
-  const flea = item.fleaByProfile?.[activeProfile] ?? item.flea;
-  const trader = bestTraderOffer(
-    item.traderOffersByProfile?.[activeProfile] ?? item.traderOffers,
-  );
-  if (!flea && !trader) return <span className="modding-part-price">가격 없음</span>;
-  return (
-    <span className="modding-part-commerce">
-      {flea ? (
-        <span className="modding-part-price">
-          <BadgeRussianRuble aria-hidden="true" size={13} />
-          플리{flea.minimumPlayerLevel ? ` Lv.${flea.minimumPlayerLevel}` : ""}
-          {` · 참고가 ${formatRoubles(flea.price)}`}
-        </span>
-      ) : null}
-      {trader ? (
-        <span className="modding-part-trader">
-          {trader.traderName} LL{trader.loyaltyLevel} {formatTraderOfferPrice(trader)}
-          {trader.questUnlock ? (
-            <span className="modding-quest-unlock">
-              {` · ${trader.questUnlock.questName} 퀘스트`}
-              {trader.questUnlock.minimumPlayerLevel !== undefined
-                ? ` (Lv.${trader.questUnlock.minimumPlayerLevel})`
-                : ""}
-            </span>
-          ) : null}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
 function PartPerformance({ item }: { item: WeaponCatalogItem }) {
   if (item.kind !== "part" || !item.stats) return null;
   const stats = item.stats;
@@ -455,35 +418,6 @@ function PartPerformance({ item }: { item: WeaponCatalogItem }) {
       {values.map((value) => <span key={value}>{value}</span>)}
     </span>
   );
-}
-
-function bestTraderOffer(offers: TraderOffer[] | undefined): TraderOffer | undefined {
-  return offers?.reduce((best, candidate) => {
-    const bestPrice = normalizedTraderPrice(best);
-    const candidatePrice = normalizedTraderPrice(candidate);
-    if (candidatePrice !== bestPrice) return candidatePrice < bestPrice ? candidate : best;
-    if (candidate.loyaltyLevel !== best.loyaltyLevel) {
-      return candidate.loyaltyLevel < best.loyaltyLevel ? candidate : best;
-    }
-    return candidate.traderId.localeCompare(best.traderId) < 0 ? candidate : best;
-  });
-}
-
-function normalizedTraderPrice(offer: TraderOffer): number {
-  return offer.priceRoubles ?? (offer.currency === "RUB" ? offer.price : Number.POSITIVE_INFINITY);
-}
-
-function formatTraderOfferPrice(offer: TraderOffer): string {
-  const originalPrice = formatCurrency(offer.price, offer.currency);
-  if (offer.currency === "RUB" || offer.priceRoubles === undefined) return originalPrice;
-  return `${originalPrice} (≈ ${formatRoubles(offer.priceRoubles)})`;
-}
-
-function formatCurrency(value: number, currency: string): string {
-  if (currency === "RUB") return formatRoubles(value);
-  if (currency === "USD") return `$${value.toLocaleString("en-US")}`;
-  if (currency === "EUR") return `€${value.toLocaleString("en-US")}`;
-  return `${value.toLocaleString("en-US")} ${currency}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

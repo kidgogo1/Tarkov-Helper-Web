@@ -434,13 +434,13 @@
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 108px;
-  grid-template-columns: 82px minmax(0, 1fr);
+  min-height: 78px;
+  grid-template-columns: 58px minmax(0, 1fr);
   align-items: stretch;
-  gap: 10px;
+  gap: 7px;
   border-color: transparent;
   background: var(--surface);
-  padding: 8px;
+  padding: 6px;
   text-align: left;
 }
 
@@ -467,8 +467,8 @@
 
 .modding-part-image {
   display: grid;
-  width: 80px;
-  min-height: 90px;
+  width: 56px;
+  min-height: 64px;
   place-items: center;
   color: var(--text-dim);
 }
@@ -483,13 +483,13 @@
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 5px;
+  gap: 3px;
 }
 
 .modding-part-name {
   overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.25;
+  font-size: 11px;
+  line-height: 1.2;
   white-space: normal;
 }
 
@@ -503,25 +503,56 @@
 
 .modding-part-summary > small {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 800;
 }
 
-.modding-part-price {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-top: 0;
-  color: var(--accent);
-  font-size: 11px;
+.modding-part-commerce {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 6px;
 }
 
-.modding-part-commerce {
-  display: flex;
+.modding-price-cell {
+  display: grid;
   min-width: 0;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 2px 10px;
+  grid-template-rows: 11px 14px auto;
+  align-content: start;
+  gap: 1px;
+}
+
+.modding-price-cell.trader {
+  grid-column: 1;
+}
+
+.modding-price-cell.flea {
+  grid-column: 2;
+}
+
+.modding-price-label {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modding-price-value {
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modding-price-cell[data-empty="true"] {
+  opacity: 0.54;
 }
 
 .modding-part-performance {
@@ -538,7 +569,7 @@
   background: rgb(110 183 255 / 7%);
   padding: 1px 3px;
   color: #bdd7db;
-  font-size: 9px;
+  font-size: 8px;
   white-space: nowrap;
 }
 
@@ -568,11 +599,13 @@
   line-height: 1.35;
 }
 
-.modding-part-trader {
-  color: var(--text-muted);
-  font-size: 10px;
-  overflow-wrap: anywhere;
-  white-space: normal;
+.modding-quest-unlock {
+  overflow: hidden;
+  color: #d9b46b;
+  font-size: 7px;
+  line-height: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modding-picker-empty {
@@ -1017,19 +1050,19 @@
 
 @media (max-width: 420px) {
   .modding-part-list > li > button {
-    min-height: 96px;
-    grid-template-columns: 66px minmax(0, 1fr);
-    gap: 7px;
-    padding: 7px;
+    min-height: 76px;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 5px;
+    padding: 5px;
   }
 
   .modding-part-image {
-    width: 64px;
-    min-height: 80px;
+    width: 50px;
+    min-height: 62px;
   }
 
   .modding-part-name {
-    font-size: 12px;
+    font-size: 10px;
   }
 
   .modding-slot-tree .modding-slot-tree {
