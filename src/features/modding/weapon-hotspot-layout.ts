@@ -24,28 +24,45 @@ const SLOT_POSITIONS: ReadonlyArray<{
   { match: /tactical|전술/, x: 38, y: 26 },
 ];
 
-const MIN_X = 5;
-const MAX_X = 95;
+const MIN_X = 8;
+const MAX_X = 92;
 const MIN_Y = 8;
 const MAX_Y = 92;
+const MIN_HORIZONTAL_CLEARANCE = 12;
+const MIN_VERTICAL_CLEARANCE = 9;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 export function layoutWeaponHotspots(
   slots: readonly WeaponSlotRule[],
 ): Array<{ x: number; y: number }> {
-  const usedPositions = new Set<string>();
+  const usedPositionKeys = new Set<string>();
+  const usedPositions: Array<{ x: number; y: number }> = [];
   return slots.map((slot, index) => {
     const base = slotPosition(slot, index);
-    const maximumAttempts = Math.max(64, slots.length * 16);
+    const maximumAttempts = Math.max(256, slots.length * 32);
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
       const position = offsetPosition(base, attempt);
       const key = positionKey(position);
-      if (usedPositions.has(key)) continue;
-      usedPositions.add(key);
+      if (
+        usedPositionKeys.has(key) ||
+        usedPositions.some((used) => !hasLabelClearance(position, used))
+      ) continue;
+      usedPositionKeys.add(key);
+      usedPositions.push(position);
       return position;
     }
-    return fallbackPosition(usedPositions, slots.length);
+    const fallback = fallbackPosition(usedPositionKeys, slots.length);
+    usedPositions.push(fallback);
+    return fallback;
   });
+}
+
+function hasLabelClearance(
+  left: { x: number; y: number },
+  right: { x: number; y: number },
+): boolean {
+  return Math.abs(left.x - right.x) >= MIN_HORIZONTAL_CLEARANCE ||
+    Math.abs(left.y - right.y) >= MIN_VERTICAL_CLEARANCE;
 }
 
 function offsetPosition(

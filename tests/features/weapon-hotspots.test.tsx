@@ -71,6 +71,14 @@ describe("weapon hotspot presentation", () => {
     expect(new Set(positions.map(({ x, y }) => `${x}:${y}`)).size).toBe(
       repeatedSlots.length,
     );
+    for (const [index, position] of positions.entries()) {
+      for (const other of positions.slice(index + 1)) {
+        expect(
+          Math.abs(position.x - other.x) >= 12 ||
+            Math.abs(position.y - other.y) >= 9,
+        ).toBe(true);
+      }
+    }
   });
 
   it("maps localized structural slots to their intended weapon regions", () => {
@@ -85,7 +93,7 @@ describe("weapon hotspot presentation", () => {
       { id: "slot-trigger", name: "방아쇠", allowedItemIds: [] },
     ];
 
-    expect(layoutWeaponHotspots(localizedSlots)).toEqual([
+    expect(localizedSlots.map((slot) => layoutWeaponHotspots([slot])[0])).toEqual([
       { x: 35, y: 66 },
       { x: 30, y: 82 },
       { x: 50, y: 16 },
