@@ -4,7 +4,10 @@ import { centerOfImpactToMoa } from "../../domain/weapon-build";
 import type { ProfileType } from "../../types/data";
 import type { WeaponPartItem } from "../../types/weapon-modding";
 import { PartCandidatePrice } from "./PartCandidatePrice";
-import type { CandidateAvailability } from "./part-candidate-controls";
+import type {
+  CandidateAvailability,
+  PartCandidateFilters,
+} from "./part-candidate-controls";
 import { WeaponItemImage } from "./WeaponItemImage";
 
 interface PartCandidateRowProps {
@@ -13,6 +16,7 @@ interface PartCandidateRowProps {
   candidate: WeaponPartItem;
   conflictMessage: string | null;
   disabled: boolean;
+  filters: PartCandidateFilters;
   onPreview: (candidate: WeaponPartItem, trigger: HTMLButtonElement) => void;
   onSelect: () => void;
 }
@@ -23,6 +27,7 @@ export function PartCandidateRow({
   candidate,
   conflictMessage,
   disabled,
+  filters,
   onPreview,
   onSelect,
 }: PartCandidateRowProps) {
@@ -65,7 +70,7 @@ export function PartCandidateRow({
               {conflictMessage}
             </span>
           ) : null}
-          <PartCandidatePrice activeProfile={activeProfile} item={candidate} />
+          <PartCandidatePrice activeProfile={activeProfile} filters={filters} item={candidate} />
         </span>
       </button>
     </li>
@@ -94,7 +99,8 @@ function PartPerformance({ item }: { item: WeaponPartItem }) {
   ].filter((value): value is string => Boolean(value));
   if (!values.length) return null;
   return (
-    <span className="modding-part-performance">
+    <span className="modding-part-performance" title="부품 데이터에 등록된 고유 효과">
+      <em>부품 효과</em>
       {values.map((value) => <span key={value}>{value}</span>)}
     </span>
   );

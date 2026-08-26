@@ -140,9 +140,11 @@ export function getBestTraderOffer(
       if (!best) return candidate;
       const bestPrice = normalizedTraderPrice(best);
       const candidatePrice = normalizedTraderPrice(candidate);
-      if (bestPrice === undefined) return candidate;
-      if (candidatePrice === undefined) return best;
-      if (candidatePrice !== bestPrice) return candidatePrice < bestPrice ? candidate : best;
+      if (candidatePrice !== bestPrice) {
+        if (bestPrice === undefined) return candidate;
+        if (candidatePrice === undefined) return best;
+        return candidatePrice < bestPrice ? candidate : best;
+      }
       if (candidate.loyaltyLevel !== best.loyaltyLevel) {
         return candidate.loyaltyLevel < best.loyaltyLevel ? candidate : best;
       }
@@ -177,6 +179,10 @@ function candidateMatchesFilters(
 
   const trader = getBestTraderOffer(candidate, activeProfile, filters);
   const flea = getProfileFleaPrice(candidate, activeProfile);
+  const hasTraderFilter = Boolean(filters.traderId) ||
+    filters.questRequirement !== "all" ||
+    filters.maxLoyaltyLevel !== undefined;
+  if (hasTraderFilter && !trader) return false;
   if (filters.purchaseFilters.includes("trader") && !trader) return false;
   if (filters.purchaseFilters.includes("flea") && !flea) return false;
   if (filters.maxTraderPrice !== undefined) {
@@ -208,7 +214,7 @@ function eligibleTraderOffers(
     ) return false;
     if (filters?.questRequirement === "required" && !offer.questUnlock) return false;
     if (filters?.questRequirement === "not-required" && offer.questUnlock) return false;
-    return normalizedTraderPrice(offer) !== undefined;
+    return true;
   });
 }
 
@@ -254,8 +260,8 @@ function compareCandidates(
   }
   if (sortKey === "loyalty-level") {
     return compareOptionalNumbers(
-      getBestTraderOffer(left.candidate, activeProfile, filters)?.loyaltyLevel,
-      getBestTraderOffer(right.candidate, activeProfile, filters)?.loyaltyLevel,
+      lowestEligibleLoyaltyLevel(left.candidate, activeProfile, filters),
+      lowestEligibleLoyaltyLevel(right.candidate, activeProfile, filters),
       "ascending",
     );
   }
@@ -282,6 +288,16 @@ function traderPrice(
 ): number | undefined {
   const offer = getBestTraderOffer(candidate, activeProfile, filters);
   return offer ? normalizedTraderPrice(offer) : undefined;
+}
+
+function lowestEligibleLoyaltyLevel(
+  candidate: WeaponPartItem,
+  activeProfile: ProfileType,
+  filters: PartCandidateFilters,
+): number | undefined {
+  const levels = eligibleTraderOffers(candidate, activeProfile, filters)
+    .map((offer) => offer.loyaltyLevel);
+  return levels.length ? Math.min(...levels) : undefined;
 }
 
 function performanceValue(

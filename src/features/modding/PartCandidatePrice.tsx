@@ -4,27 +4,34 @@ import type { TraderOffer, WeaponCatalogItem } from "../../types/weapon-modding"
 import {
   getBestTraderOffer,
   getProfileFleaPrice,
+  type PartCandidateFilters,
 } from "./part-candidate-controls";
 
-export function PartCandidatePrice({ activeProfile, item }: {
+export function PartCandidatePrice({ activeProfile, filters, item }: {
   activeProfile: ProfileType;
+  filters: PartCandidateFilters;
   item: WeaponCatalogItem;
 }) {
-  const trader = getBestTraderOffer(item, activeProfile);
+  const trader = getBestTraderOffer(item, activeProfile, filters);
   const flea = getProfileFleaPrice(item, activeProfile);
+  const traderLabel = trader
+    ? `상점 · ${trader.traderName} LL${trader.loyaltyLevel}`
+    : "상점 정보 없음";
+  const traderPrice = trader ? formatTraderOfferPrice(trader) : "—";
+  const fleaLabel = flea
+    ? `플리 참고가${flea.minimumPlayerLevel ? ` · Lv.${flea.minimumPlayerLevel}` : ""}`
+    : "플리 정보 없음";
+  const fleaPrice = flea ? formatRoubles(flea.price) : "—";
   return (
     <span className="modding-part-commerce">
       <span
         className="modding-price-cell trader"
         data-empty={trader ? undefined : "true"}
         data-price-kind="trader"
+        title={`${traderLabel} · ${traderPrice}`}
       >
-        <small className="modding-price-label">
-          {trader ? `상점 · ${trader.traderName} LL${trader.loyaltyLevel}` : "상점 정보 없음"}
-        </small>
-        <strong className="modding-price-value">
-          {trader ? formatTraderOfferPrice(trader) : "—"}
-        </strong>
+        <small className="modding-price-label">{traderLabel}</small>
+        <strong className="modding-price-value">{traderPrice}</strong>
         {trader?.questUnlock ? (
           <small className="modding-quest-unlock">
             {`해금 · ${trader.questUnlock.questName} 퀘스트`}
@@ -38,15 +45,10 @@ export function PartCandidatePrice({ activeProfile, item }: {
         className="modding-price-cell flea"
         data-empty={flea ? undefined : "true"}
         data-price-kind="flea"
+        title={`${fleaLabel} · ${fleaPrice}`}
       >
-        <small className="modding-price-label">
-          {flea
-            ? `플리 참고가${flea.minimumPlayerLevel ? ` · Lv.${flea.minimumPlayerLevel}` : ""}`
-            : "플리 정보 없음"}
-        </small>
-        <strong className="modding-price-value">
-          {flea ? formatRoubles(flea.price) : "—"}
-        </strong>
+        <small className="modding-price-label">{fleaLabel}</small>
+        <strong className="modding-price-value">{fleaPrice}</strong>
       </span>
     </span>
   );

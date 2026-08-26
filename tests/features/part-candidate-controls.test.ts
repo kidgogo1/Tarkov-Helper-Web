@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PART_CANDIDATE_FILTERS,
   filterAndSortPartCandidates,
+  getBestTraderOffer,
   moveCandidateSort,
   type PartCandidateRecord,
 } from "../../src/features/modding/part-candidate-controls";
@@ -156,7 +157,41 @@ describe("part candidate controls", () => {
       .toHaveLength(1);
   });
 
-  it("sorts by every enabled criterion in priority order and keeps missing prices last", () => {
+  it("applies trader, quest, and loyalty controls without requiring a source checkbox", () => {
+    expect(filterAndSortPartCandidates(candidates, "pvp", {
+      ...DEFAULT_PART_CANDIDATE_FILTERS,
+      traderId: "mechanic",
+    }, []).map(({ candidate }) => candidate.id)).toEqual(["balanced", "ergo"]);
+
+    expect(filterAndSortPartCandidates(candidates, "pvp", {
+      ...DEFAULT_PART_CANDIDATE_FILTERS,
+      questRequirement: "required",
+    }, []).map(({ candidate }) => candidate.id)).toEqual(["recoil"]);
+
+    expect(filterAndSortPartCandidates(candidates, "pvp", {
+      ...DEFAULT_PART_CANDIDATE_FILTERS,
+      maxLoyaltyLevel: 1,
+    }, []).map(({ candidate }) => candidate.id)).toEqual(["ergo"]);
+  });
+
+  it("still displays a legacy foreign-currency offer when no RUB conversion exists", () => {
+    const legacyOffer = part("legacy", "Legacy sight", {
+      traderOffers: [{
+        currency: "USD",
+        loyaltyLevel: 2,
+        price: 75,
+        traderId: "peacekeeper",
+        traderName: "Peacekeeper",
+      }],
+    });
+
+    expect(getBestTraderOffer(legacyOffer, "pvp")).toMatchObject({
+      currency: "USD",
+      price: 75,
+    });
+  });
+
+  it("sorts by multiple enabled criteria in priority order and keeps missing prices last", () => {
     const traderFirst = filterAndSortPartCandidates(
       candidates,
       "pvp",
@@ -182,6 +217,55 @@ describe("part candidate controls", () => {
       "recoil",
       "unpriced",
     ]);
+  });
+
+  it("sorts trader loyalty by the lowest eligible LL instead of the cheapest offer LL", () => {
+    const mixedLoyalty: PartCandidateRecord = {
+      availability: "compatible",
+      candidate: part("mixed-loyalty", "Mixed loyalty sight", {
+        traderOffersByProfile: {
+          pvp: [{
+            currency: "RUB",
+            loyaltyLevel: 1,
+            price: 50_000,
+            priceRoubles: 50_000,
+            traderId: "mechanic",
+            traderName: "Mechanic",
+          }, {
+            currency: "RUB",
+            loyaltyLevel: 4,
+            price: 1_000,
+            priceRoubles: 1_000,
+            traderId: "peacekeeper",
+            traderName: "Peacekeeper",
+          }],
+        },
+      }),
+      performanceDelta: {},
+    };
+    const levelTwoOnly: PartCandidateRecord = {
+      availability: "compatible",
+      candidate: part("level-two", "Level two sight", {
+        traderOffersByProfile: {
+          pvp: [{
+            currency: "RUB",
+            loyaltyLevel: 2,
+            price: 2_000,
+            priceRoubles: 2_000,
+            traderId: "mechanic",
+            traderName: "Mechanic",
+          }],
+        },
+      }),
+      performanceDelta: {},
+    };
+
+    expect(filterAndSortPartCandidates(
+      [levelTwoOnly, mixedLoyalty],
+      "pvp",
+      DEFAULT_PART_CANDIDATE_FILTERS,
+      ["loyalty-level"],
+    ).map(({ candidate }) => candidate.id)).toEqual(["mixed-loyalty", "level-two"]);
   });
 
   it("moves one enabled sort without dropping the other priorities", () => {

@@ -68,6 +68,7 @@ export function WeaponWorkbench({
   const [candidateFilters, setCandidateFilters] = useState({
     ...DEFAULT_PART_CANDIDATE_FILTERS,
   });
+  const [traderFilterByContext, setTraderFilterByContext] = useState<Record<string, string>>({});
   const [candidateSortKeys, setCandidateSortKeys] = useState<CandidateSortKey[]>([]);
   const weapon = itemById.get(build.weaponId);
   const stats = useMemo(() => calculateBuildStats(catalog, build), [build, catalog]);
@@ -134,17 +135,6 @@ export function WeaponWorkbench({
     selectedSlot,
     stats,
   ]);
-  const visibleCandidateChoices = useMemo(() => filterAndSortPartCandidates(
-    candidateChoices,
-    activeProfile,
-    candidateFilters,
-    candidateSortKeys,
-  ), [
-    activeProfile,
-    candidateChoices,
-    candidateFilters,
-    candidateSortKeys,
-  ]);
   const traderOptions = useMemo(() => {
     const traders = new Map<string, string>();
     for (const { candidate } of candidateChoices) {
@@ -156,6 +146,28 @@ export function WeaponWorkbench({
       (left, right) => left.name.localeCompare(right.name),
     );
   }, [activeProfile, candidateChoices]);
+  const traderFilterContext = selectedSlot
+    ? `${activeProfile}:${selectedSlot.parentInstanceId}:${selectedSlot.slotId}`
+    : `${activeProfile}:no-slot`;
+  const configuredTraderId = traderFilterByContext[traderFilterContext] ?? "";
+  const activeTraderId = traderOptions.some(({ id }) => id === configuredTraderId)
+    ? configuredTraderId
+    : "";
+  const activeCandidateFilters = useMemo(() => ({
+    ...candidateFilters,
+    traderId: activeTraderId,
+  }), [activeTraderId, candidateFilters]);
+  const visibleCandidateChoices = useMemo(() => filterAndSortPartCandidates(
+    candidateChoices,
+    activeProfile,
+    activeCandidateFilters,
+    candidateSortKeys,
+  ), [
+    activeProfile,
+    activeCandidateFilters,
+    candidateChoices,
+    candidateSortKeys,
+  ]);
   if (!weapon || weapon.kind !== "weapon") return null;
 
   const validation = validateWeaponBuild(catalog, build);
@@ -203,6 +215,19 @@ export function WeaponWorkbench({
     const trigger = previewTriggerRef.current;
     setPreviewItem(null);
     requestAnimationFrame(() => trigger?.focus());
+  };
+
+  const updateCandidateFilters = (nextFilters: typeof candidateFilters) => {
+    setCandidateFilters({ ...nextFilters, traderId: "" });
+    setTraderFilterByContext((current) => {
+      if (nextFilters.traderId) {
+        return { ...current, [traderFilterContext]: nextFilters.traderId };
+      }
+      if (!(traderFilterContext in current)) return current;
+      const next = { ...current };
+      delete next[traderFilterContext];
+      return next;
+    });
   };
 
   const removePart = (parentInstanceId: string, slot: WeaponSlotRule) => {
@@ -293,8 +318,8 @@ export function WeaponWorkbench({
           candidateChoices.length ? (
             <>
               <PartCandidateControls
-                filters={candidateFilters}
-                onFiltersChange={setCandidateFilters}
+                filters={activeCandidateFilters}
+                onFiltersChange={updateCandidateFilters}
                 onSortKeysChange={setCandidateSortKeys}
                 sortKeys={candidateSortKeys}
                 totalCount={candidateChoices.length}
@@ -312,6 +337,7 @@ export function WeaponWorkbench({
                         candidate={candidate}
                         conflictMessage={candidateConflictMessage(choice)}
                         disabled={!replacement.ok}
+                        filters={activeCandidateFilters}
                         key={candidate.id}
                         onPreview={openPreview}
                         onSelect={() => replacePart(choice)}

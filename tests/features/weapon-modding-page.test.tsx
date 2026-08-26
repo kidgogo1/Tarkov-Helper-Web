@@ -139,6 +139,7 @@ describe("WeaponModdingPage", () => {
     expect(within(eotechChoice).getByText("플리 참고가 · Lv.15")).toBeInTheDocument();
     expect(within(eotechChoice).getByText("₽45,000")).toBeInTheDocument();
     expect(eotechChoice).toHaveTextContent("인체공학 -2");
+    expect(eotechChoice).toHaveTextContent("부품 효과");
     expect(eotechChoice).toHaveTextContent("무게 0.340 kg");
     expect(within(eotechChoice).getByText("상점 · Peacekeeper LL2")).toBeInTheDocument();
     expect(within(eotechChoice).getByText("$50 (≈ ₽6,000)")).toBeInTheDocument();
@@ -153,6 +154,9 @@ describe("WeaponModdingPage", () => {
     )).toHaveTextContent(
       "EOTech EXPS3 holographic sight",
     );
+    expect(screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    })).toHaveTextContent("부품 효과인체공학 -2무게 0.340 kg");
     const stats = screen.getByRole("region", { name: "무기 능력치" });
     expect(stats).toHaveTextContent(/인체공학\s*48/);
     expect(stats).toHaveTextContent(/무게\s*3\.34\s*kg/);
@@ -185,6 +189,7 @@ describe("WeaponModdingPage", () => {
     expect(within(candidateRow).getByText("EOTech EXPS3 holographic sight"))
       .toBeInTheDocument();
     expect(within(candidateRow).getByText("EXPS3")).toBeInTheDocument();
+    expect(within(candidateRow).getByText("부품 효과")).toBeInTheDocument();
     expect(within(candidateRow).getByText("인체공학 -2")).toBeInTheDocument();
   });
 
@@ -260,7 +265,7 @@ describe("WeaponModdingPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "상점 가격 있음" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "플리 참고가 있음" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "인체공학 증가" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "최대 상점가" }), {
+    fireEvent.change(screen.getByRole("spinbutton", { name: "최대 상점가 (₽ 환산)" }), {
       target: { value: "19000" },
     });
 
@@ -273,10 +278,24 @@ describe("WeaponModdingPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "상점가 낮은 순" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "인체공학 높은 순" }));
 
+    const sortPriority = screen.getByRole("region", { name: "정렬 우선순위" });
+    expect(within(sortPriority).getAllByRole("listitem").slice(0, 2).map(
+      (item) => item.textContent,
+    )).toEqual(expect.arrayContaining([
+      expect.stringContaining("상점가 낮은 순"),
+      expect.stringContaining("인체공학 높은 순"),
+    ]));
+
     expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("EOTech EXPS3");
     fireEvent.click(screen.getByRole("button", {
       name: "인체공학 높은 순 우선순위 올리기",
     }));
+    expect(within(sortPriority).getAllByRole("listitem")[0]).toHaveTextContent(
+      "인체공학 높은 순",
+    );
+    expect(within(sortPriority).getAllByRole("listitem")[1]).toHaveTextContent(
+      "상점가 낮은 순",
+    );
     expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent(
       "인체공학 프리미엄 조준경",
     );
@@ -342,6 +361,67 @@ describe("WeaponModdingPage", () => {
       .toEqual(["trader", "flea"]);
     expect(traderOnlyCells[1]).toHaveAttribute("data-empty", "true");
     expect(traderOnlyCells[1]).toHaveTextContent("플리 정보 없음");
+  });
+
+  it("shows the same trader offer used by the active trader filter", async () => {
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "필터·정렬" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "상인" }), {
+      target: { value: "5a7c2eca46aef81a7ca2145d" },
+    });
+
+    const eotechChoice = screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    });
+    expect(within(eotechChoice).getByText("상점 · Mechanic LL2")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("₽6,498")).toBeInTheDocument();
+    expect(eotechChoice).not.toHaveTextContent("Peacekeeper");
+  });
+
+  it("clears a trader filter that is unavailable after a profile switch", async () => {
+    const view = render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "필터·정렬" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "상인" }), {
+      target: { value: "5935c25fb3acc3127c3d8cd9" },
+    });
+
+    view.rerender(
+      <WeaponModdingPage
+        activeProfile="pve"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "상인" }))
+      .toHaveValue(""));
+    const eotechChoice = screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    });
+    expect(within(eotechChoice).getByText("상점 · Mechanic LL1")).toBeInTheDocument();
+    expect(within(eotechChoice).getByText("₽5,000")).toBeInTheDocument();
   });
 
   it("opens a large part image without equipping it and restores thumbnail focus", async () => {

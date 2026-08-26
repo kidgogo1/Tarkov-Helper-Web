@@ -68,6 +68,14 @@ export function PartCandidateControls({
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const [sortNotice, setSortNotice] = useState("");
+  const enabledSorts = new Set(sortKeys);
+  const orderedSortOptions = [
+    ...sortKeys.flatMap((sortKey) => {
+      const option = SORT_OPTIONS.find(([key]) => key === sortKey);
+      return option ? [option] : [];
+    }),
+    ...SORT_OPTIONS.filter(([sortKey]) => !enabledSorts.has(sortKey)),
+  ];
 
   const updateFilters = (change: Partial<PartCandidateFilters>) => {
     onFiltersChange({ ...filters, ...change });
@@ -152,7 +160,7 @@ export function PartCandidateControls({
               </select>
             </label>
             <NumberFilter
-              label="최대 상점가"
+              label="최대 상점가 (₽ 환산)"
               onChange={(maxTraderPrice) => updateFilters({ maxTraderPrice })}
               value={filters.maxTraderPrice}
             />
@@ -192,6 +200,11 @@ export function PartCandidateControls({
             </label>
           </div>
 
+          <p className="modding-filter-and-note">
+            성능 필터·정렬은 현재 빌드에서 교체한 뒤의 변화 기준이며,
+            복수 필터는 모두 충족해야 표시됩니다.
+          </p>
+
           <FilterChecks
             filters={filters.purchaseFilters}
             legend="구매 정보"
@@ -217,7 +230,7 @@ export function PartCandidateControls({
               <small>2순위부터는 앞 기준이 같을 때 적용</small>
             </header>
             <ol>
-              {SORT_OPTIONS.map(([sortKey, label]) => {
+              {orderedSortOptions.map(([sortKey, label]) => {
                 const index = sortKeys.indexOf(sortKey);
                 const enabled = index >= 0;
                 return (
@@ -316,7 +329,7 @@ function activeControlCount(
   filters: PartCandidateFilters,
   sortKeys: readonly CandidateSortKey[],
 ): number {
-  return Number(Boolean(filters.query)) +
+  return Number(Boolean(filters.query.trim())) +
     Number(filters.availability !== "all") +
     filters.purchaseFilters.length +
     filters.effectFilters.length +
