@@ -22,9 +22,16 @@ import type {
   WeaponBuild,
   WeaponCatalog,
   WeaponCatalogItem,
-  WeaponPartItem,
   WeaponSlotRule,
 } from "../../types/weapon-modding";
+import { PartCandidateControls } from "./PartCandidateControls";
+import {
+  DEFAULT_PART_CANDIDATE_FILTERS,
+  filterAndSortPartCandidates,
+  getProfileTraderOffers,
+  type CandidateSortKey,
+  type PartCandidateRecord,
+} from "./part-candidate-controls";
 import { WeaponSlotTree, type SlotSelection } from "./WeaponSlotTree";
 import { WeaponHotspots } from "./WeaponHotspots";
 import { WeaponItemImage } from "./WeaponItemImage";
@@ -40,11 +47,7 @@ interface WeaponWorkbenchProps {
   onSlotSelect: (selection: SlotSelection | null) => void;
 }
 
-type CandidateAvailability = "compatible" | "auto-resolvable" | "blocked";
-
-interface CandidateChoice {
-  availability: CandidateAvailability;
-  candidate: WeaponPartItem;
+interface CandidateChoice extends PartCandidateRecord {
   conflictItemNames: string[];
   replacement: BuildMutationResult;
 }
@@ -61,7 +64,12 @@ export function WeaponWorkbench({
 }: WeaponWorkbenchProps) {
   const partPickerRef = useRef<HTMLElement>(null);
   const [swapNotice, setSwapNotice] = useState<string | null>(null);
+  const [candidateFilters, setCandidateFilters] = useState({
+    ...DEFAULT_PART_CANDIDATE_FILTERS,
+  });
+  const [candidateSortKeys, setCandidateSortKeys] = useState<CandidateSortKey[]>([]);
   const weapon = itemById.get(build.weaponId);
+  const stats = useMemo(() => calculateBuildStats(catalog, build), [build, catalog]);
   const candidateChoices = useMemo<CandidateChoice[]>(() => {
     if (!selectedSlot) return [];
     return getSlotCandidates(
@@ -84,6 +92,9 @@ export function WeaponWorkbench({
         selectedSlot.slotId,
         candidate.id,
       );
+      const replacementStats = replacement.ok
+        ? calculateBuildStats(catalog, replacement.build)
+        : undefined;
       const conflictItemNames = [...new Set(compatibility.issues.flatMap((issue) => {
         if (
           issue.code !== "ITEM_CONFLICT" &&
@@ -101,6 +112,17 @@ export function WeaponWorkbench({
           : replacement.ok ? "auto-resolvable" : "blocked",
         candidate,
         conflictItemNames,
+        performanceDelta: replacementStats ? {
+          accuracy: stats.accuracyMoa !== undefined &&
+              replacementStats.accuracyMoa !== undefined
+            ? replacementStats.accuracyMoa - stats.accuracyMoa
+            : undefined,
+          ergonomics: replacementStats.ergonomics - stats.ergonomics,
+          recoil: replacementStats.verticalRecoil - stats.verticalRecoil,
+          velocity: (replacementStats.muzzleVelocityModifier ?? 0) -
+            (stats.muzzleVelocityModifier ?? 0),
+          weight: replacementStats.weight - stats.weight,
+        } : {},
         replacement,
       };
     });
@@ -109,10 +131,32 @@ export function WeaponWorkbench({
     catalog,
     itemById,
     selectedSlot,
+    stats,
   ]);
+  const visibleCandidateChoices = useMemo(() => filterAndSortPartCandidates(
+    candidateChoices,
+    activeProfile,
+    candidateFilters,
+    candidateSortKeys,
+  ), [
+    activeProfile,
+    candidateChoices,
+    candidateFilters,
+    candidateSortKeys,
+  ]);
+  const traderOptions = useMemo(() => {
+    const traders = new Map<string, string>();
+    for (const { candidate } of candidateChoices) {
+      for (const offer of getProfileTraderOffers(candidate, activeProfile)) {
+        traders.set(offer.traderId, offer.traderName);
+      }
+    }
+    return [...traders].map(([id, name]) => ({ id, name })).sort(
+      (left, right) => left.name.localeCompare(right.name),
+    );
+  }, [activeProfile, candidateChoices]);
   if (!weapon || weapon.kind !== "weapon") return null;
 
-  const stats = calculateBuildStats(catalog, build);
   const validation = validateWeaponBuild(catalog, build);
   const selectableCandidateCount = candidateChoices.filter(
     ({ replacement }) => replacement.ok,
@@ -235,8 +279,19 @@ export function WeaponWorkbench({
         {swapNotice ? <p className="modding-swap-notice" role="status">{swapNotice}</p> : null}
         {selectedSlot ? (
           candidateChoices.length ? (
-            <ul aria-label="호환 부품 목록" className="modding-part-list">
-              {candidateChoices.map((choice) => {
+            <>
+              <PartCandidateControls
+                filters={candidateFilters}
+                onFiltersChange={setCandidateFilters}
+                onSortKeysChange={setCandidateSortKeys}
+                sortKeys={candidateSortKeys}
+                totalCount={candidateChoices.length}
+                traderOptions={traderOptions}
+                visibleCount={visibleCandidateChoices.length}
+              />
+              {visibleCandidateChoices.length ? (
+                <ul aria-label="호환 부품 목록" className="modding-part-list">
+                  {visibleCandidateChoices.map((choice) => {
                 const { availability, candidate, replacement } = choice;
                 const conflictMessage = candidateConflictMessage(choice);
                 return (
@@ -273,8 +328,14 @@ export function WeaponWorkbench({
                     </button>
                   </li>
                 );
-              })}
-            </ul>
+                  })}
+                </ul>
+              ) : (
+                <p className="modding-picker-empty" role="status">
+                  선택한 필터에 맞는 부품이 없습니다.
+                </p>
+              )}
+            </>
           ) : <p className="modding-picker-empty">이 슬롯에 등록된 부품이 없습니다.</p>
         ) : <p className="modding-picker-empty">총기 이미지 주변이나 장착 트리에서 부위를 선택하세요.</p>}
       </aside>

@@ -7,6 +7,8 @@ const M4A1_ID = "5447a9cd4bdc2dbd208b4567";
 const SECOND_WEAPON_ID = "5644bd2b4bdc2d3b4c8b4572";
 const EOTECH_ID = "558022b54bdc2dac148b458d";
 const SCOPE_SLOT_ID = "55d30c4c4bdc2db4468b457f";
+const ERGO_SIGHT_ID = "558022b54bdc2dac148b4590";
+const RECOIL_SIGHT_ID = "558022b54bdc2dac148b4591";
 
 const catalog = {
   schemaVersion: 1 as const,
@@ -185,6 +187,103 @@ describe("WeaponModdingPage", () => {
       .toBeInTheDocument();
     expect(within(candidateRow).getByText("EXPS3")).toBeInTheDocument();
     expect(within(candidateRow).getByText("인체공학 -2")).toBeInTheDocument();
+  });
+
+  it("combines candidate filters and lets users reorder multiple sort priorities", async () => {
+    const filterCatalog = {
+      ...catalog,
+      items: [
+        ...catalog.items,
+        {
+          id: ERGO_SIGHT_ID,
+          kind: "part" as const,
+          name: "Ergonomic premium sight",
+          nameKo: "인체공학 프리미엄 조준경",
+          shortName: "ERGO+",
+          categories: ["Sights"],
+          imageUrl: "/assets/weapon-modding/ergo-premium.png",
+          stats: { ergonomics: 6, recoilModifier: -3, weight: 0.28 },
+          traderOffersByProfile: {
+            pvp: [{
+              traderId: "5a7c2eca46aef81a7ca2145d",
+              traderName: "Mechanic",
+              price: 18_000,
+              priceRoubles: 18_000,
+              currency: "RUB",
+              loyaltyLevel: 2,
+            }],
+          },
+          fleaByProfile: {
+            pvp: {
+              price: 24_000,
+              currency: "RUB",
+              updatedAt: "2026-08-26T00:00:00.000Z",
+              minimumPlayerLevel: 15,
+            },
+          },
+        },
+        {
+          id: RECOIL_SIGHT_ID,
+          kind: "part" as const,
+          name: "Recoil budget sight",
+          nameKo: "반동 특화 보급형 조준경",
+          shortName: "RECOIL",
+          categories: ["Sights"],
+          imageUrl: "/assets/weapon-modding/recoil-budget.png",
+          stats: { ergonomics: 1, recoilModifier: -8, weight: 0.4 },
+          traderOffersByProfile: {
+            pvp: [{
+              traderId: "5935c25fb3acc3127c3d8cd9",
+              traderName: "Peacekeeper",
+              price: 12_000,
+              priceRoubles: 12_000,
+              currency: "RUB",
+              loyaltyLevel: 3,
+            }],
+          },
+        },
+      ],
+    };
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(filterCatalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "필터·정렬" }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "상점 가격 있음" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "플리 참고가 있음" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "인체공학 증가" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "최대 상점가" }), {
+      target: { value: "19000" },
+    });
+
+    const list = screen.getByRole("list", { name: "호환 부품 목록" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByText("인체공학 프리미엄 조준경")).toBeInTheDocument();
+    expect(screen.getByText("1 / 3개 표시")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "상점가 낮은 순" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "인체공학 높은 순" }));
+
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("EOTech EXPS3");
+    fireEvent.click(screen.getByRole("button", {
+      name: "인체공학 높은 순 우선순위 올리기",
+    }));
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent(
+      "인체공학 프리미엄 조준경",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "인체공학 높은 순이 1순위가 되었습니다",
+    );
   });
 
   it("shows a slot-allowed conflicting part and confirms its automatic swap", async () => {
