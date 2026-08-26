@@ -200,8 +200,9 @@ export function WeaponWorkbench({
   };
 
   const closePreview = () => {
+    const trigger = previewTriggerRef.current;
     setPreviewItem(null);
-    previewTriggerRef.current?.focus();
+    requestAnimationFrame(() => trigger?.focus());
   };
 
   const removePart = (parentInstanceId: string, slot: WeaponSlotRule) => {

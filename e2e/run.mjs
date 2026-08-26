@@ -63,12 +63,20 @@ async function assertWeaponModdingDesktopLayout(page) {
     const installed = globalThis.document.querySelector(".modding-installed-parts");
     const image = globalThis.document.querySelector(".modding-weapon-image");
     const stats = globalThis.document.querySelector(".modding-stats");
-    const candidateButtons = [
-      ...globalThis.document.querySelectorAll(".modding-part-picker button"),
+    const candidateList = globalThis.document.querySelector(".modding-part-list");
+    const candidateRows = [
+      ...globalThis.document.querySelectorAll(".modding-part-row"),
     ];
-    const candidate = candidateButtons.find(
-      (button) => button.querySelector(".modding-part-performance"),
-    ) ?? candidateButtons[0];
+    const candidate = candidateRows.find(
+      (row) => row.querySelector(".modding-part-performance"),
+    ) ?? candidateRows[0];
+    const pricedCandidate = candidateRows.find((row) => {
+      const trader = row.querySelector('[data-price-kind="trader"]');
+      const flea = row.querySelector('[data-price-kind="flea"]');
+      return trader?.getAttribute("data-empty") !== "true" &&
+        flea?.getAttribute("data-empty") !== "true";
+    });
+    const candidatePreview = candidate?.querySelector(".modding-part-preview");
     const candidateImage = candidate?.querySelector(".modding-part-image");
     const candidateDetails = candidate?.querySelector(".modding-part-details");
     const candidateName = candidate?.querySelector(".modding-part-name");
@@ -76,15 +84,26 @@ async function assertWeaponModdingDesktopLayout(page) {
     const candidateShortName = candidateSummary?.querySelector("small");
     const candidatePerformance = candidateSummary?.querySelector(".modding-part-performance");
     const candidateCommerce = candidate?.querySelector(".modding-part-commerce");
+    const traderCell = pricedCandidate?.querySelector('[data-price-kind="trader"]');
+    const fleaCell = pricedCandidate?.querySelector('[data-price-kind="flea"]');
+    const traderValue = traderCell?.querySelector(".modding-price-value");
+    const fleaValue = fleaCell?.querySelector(".modding-price-value");
     const installedPartName = installed.querySelector(".modding-slot-select strong");
-    if (![picker, stage, installed, image, stats, candidate, candidateImage,
+    if (![picker, stage, installed, image, stats, candidateList, candidate,
+      candidatePreview, candidateImage,
       candidateDetails, candidateName, candidateSummary, candidateShortName,
-      candidatePerformance, candidateCommerce, installedPartName].every(
+      candidatePerformance, candidateCommerce, traderCell, fleaCell, traderValue,
+      fleaValue, installedPartName].every(
       (element) => element instanceof globalThis.HTMLElement,
     )) return null;
     const rect = (element) => element.getBoundingClientRect();
+    const listRect = rect(candidateList);
     const nameStyle = globalThis.getComputedStyle(candidateName);
     const installedNameStyle = globalThis.getComputedStyle(installedPartName);
+    const fullyVisibleRows = candidateRows.filter((row) => {
+      const rowRect = rect(row);
+      return rowRect.top >= listRect.top - 1 && rowRect.bottom <= listRect.bottom + 1;
+    }).length;
     return {
       picker: rect(picker),
       stage: rect(stage),
@@ -92,6 +111,7 @@ async function assertWeaponModdingDesktopLayout(page) {
       image: rect(image),
       stats: rect(stats),
       candidate: rect(candidate),
+      candidatePreview: rect(candidatePreview),
       candidateImage: rect(candidateImage),
       candidateDetails: rect(candidateDetails),
       candidateName: rect(candidateName),
@@ -99,6 +119,12 @@ async function assertWeaponModdingDesktopLayout(page) {
       candidateShortName: rect(candidateShortName),
       candidatePerformance: rect(candidatePerformance),
       candidateCommerce: rect(candidateCommerce),
+      fullyVisibleRows,
+      priceCellsInOrder: Boolean(
+        traderCell.compareDocumentPosition(fleaCell) &
+          globalThis.Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+      priceValueOffset: Math.abs(rect(traderValue).top - rect(fleaValue).top),
       candidateNameWhiteSpace: nameStyle.whiteSpace,
       candidateNameTextOverflow: nameStyle.textOverflow,
       installedNameWhiteSpace: installedNameStyle.whiteSpace,
@@ -118,8 +144,8 @@ async function assertWeaponModdingDesktopLayout(page) {
     `Current build is not below the weapon image: ${JSON.stringify(geometry)}`,
   );
   assert(
-    geometry.candidateImage.left < geometry.candidateDetails.left &&
-      geometry.candidateImage.right <= geometry.candidateDetails.left + 2 &&
+    geometry.candidatePreview.left < geometry.candidateDetails.left &&
+      geometry.candidatePreview.right <= geometry.candidateDetails.left + 2 &&
       geometry.candidateName.top < geometry.candidateSummary.top &&
       Math.abs(geometry.candidateShortName.top - geometry.candidatePerformance.top) <= 4 &&
       geometry.candidateCommerce.top >= geometry.candidateSummary.bottom - 2 &&
@@ -128,6 +154,18 @@ async function assertWeaponModdingDesktopLayout(page) {
       geometry.installedNameWhiteSpace === "normal" &&
       geometry.installedNameTextOverflow !== "ellipsis",
     `Compatible part row hierarchy is incorrect: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.candidate.height < 96 && geometry.candidatePreview.width <= 60,
+    `Compatible part rows are not compact enough: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.fullyVisibleRows >= 7,
+    `Expected at least seven fully visible part rows: ${JSON.stringify(geometry)}`,
+  );
+  assert(
+    geometry.priceCellsInOrder && geometry.priceValueOffset <= 2,
+    `Trader and flea values are out of order or misaligned: ${JSON.stringify(geometry)}`,
   );
 }
 
@@ -375,11 +413,32 @@ try {
     .click();
   const compatiblePartList = page.getByRole("list", { name: "호환 부품 목록" });
   await compatiblePartList.getByRole("button").first().waitFor();
-  const cqrChoice = compatiblePartList.getByRole("button", { name: /Hera Arms CQR/ });
+  const cqrChoice = compatiblePartList.getByRole("button", { name: /Hera Arms CQR.*장착$/ });
   await cqrChoice.waitFor();
   assert(
     (await cqrChoice.textContent())?.includes("선택 시 자동 해제"),
     "M4A1 combination stock must remain visible with its automatic-removal warning",
+  );
+  const previewButton = compatiblePartList.getByRole("button", { name: /이미지 크게 보기$/ }).first();
+  await previewButton.hover();
+  const previewStyles = await previewButton.evaluate((button) => {
+    const image = button.querySelector("img");
+    return {
+      cursor: globalThis.getComputedStyle(button).cursor,
+      filter: image ? globalThis.getComputedStyle(image).filter : "none",
+    };
+  });
+  assert(
+    previewStyles.cursor === "zoom-in" && previewStyles.filter !== "none",
+    `Candidate thumbnail does not signal image zoom: ${JSON.stringify(previewStyles)}`,
+  );
+  await previewButton.click();
+  await page.getByRole("dialog", { name: /이미지$/ }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog", { name: /이미지$/ }).waitFor({ state: "detached" });
+  assert(
+    await previewButton.evaluate((button) => globalThis.document.activeElement === button),
+    "Closing a part image preview must restore thumbnail focus",
   );
   await assertWeaponHotspotLabels(page, "weapon modding 1440px viewport");
   await assertWeaponModdingDesktopLayout(page);
@@ -406,6 +465,8 @@ try {
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-768.png"), fullPage: true });
 
   await page.setViewportSize({ width: 320, height: 720 });
+  await page.getByRole("button", { name: "필터·정렬" }).click();
+  await page.getByRole("region", { name: "부품 필터와 정렬" }).waitFor();
   await assertNoHorizontalOverflow(page, "weapon modding 320px viewport");
   await assertWeaponModdingStackedLayout(page, "weapon modding 320px viewport");
   assert(
@@ -415,6 +476,7 @@ try {
     "Weapon hotspots should defer to the slot tree on narrow screens",
   );
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-320.png"), fullPage: true });
+  await page.getByRole("button", { name: "필터·정렬" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
   assert(weaponCatalogRequests === 1, `Expected one modding catalog request, got ${weaponCatalogRequests}`);
   await page.getByRole("tab", { name: "아이템" }).click();

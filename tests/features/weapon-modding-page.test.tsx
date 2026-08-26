@@ -381,7 +381,7 @@ describe("WeaponModdingPage", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(previewButton).toHaveFocus();
+    await waitFor(() => expect(previewButton).toHaveFocus());
 
     fireEvent.click(equipButton);
     expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
