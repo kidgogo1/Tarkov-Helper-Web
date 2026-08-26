@@ -131,6 +131,44 @@ async function assertWeaponModdingDesktopLayout(page) {
   );
 }
 
+async function assertWeaponHotspotLabels(page, label) {
+  const result = await page.evaluate(() => {
+    const container = globalThis.document.querySelector(".modding-weapon-image");
+    const buttons = [...globalThis.document.querySelectorAll(".modding-hotspots > button")];
+    if (!(container instanceof globalThis.HTMLElement) || !buttons.every(
+      (button) => button instanceof globalThis.HTMLElement,
+    )) return null;
+    const containerRect = container.getBoundingClientRect();
+    const rectangles = buttons.map((button) => {
+      const rect = button.getBoundingClientRect();
+      return {
+        name: button.textContent?.replace(/\s+/g, " ").trim() ?? "unknown",
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      };
+    });
+    const clipped = rectangles.filter((rect) =>
+      rect.left < containerRect.left - 1 || rect.right > containerRect.right + 1 ||
+      rect.top < containerRect.top - 1 || rect.bottom > containerRect.bottom + 1,
+    ).map((rect) => rect.name);
+    const overlaps = [];
+    for (const [index, rect] of rectangles.entries()) {
+      for (const other of rectangles.slice(index + 1)) {
+        if (
+          rect.left < other.right - 1 && rect.right > other.left + 1 &&
+          rect.top < other.bottom - 1 && rect.bottom > other.top + 1
+        ) overlaps.push(`${rect.name} <> ${other.name}`);
+      }
+    }
+    return { clipped, overlaps };
+  });
+  assert(result, `${label}: hotspot labels were unavailable`);
+  assert(result.clipped.length === 0, `${label}: clipped hotspot labels: ${result.clipped.join(", ")}`);
+  assert(result.overlaps.length === 0, `${label}: overlapping hotspot labels: ${result.overlaps.join(", ")}`);
+}
+
 async function assertWeaponModdingTabletLayout(page) {
   const geometry = await page.evaluate(() => {
     const workbench = globalThis.document.querySelector(".modding-workbench");
@@ -332,7 +370,9 @@ try {
     await weaponHotspots.count() > 6,
     "M4A1 must expose installed-part nested slots as central hotspots",
   );
-  await weaponHotspots.first().click();
+  await page.getByRole("group", { name: "총기 부위 선택" })
+    .getByRole("button", { name: /^권총 손잡이/ })
+    .click();
   const compatiblePartList = page.getByRole("list", { name: "호환 부품 목록" });
   await compatiblePartList.getByRole("button").first().waitFor();
   const cqrChoice = compatiblePartList.getByRole("button", { name: /Hera Arms CQR/ });
@@ -341,14 +381,24 @@ try {
     (await cqrChoice.textContent())?.includes("선택 시 자동 해제"),
     "M4A1 combination stock must remain visible with its automatic-removal warning",
   );
+  await assertWeaponHotspotLabels(page, "weapon modding 1440px viewport");
   await assertWeaponModdingDesktopLayout(page);
   await assertNoHorizontalOverflow(page, "weapon modding desktop");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1440.png"), fullPage: true });
 
+  await page.setViewportSize({ width: 1221, height: 800 });
+  await assertNoHorizontalOverflow(page, "weapon modding 1221px viewport");
+  await assertWeaponHotspotLabels(page, "weapon modding 1221px viewport");
+
   await page.setViewportSize({ width: 1024, height: 800 });
   await assertNoHorizontalOverflow(page, "weapon modding 1024px viewport");
+  await assertWeaponHotspotLabels(page, "weapon modding 1024px viewport");
   await assertWeaponModdingTabletLayout(page);
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1024.png"), fullPage: true });
+
+  await page.setViewportSize({ width: 861, height: 800 });
+  await assertNoHorizontalOverflow(page, "weapon modding 861px viewport");
+  await assertWeaponHotspotLabels(page, "weapon modding 861px viewport");
 
   await page.setViewportSize({ width: 768, height: 800 });
   await assertNoHorizontalOverflow(page, "weapon modding 768px viewport");

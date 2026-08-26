@@ -24,63 +24,35 @@ const SLOT_POSITIONS: ReadonlyArray<{
   { match: /tactical|전술/, x: 38, y: 26 },
 ];
 
-const MIN_X = 8;
-const MAX_X = 92;
-const MIN_Y = 8;
-const MAX_Y = 92;
-const MIN_HORIZONTAL_CLEARANCE = 12;
-const MIN_VERTICAL_CLEARANCE = 9;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+// The visible workbench is never narrower than 500px while hotspots are shown.
+// Four columns keep the fixed 112px labels apart at that minimum width; the
+// eight rows likewise clear the fixed 42px label height in the 390px stage.
+const HOTSPOT_COLUMNS = [12, 37, 63, 88] as const;
+const HOTSPOT_ROWS = [8, 20, 32, 44, 56, 68, 80, 92] as const;
+const HOTSPOT_GRID = HOTSPOT_ROWS.flatMap((y) =>
+  HOTSPOT_COLUMNS.map((x) => ({ x, y })),
+);
 
 export function layoutWeaponHotspots(
   slots: readonly WeaponSlotRule[],
 ): Array<{ x: number; y: number }> {
   const usedPositionKeys = new Set<string>();
-  const usedPositions: Array<{ x: number; y: number }> = [];
   return slots.map((slot, index) => {
     const base = slotPosition(slot, index);
-    const maximumAttempts = Math.max(256, slots.length * 32);
-    for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-      const position = offsetPosition(base, attempt);
-      const key = positionKey(position);
-      if (
-        usedPositionKeys.has(key) ||
-        usedPositions.some((used) => !hasLabelClearance(position, used))
-      ) continue;
-      usedPositionKeys.add(key);
-      usedPositions.push(position);
-      return position;
-    }
-    const fallback = fallbackPosition(usedPositionKeys, slots.length);
-    usedPositions.push(fallback);
-    return fallback;
+    const position = HOTSPOT_GRID
+      .filter((candidate) => !usedPositionKeys.has(positionKey(candidate)))
+      .sort((left, right) => distanceSquared(left, base) - distanceSquared(right, base))[0]
+      ?? fallbackPosition(usedPositionKeys, slots.length);
+    usedPositionKeys.add(positionKey(position));
+    return position;
   });
 }
 
-function hasLabelClearance(
+function distanceSquared(
   left: { x: number; y: number },
   right: { x: number; y: number },
-): boolean {
-  return Math.abs(left.x - right.x) >= MIN_HORIZONTAL_CLEARANCE ||
-    Math.abs(left.y - right.y) >= MIN_VERTICAL_CLEARANCE;
-}
-
-function offsetPosition(
-  base: { x: number; y: number },
-  attempt: number,
-): { x: number; y: number } {
-  if (attempt === 0) {
-    return {
-      x: round(clamp(base.x, MIN_X, MAX_X)),
-      y: round(clamp(base.y, MIN_Y, MAX_Y)),
-    };
-  }
-  const radius = 7 * Math.sqrt(attempt);
-  const angle = attempt * GOLDEN_ANGLE;
-  return {
-    x: round(clamp(base.x + Math.cos(angle) * radius, MIN_X, MAX_X)),
-    y: round(clamp(base.y + Math.sin(angle) * radius, MIN_Y, MAX_Y)),
-  };
+): number {
+  return (left.x - right.x) ** 2 + (left.y - right.y) ** 2;
 }
 
 function fallbackPosition(
@@ -90,8 +62,8 @@ function fallbackPosition(
   const dimension = Math.ceil(Math.sqrt(Math.max(4, slotCount * 4)));
   for (let index = 0; index < dimension * dimension; index += 1) {
     const position = {
-      x: round(MIN_X + ((index % dimension) + 0.5) * (MAX_X - MIN_X) / dimension),
-      y: round(MIN_Y + (Math.floor(index / dimension) + 0.5) * (MAX_Y - MIN_Y) / dimension),
+      x: round(12 + ((index % dimension) + 0.5) * 76 / dimension),
+      y: round(8 + (Math.floor(index / dimension) + 0.5) * 84 / dimension),
     };
     const key = positionKey(position);
     if (usedPositions.has(key)) continue;
@@ -103,10 +75,6 @@ function fallbackPosition(
 
 function positionKey(position: { x: number; y: number }): string {
   return `${position.x}:${position.y}`;
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function round(value: number): number {

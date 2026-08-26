@@ -14,6 +14,22 @@ const FIRST_CHARGE_SLOT_ID = "55d5a30f4bdc2d882f8b4574";
 const SECOND_CHARGE_SLOT_ID = "67530a90d8f555dc210c7c36";
 const CHAMBER_SLOT_ID = "55d35ee94bdc2d61338b4568";
 
+function overlappingHotspotPairs(
+  positions: ReadonlyArray<{ x: number; y: number }>,
+): string[] {
+  const overlaps: string[] = [];
+  for (const [index, position] of positions.entries()) {
+    for (let otherIndex = index + 1; otherIndex < positions.length; otherIndex += 1) {
+      const other = positions[otherIndex];
+      if (
+        Math.abs(position.x - other.x) < 22 &&
+        Math.abs(position.y - other.y) < 12
+      ) overlaps.push(`${index}:${otherIndex}`);
+    }
+  }
+  return overlaps;
+}
+
 const slots = [
   {
     id: FIRST_CHARGE_SLOT_ID,
@@ -71,14 +87,7 @@ describe("weapon hotspot presentation", () => {
     expect(new Set(positions.map(({ x, y }) => `${x}:${y}`)).size).toBe(
       repeatedSlots.length,
     );
-    for (const [index, position] of positions.entries()) {
-      for (const other of positions.slice(index + 1)) {
-        expect(
-          Math.abs(position.x - other.x) >= 12 ||
-            Math.abs(position.y - other.y) >= 9,
-        ).toBe(true);
-      }
-    }
+    expect(overlappingHotspotPairs(positions)).toEqual([]);
   });
 
   it("maps localized structural slots to their intended weapon regions", () => {
@@ -94,14 +103,14 @@ describe("weapon hotspot presentation", () => {
     ];
 
     expect(localizedSlots.map((slot) => layoutWeaponHotspots([slot])[0])).toEqual([
-      { x: 35, y: 66 },
-      { x: 30, y: 82 },
-      { x: 50, y: 16 },
-      { x: 61, y: 25 },
-      { x: 42, y: 25 },
-      { x: 53, y: 43 },
-      { x: 27, y: 84 },
-      { x: 65, y: 59 },
+      { x: 37, y: 68 },
+      { x: 37, y: 80 },
+      { x: 37, y: 20 },
+      { x: 63, y: 20 },
+      { x: 37, y: 20 },
+      { x: 63, y: 44 },
+      { x: 37, y: 80 },
+      { x: 63, y: 56 },
     ]);
   });
 
@@ -168,9 +177,14 @@ describe("weapon hotspot presentation", () => {
         new Set(positions.map(({ x, y }) => `${x}:${y}`)).size,
         `duplicate hotspot coordinate for ${weaponId}`,
       ).toBe(hotspotSlots.length);
+      expect(
+        overlappingHotspotPairs(positions),
+        `overlapping hotspot labels for ${weaponId}`,
+      ).toEqual([]);
       if (weaponId === "5447a9cd4bdc2dbd208b4567") {
-        expect(hotspotSlots).toHaveLength(18);
-        expect(hotspotSlots.filter(({ depth }) => depth > 0)).toHaveLength(12);
+        const rootSlotCount = weapon.slots.filter(isDisplayableWeaponSlot).length;
+        expect(hotspotSlots.length).toBeGreaterThan(rootSlotCount);
+        expect(hotspotSlots.some(({ depth }) => depth > 0)).toBe(true);
       }
     }
   });

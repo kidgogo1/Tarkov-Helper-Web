@@ -458,8 +458,12 @@
   left: var(--hotspot-x);
   top: var(--hotspot-y);
   display: grid;
-  min-width: 92px;
+  width: 112px;
+  min-width: 112px;
+  max-width: 112px;
+  height: 42px;
   min-height: 42px;
+  max-height: 42px;
   translate: -50% -50%;
   border: 0;
   background: rgb(8 12 11 / 82%);
@@ -493,7 +497,7 @@
 
 .modding-hotspots strong,
 .modding-hotspots small {
-  max-width: 120px;
+  max-width: 82px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
