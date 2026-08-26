@@ -2,10 +2,8 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import bundledCatalogJson from "../../public/data/weapon-modding/catalog.json?raw";
-import {
-  collectWeaponHotspotSlots,
-  WeaponHotspots,
-} from "../../src/features/modding/WeaponHotspots";
+import { WeaponHotspots } from "../../src/features/modding/WeaponHotspots";
+import { collectWeaponHotspotSlots } from "../../src/features/modding/weapon-hotspot-slots";
 import { createFactoryBuild } from "../../src/domain/weapon-build";
 import { layoutWeaponHotspots } from "../../src/features/modding/weapon-hotspot-layout";
 import { isDisplayableWeaponSlot } from "../../src/features/modding/weapon-slot-display";
