@@ -117,6 +117,9 @@ function catalog(): WeaponCatalog {
       part("slot-conflict-magazine", ["magazine"], {
         conflicts: { slotIds: ["receiver"] },
       }),
+      part("root-conflict-magazine", ["magazine"], {
+        conflicts: { itemIds: ["weapon"] },
+      }),
       part("forbidden-category-magazine", ["banned-magazine"]),
     ],
   };
@@ -227,6 +230,7 @@ describe("weapon slot compatibility", () => {
       "magazine",
       "drum",
       "slot-conflict-magazine",
+      "root-conflict-magazine",
     ]);
   });
 });
@@ -257,6 +261,24 @@ describe("weapon build mutations", () => {
       "drum",
     ]);
     expect(validateWeaponBuild(data, result.build).isValid).toBe(true);
+  });
+
+  it("never removes the root weapon to resolve a candidate conflict", () => {
+    const data = catalog();
+    const original = createFactoryBuild(data, "weapon");
+
+    const result = replaceBuildSlotResolvingConflicts(
+      data,
+      original,
+      original.root.instanceId,
+      "magazine",
+      "root-conflict-magazine",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.build).toBe(original);
+    if (result.ok) return;
+    expect(result.issues.map((issue) => issue.code)).toContain("ITEM_CONFLICT");
   });
 
   it("replaces a slot and atomically removes the previous part's whole descendant tree", () => {

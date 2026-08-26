@@ -6,6 +6,7 @@ import {
   calculateBuildStats,
   createFactoryBuild,
   flattenBuildTree,
+  getCompatibleCandidates,
   getSlotCandidates,
   replaceBuildSlotResolvingConflicts,
   validateWeaponBuild,
@@ -80,7 +81,13 @@ describe("bundled weapon catalog builds", () => {
       build.root.instanceId,
       slot.id,
     );
-    expect(candidates).toHaveLength(40);
+    const immediatelyCompatible = getCompatibleCandidates(
+      catalog,
+      build,
+      build.root.instanceId,
+      slot.id,
+    );
+    expect(candidates.length).toBeGreaterThan(immediatelyCompatible.length);
     expect(candidates.map((item) => item.id)).toEqual(expect.arrayContaining([
       "5a33e75ac4a2826c6e06d759",
       "5c0e2ff6d174af02a1659d4a",

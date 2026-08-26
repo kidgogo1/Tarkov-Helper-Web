@@ -99,7 +99,10 @@ const catalog = {
   ],
 };
 
-afterEach(() => localStorage.clear());
+afterEach(() => {
+  localStorage.clear();
+  vi.restoreAllMocks();
+});
 
 describe("WeaponModdingPage", () => {
   it("searches a weapon, opens one of its slots, and equips a compatible part", async () => {
@@ -184,6 +187,124 @@ describe("WeaponModdingPage", () => {
     expect(within(candidateRow).getByText("인체공학 -2")).toBeInTheDocument();
   });
 
+  it("shows a slot-allowed conflicting part and confirms its automatic swap", async () => {
+    const blockerId = "5a0000000000000000000100";
+    const conflictOpticId = "5a0000000000000000000101";
+    const blockerSlotId = "5a0000000000000000000102";
+    const conflictCatalog = {
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          factoryPartIds: [blockerId],
+          slots: [
+            ...catalog.items[0].slots,
+            {
+              id: blockerSlotId,
+              name: "보조 레일",
+              allowedItemIds: [blockerId],
+            },
+          ],
+        },
+        ...catalog.items.slice(1),
+        {
+          id: blockerId,
+          kind: "part" as const,
+          name: "Blocking rail",
+          shortName: "BLOCK",
+          categories: ["Mounts"],
+        },
+        {
+          id: conflictOpticId,
+          kind: "part" as const,
+          name: "Conflict-aware optic",
+          shortName: "CAO",
+          categories: ["Sights"],
+          conflicts: { itemIds: [blockerId] },
+          stats: { ergonomics: 1 },
+        },
+      ],
+    };
+    const confirm = vi.spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(conflictCatalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+
+    const conflictChoice = screen.getByRole("button", { name: /Conflict-aware optic/ });
+    expect(conflictChoice).toHaveTextContent("선택 시 자동 해제: Blocking rail");
+    expect(screen.getByText("2개 장착 가능")).toBeInTheDocument();
+    fireEvent.click(conflictChoice);
+
+    const installedParts = screen.getByRole("region", { name: "장착·필수 파츠" });
+    expect(within(installedParts).queryByRole("button", {
+      name: /조준경.*Conflict-aware optic/,
+    })).not.toBeInTheDocument();
+    expect(within(installedParts).getByRole("button", {
+      name: /보조 레일.*Blocking rail/,
+    })).toBeInTheDocument();
+
+    fireEvent.click(conflictChoice);
+
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringMatching(
+      /Conflict-aware optic.*Blocking rail.*자동으로 해제/,
+    ));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Conflict-aware optic 장착 · Blocking rail 자동 해제",
+    );
+    expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
+      "button",
+      { name: /조준경.*Conflict-aware optic/ },
+    )).toBeInTheDocument();
+  });
+
+  it("keeps a root-conflicting slot candidate visible but disabled", async () => {
+    const blockedOpticId = "5a0000000000000000000110";
+    const blockedCatalog = {
+      ...catalog,
+      items: [
+        ...catalog.items,
+        {
+          id: blockedOpticId,
+          kind: "part" as const,
+          name: "Impossible optic",
+          shortName: "NOPE",
+          categories: ["Sights"],
+          conflicts: { itemIds: [M4A1_ID] },
+        },
+      ],
+    };
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(blockedCatalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+
+    const blockedChoice = screen.getByRole("button", { name: /Impossible optic/ });
+    expect(blockedChoice).toBeDisabled();
+    expect(blockedChoice).toHaveTextContent(
+      "장착 불가: Colt M4A1 5.56x45 assault rifle과 충돌",
+    );
+    expect(screen.getByText("1개 장착 가능 · 전체 2개")).toBeInTheDocument();
+  });
+
   it("honors a weapon selected by a safe deep link", async () => {
     render(
       <WeaponModdingPage
@@ -221,13 +342,15 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
     fireEvent.click(screen.getByRole("button", { name: /EOTech EXPS3 holographic sight/ }));
-    fireEvent.click(screen.getByRole("button", { name: /보조 장착대.*비어 있음/ }));
+    fireEvent.click(within(
+      screen.getByRole("region", { name: "장착·필수 파츠" }),
+    ).getByRole("button", { name: /보조 장착대.*비어 있음/ }));
 
-    expect(screen.getByText("0개 호환")).toBeInTheDocument();
+    expect(screen.getByText("0개 장착 가능")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "조준경 부품 제거" }));
 
     expect(screen.getByText("먼저 부위를 선택하세요")).toBeInTheDocument();
-    expect(screen.queryByText("0개 호환")).not.toBeInTheDocument();
+    expect(screen.queryByText("0개 장착 가능")).not.toBeInTheDocument();
   });
 
   it("switches a populated build to a new deep-linked weapon without blocking slot selection", async () => {

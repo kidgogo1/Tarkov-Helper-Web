@@ -3,23 +3,26 @@ import {
   CircleAlert,
   RotateCcw,
 } from "lucide-react";
-import { useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import {
   calculateBuildStats,
   centerOfImpactToMoa,
-  getCompatibleCandidates,
+  evaluateCandidateCompatibility,
+  getSlotCandidates,
   removeBuildSlot,
-  replaceBuildSlot,
+  replaceBuildSlotResolvingConflicts,
   validateWeaponBuild,
 } from "../../domain/weapon-build";
 import { formatRoubles } from "../../domain/item-prices";
 import type { ProfileType } from "../../types/data";
 import type {
+  BuildMutationResult,
   TraderOffer,
   WeaponBuild,
   WeaponCatalog,
   WeaponCatalogItem,
+  WeaponPartItem,
   WeaponSlotRule,
 } from "../../types/weapon-modding";
 import { WeaponSlotTree, type SlotSelection } from "./WeaponSlotTree";
@@ -37,6 +40,15 @@ interface WeaponWorkbenchProps {
   onSlotSelect: (selection: SlotSelection | null) => void;
 }
 
+type CandidateAvailability = "compatible" | "auto-resolvable" | "blocked";
+
+interface CandidateChoice {
+  availability: CandidateAvailability;
+  candidate: WeaponPartItem;
+  conflictItemNames: string[];
+  replacement: BuildMutationResult;
+}
+
 export function WeaponWorkbench({
   activeProfile,
   build,
@@ -48,40 +60,93 @@ export function WeaponWorkbench({
   onSlotSelect,
 }: WeaponWorkbenchProps) {
   const partPickerRef = useRef<HTMLElement>(null);
+  const [swapNotice, setSwapNotice] = useState<string | null>(null);
   const weapon = itemById.get(build.weaponId);
-  if (!weapon || weapon.kind !== "weapon") return null;
-
-  const stats = calculateBuildStats(catalog, build);
-  const validation = validateWeaponBuild(catalog, build);
-  const candidates = selectedSlot
-    ? getCompatibleCandidates(
-        catalog,
-        build,
-        selectedSlot.parentInstanceId,
-        selectedSlot.slotId,
-      )
-    : [];
-
-  const selectSlot = (selection: SlotSelection) => {
-    onSlotSelect(selection);
-    partPickerRef.current?.focus();
-  };
-
-  const replacePart = (itemId: string) => {
-    if (!selectedSlot) return;
-    const result = replaceBuildSlot(
+  const candidateChoices = useMemo<CandidateChoice[]>(() => {
+    if (!selectedSlot) return [];
+    return getSlotCandidates(
       catalog,
       build,
       selectedSlot.parentInstanceId,
       selectedSlot.slotId,
-      itemId,
-    );
-    if (result.ok) onBuildChange(result.build);
+    ).map((candidate) => {
+      const compatibility = evaluateCandidateCompatibility(
+        catalog,
+        build,
+        selectedSlot.parentInstanceId,
+        selectedSlot.slotId,
+        candidate.id,
+      );
+      const replacement = replaceBuildSlotResolvingConflicts(
+        catalog,
+        build,
+        selectedSlot.parentInstanceId,
+        selectedSlot.slotId,
+        candidate.id,
+      );
+      const conflictItemNames = [...new Set(compatibility.issues.flatMap((issue) => {
+        if (
+          issue.code !== "ITEM_CONFLICT" &&
+          issue.code !== "SLOT_CONFLICT"
+        ) return [];
+        const relatedItem = issue.relatedItemId
+          ? itemById.get(issue.relatedItemId)
+          : undefined;
+        return [relatedItem?.nameKo ?? relatedItem?.name ?? issue.relatedItemId]
+          .filter((name): name is string => Boolean(name));
+      }))];
+      return {
+        availability: compatibility.isValid
+          ? "compatible"
+          : replacement.ok ? "auto-resolvable" : "blocked",
+        candidate,
+        conflictItemNames,
+        replacement,
+      };
+    });
+  }, [
+    build,
+    catalog,
+    itemById,
+    selectedSlot,
+  ]);
+  if (!weapon || weapon.kind !== "weapon") return null;
+
+  const stats = calculateBuildStats(catalog, build);
+  const validation = validateWeaponBuild(catalog, build);
+  const selectableCandidateCount = candidateChoices.filter(
+    ({ replacement }) => replacement.ok,
+  ).length;
+
+  const selectSlot = (selection: SlotSelection) => {
+    setSwapNotice(null);
+    onSlotSelect(selection);
+    partPickerRef.current?.focus();
+  };
+
+  const replacePart = (choice: CandidateChoice) => {
+    if (!selectedSlot || !choice.replacement.ok) return;
+    const candidateName = choice.candidate.nameKo ?? choice.candidate.name;
+    const conflictNames = choice.conflictItemNames.length
+      ? choice.conflictItemNames.join(", ")
+      : "충돌하는 기존 부품";
+    if (
+      choice.availability === "auto-resolvable" &&
+      !window.confirm(
+        `${candidateName}을 장착하면 ${conflictNames}이 자동으로 해제됩니다. 계속할까요?`,
+      )
+    ) return;
+
+    onBuildChange(choice.replacement.build);
+    setSwapNotice(choice.availability === "auto-resolvable"
+      ? `${candidateName} 장착 · ${conflictNames} 자동 해제`
+      : null);
   };
 
   const removePart = (parentInstanceId: string, slot: WeaponSlotRule) => {
     const result = removeBuildSlot(build, parentInstanceId, slot.id);
     if (!result.ok) return;
+    setSwapNotice(null);
     onBuildChange(result.build);
     if (selectedSlot && result.removedNodes.some(
       (node) => node.instanceId === selectedSlot.parentInstanceId,
@@ -101,7 +166,13 @@ export function WeaponWorkbench({
           </div>
           <div className="modding-stage-actions">
             <span className="modding-image-note">상점 기본 외형 · 참고 이미지</span>
-            <button onClick={onReset} type="button">
+            <button
+              onClick={() => {
+                setSwapNotice(null);
+                onReset();
+              }}
+              type="button"
+            >
               <RotateCcw aria-hidden="true" size={14} />
               기본 구성으로 초기화
             </button>
@@ -153,14 +224,26 @@ export function WeaponWorkbench({
       >
         <header aria-live="polite">
           <span>부품 선택</span>
-          <small>{selectedSlot ? `${candidates.length}개 호환` : "먼저 부위를 선택하세요"}</small>
+          <small>{selectedSlot
+            ? selectableCandidateCount === candidateChoices.length
+              ? `${selectableCandidateCount}개 장착 가능`
+              : `${selectableCandidateCount}개 장착 가능 · 전체 ${candidateChoices.length}개`
+            : "먼저 부위를 선택하세요"}</small>
         </header>
+        {swapNotice ? <p className="modding-swap-notice" role="status">{swapNotice}</p> : null}
         {selectedSlot ? (
-          candidates.length ? (
+          candidateChoices.length ? (
             <ul aria-label="호환 부품 목록" className="modding-part-list">
-              {candidates.map((candidate) => (
+              {candidateChoices.map((choice) => {
+                const { availability, candidate, conflictItemNames, replacement } = choice;
+                return (
                 <li key={candidate.id}>
-                  <button onClick={() => replacePart(candidate.id)} type="button">
+                  <button
+                    className={availability}
+                    disabled={!replacement.ok}
+                    onClick={() => replacePart(choice)}
+                    type="button"
+                  >
                     <span className="modding-part-image" aria-hidden="true">
                       <WeaponItemImage
                         alt=""
@@ -177,13 +260,23 @@ export function WeaponWorkbench({
                         <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
                         <PartPerformance item={candidate} />
                       </span>
+                      {availability !== "compatible" ? (
+                        <span className={`modding-part-conflict ${availability}`}>
+                          {availability === "auto-resolvable"
+                            ? `선택 시 자동 해제: ${conflictItemNames.join(", ") || "충돌하는 기존 부품"}`
+                            : conflictItemNames.length
+                              ? `장착 불가: ${conflictItemNames.join(", ")}과 충돌`
+                              : "장착 불가: 현재 총기 또는 상위 부품과 충돌"}
+                        </span>
+                      ) : null}
                       <PartPrice activeProfile={activeProfile} item={candidate} />
                     </span>
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
-          ) : <p className="modding-picker-empty">현재 구성과 호환되는 부품이 없습니다.</p>
+          ) : <p className="modding-picker-empty">이 슬롯에 등록된 부품이 없습니다.</p>
         ) : <p className="modding-picker-empty">총기 이미지 주변이나 장착 트리에서 부위를 선택하세요.</p>}
       </aside>
     </div>
