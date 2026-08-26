@@ -29,6 +29,38 @@ const catalog = {
         ergonomics: 50,
         weight: 3,
       },
+      traderOffersByProfile: {
+        pvp: [{
+          traderId: "5a7c2eca46aef81a7ca2145d",
+          traderName: "Mechanic",
+          price: 20_000,
+          priceRoubles: 20_000,
+          currency: "RUB",
+          loyaltyLevel: 1,
+        }],
+        pve: [{
+          traderId: "5a7c2eca46aef81a7ca2145d",
+          traderName: "Mechanic",
+          price: 18_000,
+          priceRoubles: 18_000,
+          currency: "RUB",
+          loyaltyLevel: 1,
+        }],
+      },
+      fleaByProfile: {
+        pvp: {
+          price: 25_000,
+          currency: "RUB",
+          updatedAt: "2026-08-26T00:00:00.000Z",
+          minimumPlayerLevel: 15,
+        },
+        pve: {
+          price: 22_000,
+          currency: "RUB",
+          updatedAt: "2026-08-26T00:00:00.000Z",
+          minimumPlayerLevel: 25,
+        },
+      },
       slots: [
         {
           id: SCOPE_SLOT_ID,
@@ -191,6 +223,104 @@ describe("WeaponModdingPage", () => {
     expect(within(candidateRow).getByText("EXPS3")).toBeInTheDocument();
     expect(within(candidateRow).getByText("부품 효과")).toBeInTheDocument();
     expect(within(candidateRow).getByText("인체공학 -2")).toBeInTheDocument();
+  });
+
+  it("shows weapon prices, part totals, and required trader levels above the current build", async () => {
+    const view = render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    const priceSummary = screen.getByRole("region", { name: "빌드 가격 요약" });
+    const buildStats = screen.getByRole("region", { name: "무기 능력치" });
+    expect(priceSummary.compareDocumentPosition(buildStats) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+
+    const weaponPrices = within(priceSummary).getByRole("region", {
+      name: "원본 총기 가격",
+    });
+    expect(within(weaponPrices).getByText("상점 최저")).toBeInTheDocument();
+    expect(within(weaponPrices).getByText("Mechanic LL1")).toBeInTheDocument();
+    expect(within(weaponPrices).getAllByText("₽20,000")).toHaveLength(2);
+    expect(within(weaponPrices).getByText("₽25,000")).toBeInTheDocument();
+
+    const partPrices = within(priceSummary).getByRole("region", {
+      name: "현재 장착 부품 가격 비교",
+    });
+    expect(within(partPrices).getByText("장착 부품 0개 · 원본 총기 제외"))
+      .toBeInTheDocument();
+    for (const planName of ["상인만 부품 가격", "플리만 부품 가격", "최저가 부품 가격"]) {
+      expect(within(within(partPrices).getByRole("region", { name: planName }))
+        .getByText("₽0")).toBeInTheDocument();
+    }
+
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    }));
+
+    expect(within(partPrices).getByText("장착 부품 1개 · 원본 총기 제외"))
+      .toBeInTheDocument();
+    expect(within(within(partPrices).getByRole("region", {
+      name: "상인만 부품 가격",
+    })).getByText("₽6,000")).toBeInTheDocument();
+    expect(within(within(partPrices).getByRole("region", {
+      name: "플리만 부품 가격",
+    })).getByText("₽45,000")).toBeInTheDocument();
+    expect(within(within(partPrices).getByRole("region", {
+      name: "최저가 부품 가격",
+    })).getByText("₽6,000")).toBeInTheDocument();
+
+    const requirements = within(priceSummary).getByRole("region", {
+      name: "장착 부품 상인 요구 조건",
+    });
+    expect(within(requirements).getAllByText("Peacekeeper LL2")).toHaveLength(2);
+    expect(within(requirements).getAllByText(/약사/)).toHaveLength(2);
+
+    view.rerender(
+      <WeaponModdingPage
+        activeProfile="pve"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+    expect(within(weaponPrices).getAllByText("₽18,000")).toHaveLength(2);
+    expect(within(weaponPrices).getByText("₽22,000")).toBeInTheDocument();
+    expect(within(within(partPrices).getByRole("region", {
+      name: "상인만 부품 가격",
+    })).getByText("₽5,000")).toBeInTheDocument();
+  });
+
+  it("does not present missing build prices as zero", async () => {
+    const missingPriceCatalog = {
+      ...catalog,
+      items: [{
+        ...catalog.items[0],
+        fleaByProfile: undefined,
+        traderOffersByProfile: undefined,
+      }, ...catalog.items.slice(1)],
+    };
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(missingPriceCatalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    const weaponPrices = within(
+      screen.getByRole("region", { name: "빌드 가격 요약" }),
+    ).getByRole("region", { name: "원본 총기 가격" });
+    expect(within(weaponPrices).getAllByText("계산 불가")).toHaveLength(3);
+    expect(within(weaponPrices).getAllByText("가격 정보 없음 1개")).toHaveLength(3);
+    expect(within(weaponPrices).queryByText("₽0")).not.toBeInTheDocument();
   });
 
   it("combines candidate filters and lets users reorder multiple sort priorities", async () => {

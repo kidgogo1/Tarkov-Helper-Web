@@ -62,6 +62,7 @@ async function assertWeaponModdingDesktopLayout(page) {
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
     const installed = globalThis.document.querySelector(".modding-installed-parts");
     const image = globalThis.document.querySelector(".modding-weapon-image");
+    const priceSummary = globalThis.document.querySelector(".modding-build-price-summary");
     const stats = globalThis.document.querySelector(".modding-stats");
     const candidateList = globalThis.document.querySelector(".modding-part-list");
     const candidateRows = [
@@ -89,7 +90,7 @@ async function assertWeaponModdingDesktopLayout(page) {
     const traderValue = traderCell?.querySelector(".modding-price-value");
     const fleaValue = fleaCell?.querySelector(".modding-price-value");
     const installedPartName = installed.querySelector(".modding-slot-select strong");
-    if (![picker, stage, installed, image, stats, candidateList, candidate,
+    if (![picker, stage, installed, image, priceSummary, stats, candidateList, candidate,
       candidatePreview, candidateImage,
       candidateDetails, candidateName, candidateSummary, candidateShortName,
       candidatePerformance, candidateCommerce, traderCell, fleaCell, traderValue,
@@ -109,6 +110,7 @@ async function assertWeaponModdingDesktopLayout(page) {
       stage: rect(stage),
       installed: rect(installed),
       image: rect(image),
+      priceSummary: rect(priceSummary),
       stats: rect(stats),
       candidate: rect(candidate),
       candidatePreview: rect(candidatePreview),
@@ -138,10 +140,13 @@ async function assertWeaponModdingDesktopLayout(page) {
     `Weapon workbench columns are out of order: ${JSON.stringify(geometry)}`,
   );
   assert(
-    geometry.stats.top >= geometry.image.bottom - 2 &&
+    geometry.priceSummary.top >= geometry.image.bottom - 2 &&
+      geometry.stats.top >= geometry.priceSummary.bottom - 2 &&
+      Math.abs(geometry.priceSummary.left - geometry.stage.left) <= 2 &&
+      Math.abs(geometry.priceSummary.right - geometry.stage.right) <= 2 &&
       Math.abs(geometry.stats.left - geometry.stage.left) <= 2 &&
       Math.abs(geometry.stats.right - geometry.stage.right) <= 2,
-    `Current build is not below the weapon image: ${JSON.stringify(geometry)}`,
+    `Build prices and current stats are not below the weapon image in order: ${JSON.stringify(geometry)}`,
   );
   assert(
     geometry.candidatePreview.left < geometry.candidateDetails.left &&
@@ -240,8 +245,9 @@ async function assertWeaponModdingStackedLayout(page, label) {
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
     const installed = globalThis.document.querySelector(".modding-installed-parts");
     const image = globalThis.document.querySelector(".modding-weapon-image");
+    const priceSummary = globalThis.document.querySelector(".modding-build-price-summary");
     const stats = globalThis.document.querySelector(".modding-stats");
-    if (![picker, stage, installed, image, stats].every(
+    if (![picker, stage, installed, image, priceSummary, stats].every(
       (element) => element instanceof globalThis.HTMLElement,
     )) return null;
     const rect = (element) => element.getBoundingClientRect();
@@ -250,12 +256,14 @@ async function assertWeaponModdingStackedLayout(page, label) {
       stage: rect(stage),
       installed: rect(installed),
       image: rect(image),
+      priceSummary: rect(priceSummary),
       stats: rect(stats),
     };
   });
   assert(geometry, `${label}: stacked layout elements were unavailable`);
   assert(
-    geometry.stats.top >= geometry.image.bottom - 2 &&
+    geometry.priceSummary.top >= geometry.image.bottom - 2 &&
+      geometry.stats.top >= geometry.priceSummary.bottom - 2 &&
       geometry.stage.bottom <= geometry.installed.top + 2 &&
       geometry.installed.bottom <= geometry.picker.top + 2,
     `${label}: stacked workbench order is incorrect: ${JSON.stringify(geometry)}`,
@@ -402,6 +410,16 @@ try {
   await weaponSearch.fill("M4A1");
   await page.getByRole("button", { name: /Colt M4A1/ }).click();
   await page.getByRole("heading", { name: /Colt M4A1/ }).waitFor();
+  const buildPriceSummary = page.getByRole("region", { name: "빌드 가격 요약" });
+  await buildPriceSummary.waitFor();
+  assert(
+    await buildPriceSummary.getByRole("region", { name: "원본 총기 가격" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "상인만 부품 가격" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "플리만 부품 가격" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "최저가 부품 가격" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "장착 부품 상인 요구 조건" }).count() === 1,
+    "Build price summary is missing a purchase plan or trader requirement section",
+  );
   const weaponHotspots = page.getByRole("group", { name: "총기 부위 선택" })
     .getByRole("button");
   assert(

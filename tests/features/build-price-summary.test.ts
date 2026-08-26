@@ -242,4 +242,105 @@ describe("build price summary", () => {
     expect(summary.strategies.flea.weapon.totalRoubles).toBe(9_000);
     expect(summary.strategies.flea.fleaMinimumPlayerLevel).toBe(25);
   });
+
+  it("prefers flea on an exact price tie so the cheapest plan avoids an unnecessary trader level", () => {
+    const tiedPart = part("tied-part", {
+      fleaByProfile: {
+        pvp: {
+          currency: "RUB",
+          minimumPlayerLevel: 15,
+          price: 5_000,
+          updatedAt: "2026-08-26T00:00:00Z",
+        },
+      },
+      traderOffersByProfile: {
+        pvp: [{
+          currency: "RUB",
+          loyaltyLevel: 4,
+          price: 5_000,
+          priceRoubles: 5_000,
+          traderId: "mechanic",
+          traderName: "Mechanic",
+        }],
+      },
+    });
+    const tiedCatalog: WeaponCatalog = {
+      ...catalog,
+      items: [catalog.items[0], tiedPart],
+    };
+    const tiedBuild: WeaponBuild = {
+      ...build,
+      root: {
+        ...build.root,
+        children: [{
+          children: [],
+          instanceId: "root/tied",
+          itemId: tiedPart.id,
+          slotId: "tied",
+        }],
+      },
+    };
+
+    const cheapestParts = summarizeBuildPrice(tiedCatalog, tiedBuild, "pvp")
+      .strategies.cheapest.parts;
+
+    expect(cheapestParts.totalRoubles).toBe(5_000);
+    expect(cheapestParts.sourceCounts).toEqual({ flea: 1, trader: 0 });
+    expect(cheapestParts.traderRequirements).toEqual([]);
+    expect(cheapestParts.fleaMinimumPlayerLevel).toBe(15);
+  });
+
+  it("keeps only each trader's highest required level and deduplicates repeated unlock quests", () => {
+    const traderPart = (id: string, loyaltyLevel: number) => part(id, {
+      traderOffersByProfile: {
+        pvp: [{
+          currency: "RUB",
+          loyaltyLevel,
+          price: 2_000,
+          priceRoubles: 2_000,
+          questUnlock: {
+            minimumPlayerLevel: 20,
+            questId: "shared-quest",
+            questName: "Shared unlock",
+          },
+          traderId: "mechanic",
+          traderName: "Mechanic",
+        }],
+      },
+    });
+    const lowLevelPart = traderPart("low-level-part", 1);
+    const highLevelPart = traderPart("high-level-part", 4);
+    const requirementCatalog: WeaponCatalog = {
+      ...catalog,
+      items: [catalog.items[0], lowLevelPart, highLevelPart],
+    };
+    const requirementBuild: WeaponBuild = {
+      ...build,
+      root: {
+        ...build.root,
+        children: [lowLevelPart, highLevelPart].map((item, index) => ({
+          children: [],
+          instanceId: `root/requirement-${index}`,
+          itemId: item.id,
+          slotId: `requirement-${index}`,
+        })),
+      },
+    };
+
+    const traderParts = summarizeBuildPrice(requirementCatalog, requirementBuild, "pvp")
+      .strategies.trader.parts;
+
+    expect(traderParts.traderRequirements).toEqual([{
+      loyaltyLevel: 4,
+      traderId: "mechanic",
+      traderName: "Mechanic",
+    }]);
+    expect(traderParts.questUnlocks).toEqual([{
+      minimumPlayerLevel: 20,
+      questId: "shared-quest",
+      questName: "Shared unlock",
+      traderId: "mechanic",
+      traderName: "Mechanic",
+    }]);
+  });
 });

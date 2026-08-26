@@ -728,7 +728,7 @@
   display: grid;
   min-width: 0;
   grid-area: stage;
-  grid-template-rows: auto minmax(330px, 1fr) auto;
+  grid-template-rows: auto minmax(330px, 1fr) auto auto;
   background:
     radial-gradient(circle at 55% 42%, rgb(38 79 75 / 30%), transparent 44%),
     linear-gradient(145deg, #111715, #090c0b);
@@ -982,6 +982,234 @@
   color: var(--danger);
 }
 
+.modding-build-price-summary {
+  min-width: 0;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+  background:
+    linear-gradient(90deg, rgb(238 190 55 / 4%), transparent 34%),
+    rgb(8 12 11 / 82%);
+}
+
+.modding-build-price-heading,
+.modding-base-weapon-prices > header,
+.modding-parts-price-comparison > header,
+.modding-trader-requirements > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.modding-build-price-heading {
+  min-height: 34px;
+  border-bottom: 1px solid var(--line);
+  padding: 7px 12px;
+}
+
+.modding-build-price-heading > div,
+.modding-base-weapon-prices > header > div,
+.modding-parts-price-comparison > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.modding-build-price-heading svg,
+.modding-base-weapon-prices > header svg,
+.modding-parts-price-comparison > header svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.modding-build-price-heading strong,
+.modding-base-weapon-prices > header strong,
+.modding-parts-price-comparison > header strong,
+.modding-trader-requirements > header strong {
+  font-size: 11px;
+}
+
+.modding-build-price-heading small,
+.modding-base-weapon-prices > header small,
+.modding-parts-price-comparison > header small,
+.modding-trader-requirements > header small {
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.modding-price-profile {
+  border: 1px solid rgb(110 183 255 / 28%);
+  border-radius: 3px;
+  background: rgb(110 183 255 / 9%);
+  padding: 1px 4px;
+  color: var(--info);
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.modding-build-price-body {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.82fr) minmax(330px, 1.18fr);
+}
+
+.modding-base-weapon-prices,
+.modding-parts-price-comparison {
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.modding-base-weapon-prices {
+  border-right: 1px solid var(--line);
+}
+
+.modding-base-weapon-prices > header,
+.modding-parts-price-comparison > header {
+  margin-bottom: 6px;
+}
+
+.modding-base-weapon-prices dl,
+.modding-parts-price-plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+}
+
+.modding-base-weapon-prices dl > div,
+.modding-price-plan {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 2.5%);
+  padding: 6px 7px;
+}
+
+.modding-base-weapon-prices dt,
+.modding-price-plan > span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modding-base-weapon-prices dd,
+.modding-price-plan > strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.modding-base-weapon-prices dd {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.modding-base-weapon-prices dl small,
+.modding-price-plan > small {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 8px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modding-price-plan.trader > strong {
+  color: var(--accent);
+}
+
+.modding-price-plan.flea > strong {
+  color: var(--info);
+}
+
+.modding-price-plan.cheapest {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
+}
+
+.modding-price-plan.cheapest > strong {
+  color: var(--success);
+}
+
+.modding-trader-requirements {
+  border-top: 1px solid var(--line);
+  padding: 7px 10px;
+}
+
+.modding-trader-requirements > header {
+  margin-bottom: 5px;
+}
+
+.modding-trader-requirements > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.modding-requirement-plan {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.modding-requirement-plan > span {
+  color: var(--text-dim);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.modding-requirement-chips {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.modding-requirement-chips strong,
+.modding-requirement-chips em {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 3%);
+  padding: 2px 5px;
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1.2;
+}
+
+.modding-requirement-chips strong {
+  color: var(--accent);
+}
+
+.modding-requirement-chips em {
+  color: var(--info);
+}
+
+.modding-requirement-chips small {
+  color: var(--text-dim);
+  font-size: 8px;
+}
+
+.modding-build-price-note {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  padding: 5px 10px 6px;
+  color: var(--text-dim);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
 .modding-stats > header strong {
   font-size: 11px;
 }
@@ -1144,7 +1372,7 @@
   }
 
   .modding-weapon-stage {
-    grid-template-rows: auto 220px auto;
+    grid-template-rows: auto 220px auto auto;
   }
 
   .modding-weapon-image {
@@ -1154,6 +1382,15 @@
 
   .modding-stats dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modding-build-price-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .modding-base-weapon-prices {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -1215,6 +1452,28 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
+  }
+
+  .modding-build-price-heading > small,
+  .modding-base-weapon-prices > header small,
+  .modding-trader-requirements > header small {
+    display: none;
+  }
+
+  .modding-base-weapon-prices dl,
+  .modding-parts-price-plans,
+  .modding-trader-requirements > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .modding-base-weapon-prices dl > div,
+  .modding-price-plan {
+    grid-template-columns: minmax(70px, auto) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .modding-price-plan > small {
+    grid-column: 2;
   }
 }
 

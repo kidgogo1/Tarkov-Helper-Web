@@ -128,7 +128,8 @@ function selectPurchase(
   if (!buildItem.item) return { item: buildItem, source: "missing" };
 
   const traderOffer = getBestTraderOffer(buildItem.item, activeProfile);
-  const traderPrice = traderOffer ? normalizedTraderPrice(traderOffer) : undefined;
+  const normalizedPrice = traderOffer ? normalizedTraderPrice(traderOffer) : undefined;
+  const traderPrice = isUsablePrice(normalizedPrice) ? normalizedPrice : undefined;
   const flea = getProfileFleaPrice(buildItem.item, activeProfile);
   const fleaPrice = flea?.currency === "RUB" && isUsablePrice(flea.price)
     ? flea.price
@@ -137,7 +138,7 @@ function selectPurchase(
   if (strategy === "trader") {
     return {
       item: buildItem,
-      priceRoubles: isUsablePrice(traderPrice) ? traderPrice : undefined,
+      priceRoubles: traderPrice,
       source: traderOffer ? "trader" : "missing",
       traderOffer,
     };
@@ -150,7 +151,7 @@ function selectPurchase(
       source: flea ? "flea" : "missing",
     };
   }
-  if (traderPrice !== undefined && (fleaPrice === undefined || traderPrice <= fleaPrice)) {
+  if (traderPrice !== undefined && (fleaPrice === undefined || traderPrice < fleaPrice)) {
     return {
       item: buildItem,
       priceRoubles: traderPrice,

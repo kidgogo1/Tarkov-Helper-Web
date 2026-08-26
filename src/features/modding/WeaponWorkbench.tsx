@@ -21,6 +21,7 @@ import type {
   WeaponPartItem,
   WeaponSlotRule,
 } from "../../types/weapon-modding";
+import { BuildPriceSummary } from "./BuildPriceSummary";
 import { PartCandidateControls } from "./PartCandidateControls";
 import { PartCandidateRow } from "./PartCandidateRow";
 import { PartImagePreviewDialog } from "./PartImagePreviewDialog";
@@ -34,6 +35,7 @@ import {
 import { WeaponSlotTree, type SlotSelection } from "./WeaponSlotTree";
 import { WeaponHotspots } from "./WeaponHotspots";
 import { WeaponItemImage } from "./WeaponItemImage";
+import { summarizeBuildPrice } from "./build-price-summary";
 
 interface WeaponWorkbenchProps {
   activeProfile: ProfileType;
@@ -72,6 +74,10 @@ export function WeaponWorkbench({
   const [candidateSortKeys, setCandidateSortKeys] = useState<CandidateSortKey[]>([]);
   const weapon = itemById.get(build.weaponId);
   const stats = useMemo(() => calculateBuildStats(catalog, build), [build, catalog]);
+  const priceSummary = useMemo(
+    () => summarizeBuildPrice(catalog, build, activeProfile),
+    [activeProfile, build, catalog],
+  );
   const candidateChoices = useMemo<CandidateChoice[]>(() => {
     if (!selectedSlot) return [];
     return getSlotCandidates(
@@ -281,6 +287,7 @@ export function WeaponWorkbench({
           />
         </div>
 
+        <BuildPriceSummary activeProfile={activeProfile} summary={priceSummary} />
         <BuildStats stats={stats} validation={validation} />
       </section>
 
