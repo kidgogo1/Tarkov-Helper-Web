@@ -133,7 +133,9 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ });
     fireEvent.click(scopeSlot);
-    const eotechChoice = screen.getByRole("button", { name: /EOTech EXPS3/ });
+    const eotechChoice = screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    });
     expect(within(eotechChoice).getByText("플리 참고가 · Lv.15")).toBeInTheDocument();
     expect(within(eotechChoice).getByText("₽45,000")).toBeInTheDocument();
     expect(eotechChoice).toHaveTextContent("인체공학 -2");
@@ -142,7 +144,7 @@ describe("WeaponModdingPage", () => {
     expect(within(eotechChoice).getByText("$50 (≈ ₽6,000)")).toBeInTheDocument();
     expect(eotechChoice).toHaveTextContent("약사 퀘스트 (Lv.10)");
     fireEvent.click(
-      screen.getByRole("button", { name: /EOTech EXPS3 holographic sight/ }),
+      screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }),
     );
 
     expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
@@ -342,6 +344,52 @@ describe("WeaponModdingPage", () => {
     expect(traderOnlyCells[1]).toHaveTextContent("플리 정보 없음");
   });
 
+  it("opens a large part image without equipping it and restores thumbnail focus", async () => {
+    render(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={M4A1_ID}
+        loadCatalog={() => Promise.resolve(catalog)}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(
+      screen.getByRole("group", { name: "총기 부위 선택" }),
+    ).getByRole("button", { name: /조준경/ }));
+
+    const previewButton = screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 이미지 크게 보기",
+    });
+    const equipButton = screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    });
+    expect(previewButton).toHaveAttribute("aria-haspopup", "dialog");
+    previewButton.focus();
+    fireEvent.click(previewButton);
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "EOTech EXPS3 holographic sight 이미지",
+    });
+    expect(within(dialog).getByRole("img", {
+      name: "EOTech EXPS3 holographic sight 크게 보기",
+    })).toHaveAttribute("src", "/assets/weapon-modding/eotech-exps3.png");
+    expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).queryByRole(
+      "button",
+      { name: /조준경.*EOTech EXPS3/ },
+    )).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(previewButton).toHaveFocus();
+
+    fireEvent.click(equipButton);
+    expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
+      "button",
+      { name: /조준경.*EOTech EXPS3/ },
+    )).toBeInTheDocument();
+  });
+
   it("shows a slot-allowed conflicting part and confirms its automatic swap", async () => {
     const blockerId = "5a0000000000000000000100";
     const conflictOpticId = "5a0000000000000000000101";
@@ -404,7 +452,7 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
 
-    const conflictChoice = screen.getByRole("button", { name: /Conflict-aware optic/ });
+    const conflictChoice = screen.getByRole("button", { name: "Conflict-aware optic 장착" });
     expect(conflictChoice).toHaveTextContent("선택 시 자동 해제: Blocking rail");
     expect(screen.getByText("2개 장착 가능")).toBeInTheDocument();
     fireEvent.click(conflictChoice);
@@ -470,8 +518,12 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
 
-    const blockedChoice = screen.getByRole("button", { name: /Impossible optic/ });
+    const blockedChoice = screen.getByRole("button", { name: "Impossible optic 장착" });
+    const blockedPreview = screen.getByRole("button", {
+      name: "Impossible optic 이미지 크게 보기",
+    });
     expect(blockedChoice).toBeDisabled();
+    expect(blockedPreview).toBeEnabled();
     expect(blockedChoice).toHaveTextContent(
       "장착 불가: Colt M4A1 5.56x45 assault rifle과 충돌",
     );
@@ -495,7 +547,9 @@ describe("WeaponModdingPage", () => {
     ).getByRole("button", { name: /조준경/ });
     expect(scopeSlot).toBeInTheDocument();
     fireEvent.click(scopeSlot);
-    const eotechChoice = screen.getByRole("button", { name: /EOTech EXPS3/ });
+    const eotechChoice = screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    });
     expect(within(eotechChoice).getByText("플리 참고가 · Lv.25")).toBeInTheDocument();
     expect(within(eotechChoice).getByText("₽55,000")).toBeInTheDocument();
     expect(within(eotechChoice).getByText("상점 · Mechanic LL1")).toBeInTheDocument();
@@ -515,7 +569,9 @@ describe("WeaponModdingPage", () => {
     fireEvent.click(within(
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
-    fireEvent.click(screen.getByRole("button", { name: /EOTech EXPS3 holographic sight/ }));
+    fireEvent.click(screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    }));
     fireEvent.click(within(
       screen.getByRole("region", { name: "장착·필수 파츠" }),
     ).getByRole("button", { name: /보조 장착대.*비어 있음/ }));
@@ -551,7 +607,9 @@ describe("WeaponModdingPage", () => {
     fireEvent.click(within(
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
-    fireEvent.click(screen.getByRole("button", { name: /EOTech EXPS3/ }));
+    fireEvent.click(screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    }));
 
     view.rerender(
       <WeaponModdingPage
@@ -565,7 +623,9 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
 
-    expect(screen.getByRole("button", { name: /EOTech EXPS3/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    })).toBeInTheDocument();
   });
 
   it("shows a stable error state when the optional catalog cannot be loaded", async () => {
@@ -658,7 +718,9 @@ describe("WeaponModdingPage", () => {
     fireEvent.click(within(
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
-    fireEvent.click(screen.getByRole("button", { name: /EOTech EXPS3/ }));
+    fireEvent.click(screen.getByRole("button", {
+      name: "EOTech EXPS3 holographic sight 장착",
+    }));
     first.unmount();
 
     render(

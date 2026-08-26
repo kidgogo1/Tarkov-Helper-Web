@@ -6,7 +6,6 @@ import { useMemo, useRef, useState } from "react";
 
 import {
   calculateBuildStats,
-  centerOfImpactToMoa,
   evaluateCandidateCompatibility,
   getSlotCandidates,
   removeBuildSlot,
@@ -19,10 +18,12 @@ import type {
   WeaponBuild,
   WeaponCatalog,
   WeaponCatalogItem,
+  WeaponPartItem,
   WeaponSlotRule,
 } from "../../types/weapon-modding";
 import { PartCandidateControls } from "./PartCandidateControls";
-import { PartCandidatePrice } from "./PartCandidatePrice";
+import { PartCandidateRow } from "./PartCandidateRow";
+import { PartImagePreviewDialog } from "./PartImagePreviewDialog";
 import {
   DEFAULT_PART_CANDIDATE_FILTERS,
   filterAndSortPartCandidates,
@@ -61,7 +62,9 @@ export function WeaponWorkbench({
   onSlotSelect,
 }: WeaponWorkbenchProps) {
   const partPickerRef = useRef<HTMLElement>(null);
+  const previewTriggerRef = useRef<HTMLButtonElement>(null);
   const [swapNotice, setSwapNotice] = useState<string | null>(null);
+  const [previewItem, setPreviewItem] = useState<WeaponPartItem | null>(null);
   const [candidateFilters, setCandidateFilters] = useState({
     ...DEFAULT_PART_CANDIDATE_FILTERS,
   });
@@ -191,6 +194,16 @@ export function WeaponWorkbench({
       : null);
   };
 
+  const openPreview = (candidate: WeaponPartItem, trigger: HTMLButtonElement) => {
+    previewTriggerRef.current = trigger;
+    setPreviewItem(candidate);
+  };
+
+  const closePreview = () => {
+    setPreviewItem(null);
+    previewTriggerRef.current?.focus();
+  };
+
   const removePart = (parentInstanceId: string, slot: WeaponSlotRule) => {
     const result = removeBuildSlot(build, parentInstanceId, slot.id);
     if (!result.ok) return;
@@ -290,42 +303,19 @@ export function WeaponWorkbench({
               {visibleCandidateChoices.length ? (
                 <ul aria-label="호환 부품 목록" className="modding-part-list">
                   {visibleCandidateChoices.map((choice) => {
-                const { availability, candidate, replacement } = choice;
-                const conflictMessage = candidateConflictMessage(choice);
-                return (
-                  <li key={candidate.id}>
-                    <button
-                      className={availability}
-                      disabled={!replacement.ok}
-                      onClick={() => replacePart(choice)}
-                      type="button"
-                    >
-                      <span className="modding-part-image" aria-hidden="true">
-                        <WeaponItemImage
-                          alt=""
-                          fallbackSize={25}
-                          loading="lazy"
-                          src={candidate.iconUrl ?? candidate.imageUrl}
-                        />
-                      </span>
-                      <span className="modding-part-details">
-                        <strong className="modding-part-name">
-                          {candidate.nameKo ?? candidate.name}
-                        </strong>
-                        <span className="modding-part-summary">
-                          <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
-                          <PartPerformance item={candidate} />
-                        </span>
-                        {conflictMessage ? (
-                          <span className={`modding-part-conflict ${availability}`}>
-                            {conflictMessage}
-                          </span>
-                        ) : null}
-                        <PartCandidatePrice activeProfile={activeProfile} item={candidate} />
-                      </span>
-                    </button>
-                  </li>
-                );
+                    const { availability, candidate, replacement } = choice;
+                    return (
+                      <PartCandidateRow
+                        activeProfile={activeProfile}
+                        availability={availability}
+                        candidate={candidate}
+                        conflictMessage={candidateConflictMessage(choice)}
+                        disabled={!replacement.ok}
+                        key={candidate.id}
+                        onPreview={openPreview}
+                        onSelect={() => replacePart(choice)}
+                      />
+                    );
                   })}
                 </ul>
               ) : (
@@ -337,6 +327,7 @@ export function WeaponWorkbench({
           ) : <p className="modding-picker-empty">이 슬롯에 등록된 부품이 없습니다.</p>
         ) : <p className="modding-picker-empty">총기 이미지 주변이나 장착 트리에서 부위를 선택하세요.</p>}
       </aside>
+      <PartImagePreviewDialog item={previewItem} onClose={closePreview} />
     </div>
   );
 }
@@ -392,42 +383,10 @@ function BuildStats({ stats, validation }: {
   );
 }
 
-function PartPerformance({ item }: { item: WeaponCatalogItem }) {
-  if (item.kind !== "part" || !item.stats) return null;
-  const stats = item.stats;
-  const values = [
-    stats.recoilModifier !== undefined && stats.recoilModifier !== 0
-      ? `반동 ${signed(stats.recoilModifier)}%`
-      : null,
-    stats.ergonomics !== undefined && stats.ergonomics !== 0
-      ? `인체공학 ${signed(stats.ergonomics)}`
-      : null,
-    stats.weight !== undefined && stats.weight !== 0
-      ? `무게 ${formatNumber(stats.weight, 3)} kg`
-      : null,
-    stats.centerOfImpact !== undefined && stats.centerOfImpact !== 0
-      ? `MOA ${signed(centerOfImpactToMoa(stats.centerOfImpact), 2)} · 낮을수록 좋음`
-      : null,
-    stats.muzzleVelocityModifier !== undefined && stats.muzzleVelocityModifier !== 0
-      ? `탄속 ${signed(stats.muzzleVelocityModifier, 2)}%`
-      : null,
-  ].filter((value): value is string => Boolean(value));
-  if (!values.length) return null;
-  return (
-    <span className="modding-part-performance">
-      {values.map((value) => <span key={value}>{value}</span>)}
-    </span>
-  );
-}
-
 function Stat({ label, value }: { label: string; value: string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
 function formatNumber(value: number, digits = 0): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(digits);
-}
-
-function signed(value: number, digits = 0): string {
-  return `${value > 0 ? "+" : ""}${formatNumber(value, digits)}`;
 }
