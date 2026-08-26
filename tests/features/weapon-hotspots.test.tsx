@@ -61,6 +61,44 @@ describe("weapon hotspot presentation", () => {
     expect(within(group).queryByRole("button", { name: /약실/ })).not.toBeInTheDocument();
   });
 
+  it("keeps more than seven repeated slot types at distinct positions", () => {
+    const repeatedSlots = Array.from({ length: 10 }, (_, index) => ({
+      id: `repeated-slot-${index}`,
+      name: "전술 장비",
+      allowedItemIds: [],
+    }));
+
+    const positions = layoutWeaponHotspots(repeatedSlots);
+
+    expect(new Set(positions.map(({ x, y }) => `${x}:${y}`)).size).toBe(
+      repeatedSlots.length,
+    );
+  });
+
+  it("maps localized structural slots to their intended weapon regions", () => {
+    const localizedSlots = [
+      { id: "slot-handguard", name: "총열 덮개", allowedItemIds: [] },
+      { id: "slot-launcher", name: "총열 하부 유탄발사기", allowedItemIds: [] },
+      { id: "slot-mount", name: "마운트 레일", allowedItemIds: [] },
+      { id: "slot-rear-sight", name: "가늠자", allowedItemIds: [] },
+      { id: "slot-front-sight", name: "가늠쇠", allowedItemIds: [] },
+      { id: "slot-receiver", name: "총기 몸체", allowedItemIds: [] },
+      { id: "slot-bipod", name: "양각대", allowedItemIds: [] },
+      { id: "slot-trigger", name: "방아쇠", allowedItemIds: [] },
+    ];
+
+    expect(layoutWeaponHotspots(localizedSlots)).toEqual([
+      { x: 35, y: 66 },
+      { x: 30, y: 82 },
+      { x: 50, y: 16 },
+      { x: 61, y: 25 },
+      { x: 42, y: 25 },
+      { x: 53, y: 43 },
+      { x: 27, y: 84 },
+      { x: 65, y: 59 },
+    ]);
+  });
+
   it("exposes slots from installed child parts and selects their real parent instance", () => {
     const onSelect = vi.fn();
     const childInstanceId = `${ROOT_ID}/${FIRST_CHARGE_SLOT_ID}`;
