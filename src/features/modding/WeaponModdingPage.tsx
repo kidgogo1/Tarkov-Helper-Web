@@ -226,6 +226,7 @@ export function WeaponModdingPage({
               build={displayedBuild}
               catalog={catalog}
               itemById={itemById}
+              key={displayedBuild.weaponId}
               onBuildChange={updateBuild}
               onReset={resetBuild}
               onSlotSelect={setSelectedSlot}

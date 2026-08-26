@@ -117,6 +117,12 @@ export function WeaponWorkbench({
   const selectableCandidateCount = candidateChoices.filter(
     ({ replacement }) => replacement.ok,
   ).length;
+  let candidateCountLabel = "먼저 부위를 선택하세요";
+  if (selectedSlot) {
+    candidateCountLabel = selectableCandidateCount === candidateChoices.length
+      ? `${selectableCandidateCount}개 장착 가능`
+      : `${selectableCandidateCount}개 장착 가능 · 전체 ${candidateChoices.length}개`;
+  }
 
   const selectSlot = (selection: SlotSelection) => {
     setSwapNotice(null);
@@ -224,55 +230,48 @@ export function WeaponWorkbench({
       >
         <header aria-live="polite">
           <span>부품 선택</span>
-          <small>{selectedSlot
-            ? selectableCandidateCount === candidateChoices.length
-              ? `${selectableCandidateCount}개 장착 가능`
-              : `${selectableCandidateCount}개 장착 가능 · 전체 ${candidateChoices.length}개`
-            : "먼저 부위를 선택하세요"}</small>
+          <small>{candidateCountLabel}</small>
         </header>
         {swapNotice ? <p className="modding-swap-notice" role="status">{swapNotice}</p> : null}
         {selectedSlot ? (
           candidateChoices.length ? (
             <ul aria-label="호환 부품 목록" className="modding-part-list">
               {candidateChoices.map((choice) => {
-                const { availability, candidate, conflictItemNames, replacement } = choice;
+                const { availability, candidate, replacement } = choice;
+                const conflictMessage = candidateConflictMessage(choice);
                 return (
-                <li key={candidate.id}>
-                  <button
-                    className={availability}
-                    disabled={!replacement.ok}
-                    onClick={() => replacePart(choice)}
-                    type="button"
-                  >
-                    <span className="modding-part-image" aria-hidden="true">
-                      <WeaponItemImage
-                        alt=""
-                        fallbackSize={25}
-                        loading="lazy"
-                        src={candidate.iconUrl ?? candidate.imageUrl}
-                      />
-                    </span>
-                    <span className="modding-part-details">
-                      <strong className="modding-part-name">
-                        {candidate.nameKo ?? candidate.name}
-                      </strong>
-                      <span className="modding-part-summary">
-                        <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
-                        <PartPerformance item={candidate} />
+                  <li key={candidate.id}>
+                    <button
+                      className={availability}
+                      disabled={!replacement.ok}
+                      onClick={() => replacePart(choice)}
+                      type="button"
+                    >
+                      <span className="modding-part-image" aria-hidden="true">
+                        <WeaponItemImage
+                          alt=""
+                          fallbackSize={25}
+                          loading="lazy"
+                          src={candidate.iconUrl ?? candidate.imageUrl}
+                        />
                       </span>
-                      {availability !== "compatible" ? (
-                        <span className={`modding-part-conflict ${availability}`}>
-                          {availability === "auto-resolvable"
-                            ? `선택 시 자동 해제: ${conflictItemNames.join(", ") || "충돌하는 기존 부품"}`
-                            : conflictItemNames.length
-                              ? `장착 불가: ${conflictItemNames.join(", ")}과 충돌`
-                              : "장착 불가: 현재 총기 또는 상위 부품과 충돌"}
+                      <span className="modding-part-details">
+                        <strong className="modding-part-name">
+                          {candidate.nameKo ?? candidate.name}
+                        </strong>
+                        <span className="modding-part-summary">
+                          <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
+                          <PartPerformance item={candidate} />
                         </span>
-                      ) : null}
-                      <PartPrice activeProfile={activeProfile} item={candidate} />
-                    </span>
-                  </button>
-                </li>
+                        {conflictMessage ? (
+                          <span className={`modding-part-conflict ${availability}`}>
+                            {conflictMessage}
+                          </span>
+                        ) : null}
+                        <PartPrice activeProfile={activeProfile} item={candidate} />
+                      </span>
+                    </button>
+                  </li>
                 );
               })}
             </ul>
@@ -281,6 +280,17 @@ export function WeaponWorkbench({
       </aside>
     </div>
   );
+}
+
+function candidateConflictMessage(choice: CandidateChoice): string | null {
+  if (choice.availability === "compatible") return null;
+  const conflictNames = choice.conflictItemNames.join(", ");
+  if (choice.availability === "auto-resolvable") {
+    return `선택 시 자동 해제: ${conflictNames || "충돌하는 기존 부품"}`;
+  }
+  return conflictNames
+    ? `장착 불가: ${conflictNames}과 충돌`
+    : "장착 불가: 현재 총기 또는 상위 부품과 충돌";
 }
 
 function BuildStats({ stats, validation }: {

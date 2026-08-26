@@ -191,8 +191,15 @@ describe("WeaponModdingPage", () => {
     const blockerId = "5a0000000000000000000100";
     const conflictOpticId = "5a0000000000000000000101";
     const blockerSlotId = "5a0000000000000000000102";
+    const secondWeapon = {
+      ...catalog.items[0],
+      id: SECOND_WEAPON_ID,
+      name: "Kalashnikov AK-74N 5.45x39 assault rifle",
+      shortName: "AK-74N",
+    };
     const conflictCatalog = {
       ...catalog,
+      weaponIds: [M4A1_ID, SECOND_WEAPON_ID],
       items: [
         {
           ...catalog.items[0],
@@ -223,12 +230,13 @@ describe("WeaponModdingPage", () => {
           conflicts: { itemIds: [blockerId] },
           stats: { ergonomics: 1 },
         },
+        secondWeapon,
       ],
     };
     const confirm = vi.spyOn(window, "confirm")
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true);
-    render(
+    const view = render(
       <WeaponModdingPage
         activeProfile="pvp"
         focusWeaponId={M4A1_ID}
@@ -266,6 +274,16 @@ describe("WeaponModdingPage", () => {
       "button",
       { name: /조준경.*Conflict-aware optic/ },
     )).toBeInTheDocument();
+
+    view.rerender(
+      <WeaponModdingPage
+        activeProfile="pvp"
+        focusWeaponId={SECOND_WEAPON_ID}
+        loadCatalog={() => Promise.resolve(conflictCatalog)}
+      />,
+    );
+    await screen.findByRole("heading", { name: /Kalashnikov AK-74N/ });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("keeps a root-conflicting slot candidate visible but disabled", async () => {
