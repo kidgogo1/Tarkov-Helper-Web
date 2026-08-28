@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAlternativeQuestSelections,
+  applyStartedQuest,
   collectAlternativeQuestGroups,
   getManualPrerequisites,
 } from "../../src/domain/quest-sync";
@@ -48,6 +49,34 @@ describe("manual in-progress quest planning", () => {
         { root: "done" },
       ).map(({ id }) => id),
     ).toEqual(["branch"]);
+  });
+});
+
+describe("started quest log events", () => {
+  const target = quest("target");
+  const quests = [target];
+
+  it("persists a started quest as active without inferring prerequisite completion", () => {
+    expect(applyStartedQuest({}, "target", quests)).toEqual({ target: "active" });
+  });
+
+  it("moves a restarted failed quest back to active", () => {
+    expect(applyStartedQuest({ target: "failed" }, "target", quests)).toEqual({
+      target: "active",
+    });
+  });
+
+  it("does not roll an already completed quest back to active", () => {
+    expect(applyStartedQuest({ target: "done" }, "target", quests)).toEqual({
+      target: "done",
+    });
+  });
+
+  it("preserves completion when a legacy alias has a conflicting stale status", () => {
+    const renamed = quest("current-id", { normalizedName: "legacy-id" });
+    const progress = { "current-id": "failed", "legacy-id": "done" } as const;
+
+    expect(applyStartedQuest(progress, "current-id", [renamed])).toEqual(progress);
   });
 });
 

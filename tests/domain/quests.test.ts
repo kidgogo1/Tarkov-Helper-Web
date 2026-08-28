@@ -9,6 +9,7 @@ import {
   getQuestStatus,
   groupQuestRequirementsForDisplay,
   isEditionRequirementMet,
+  isObjectiveComplete,
   isScavKarmaRequirementMet,
   recommendQuests,
   resetAllQuestProgress,
@@ -66,6 +67,22 @@ function profile(overrides: Partial<ProfileState> = {}): ProfileState {
 }
 
 describe("quest status", () => {
+  it("reads legacy upstream objective progress until a namespaced value overrides it", () => {
+    const namespaced = {
+      ...objective("Visit the location"),
+      id: "quest-a:objective:shared-objective",
+      bsgId: "shared-objective",
+      progressIdAliases: ["legacy-app-objective"],
+    };
+
+    expect(isObjectiveComplete({ "legacy-app-objective": true }, namespaced)).toBe(true);
+    expect(isObjectiveComplete({ "shared-objective": true }, namespaced)).toBe(true);
+    expect(isObjectiveComplete({
+      "shared-objective": true,
+      "quest-a:objective:shared-objective": false,
+    }, namespaced)).toBe(false);
+  });
+
   it("gives a saved terminal state precedence over profile restrictions", () => {
     const restricted = quest("restricted", {
       normalizedName: "restricted-name",
@@ -121,6 +138,13 @@ describe("quest status", () => {
     ).toBe("unavailable");
     expect(
       getQuestStatus(
+        quest("any-faction", { faction: "Any" }),
+        [],
+        profile({ faction: "usec" }),
+      ),
+    ).toBe("active");
+    expect(
+      getQuestStatus(
         quest("unselected-faction", { faction: "bear" }),
         [],
         profile({ faction: null }),
@@ -172,19 +196,21 @@ describe("quest status", () => {
 
   it("supports AND requirements, one-success-per-OR-group, and status aliases", () => {
     const done = quest("done");
+    const success = quest("success");
     const active = quest("active");
     const failed = quest("failed");
     const target = quest("target", {
       requirements: [
         { questId: "done", requirementType: "Complete", groupId: 0 },
+        { questId: "success", requirementType: "Success", groupId: 0 },
         { questId: "active", requirementType: "Accept", groupId: 1 },
         { questId: "failed", requirementType: "Complete", groupId: 1 },
         { questId: "failed", requirementType: "Fail", groupId: 2 },
       ],
     });
-    const quests = [done, active, failed, target];
+    const quests = [done, success, active, failed, target];
     const state = profile({
-      questProgress: { done: "done", failed: "failed" },
+      questProgress: { done: "done", success: "done", failed: "failed" },
     });
 
     expect(areQuestPrerequisitesMet(target, quests, state)).toBe(true);
@@ -349,6 +375,39 @@ describe("quest progress transitions", () => {
 });
 
 describe("quest recommendations", () => {
+  it("sums inventory across every accepted alternative item ID", () => {
+    const interchangeableItems = quest("interchangeable-items", {
+      requiredItems: [
+        {
+          id: "medical-items",
+          itemId: "salewa",
+          itemName: "Salewa first aid kit",
+          alternativeItemIds: ["grizzly", "afak"],
+          alternativeItemNames: ["Grizzly medical kit", "AFAK tactical individual first aid kit"],
+          count: 3,
+          requiresFir: true,
+          requirementType: "handover",
+          sortOrder: 0,
+        },
+      ],
+    });
+    const state = profile({
+      inventory: {
+        salewa: { fir: 1, nonFir: 20 },
+        grizzly: { fir: 1, nonFir: 20 },
+        afak: { fir: 1, nonFir: 20 },
+      },
+    });
+
+    const recommendations = recommendQuests([interchangeableItems], state);
+
+    expect(recommendations[0]).toMatchObject({
+      type: "readyToComplete",
+      readyItems: [{ owned: 3 }],
+      missingItems: [],
+    });
+  });
+
   it("ports the modified fork scoring and returns five active recommendations", () => {
     const ready = quest("ready", {
       kappaRequired: true,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   objectiveRouteMapName,
+  objectiveRouteLocationForMap,
   questHasDisplayableMapRoute,
   questHasUnambiguousMapRoute,
 } from "../../src/domain/quest-map-routes";
@@ -15,6 +16,13 @@ const customs: MapConfig = {
   imageHeight: 1000,
   aliases: ["bigmap"],
   floors: [{ layerId: "main", displayName: "지상", order: 0, isDefault: true }],
+};
+
+const reserve: MapConfig = {
+  ...customs,
+  key: "Reserve",
+  displayName: "Reserve",
+  aliases: ["rezervbase"],
 };
 
 const objective: QuestObjective = {
@@ -79,5 +87,33 @@ describe("quest map route inference", () => {
       ...objective,
       locationPoints: [{ ...objective.locationPoints[0], floorId: "level2" }],
     }]), [multiFloor], [])).toBe(true);
+  });
+
+  it("selects the coordinates belonging to each map of one multi-map objective", () => {
+    const multiMapObjective: QuestObjective = {
+      ...objective,
+      mapName: "Customs",
+      mapLocations: [
+        {
+          mapName: "Customs",
+          locationPoints: [{ x: 100, y: 1, z: 200 }],
+          optionalPoints: [],
+        },
+        {
+          mapName: "Reserve",
+          locationPoints: [{ x: 300, y: 2, z: 400 }],
+          optionalPoints: [],
+        },
+      ],
+    };
+    const multiMapQuest = quest(["Customs", "Reserve"], [multiMapObjective]);
+
+    expect(objectiveRouteLocationForMap(multiMapQuest, multiMapObjective, customs)?.locationPoints)
+      .toEqual([{ x: 100, y: 1, z: 200 }]);
+    expect(objectiveRouteLocationForMap(multiMapQuest, multiMapObjective, reserve)?.locationPoints)
+      .toEqual([{ x: 300, y: 2, z: 400 }]);
+    expect(questHasUnambiguousMapRoute(multiMapQuest)).toBe(true);
+    expect(questHasDisplayableMapRoute(multiMapQuest, [customs, reserve], []))
+      .toBe(true);
   });
 });

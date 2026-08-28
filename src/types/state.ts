@@ -1,6 +1,6 @@
 import type { ProfileType } from "./data";
 
-export type SavedQuestStatus = "done" | "failed";
+export type SavedQuestStatus = "active" | "done" | "failed";
 export type QuestStatus =
   | "active"
   | "locked"

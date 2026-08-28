@@ -7,11 +7,12 @@ import type {
   ProfileType,
   QuestData,
 } from "../../types/data";
-import type { ProfileState } from "../../types/state";
+import type { ProfileState, SavedQuestStatus } from "../../types/state";
 import {
   MAX_MAP_ROUTE_QUESTS,
   questHasDisplayableMapRoute,
 } from "../../domain/quest-map-routes";
+import { isObjectiveComplete } from "../../domain/quests";
 import { objectiveDisplayText } from "../quests/quest-language";
 
 export interface QuestOverlaySurfaceProps {
@@ -43,6 +44,12 @@ export interface QuestOverlaySurfaceProps {
 function questName(quest: QuestData): string {
   return quest.nameKo?.trim() || quest.name;
 }
+
+const QUEST_PROGRESS_LABELS: Record<SavedQuestStatus, string> = {
+  active: "진행 중",
+  done: "완료",
+  failed: "실패",
+};
 
 export function QuestOverlaySurface({
   activeProfile,
@@ -123,7 +130,7 @@ export function QuestOverlaySurface({
             const orderedObjectives = [...quest.objectives]
               .sort((left, right) => left.sortOrder - right.sortOrder);
             const completedCount = orderedObjectives.filter(
-              (objective) => profile.objectiveProgress[objective.id],
+              (objective) => isObjectiveComplete(profile.objectiveProgress, objective),
             ).length;
             const name = questName(quest);
             const status = profile.questProgress[quest.id];
@@ -141,7 +148,7 @@ export function QuestOverlaySurface({
                     <span className="quest-overlay-trader">{quest.trader}</span>
                     {status ? (
                       <span className={`quest-overlay-status quest-overlay-status--${status}`}>
-                        {status === "done" ? "완료" : "실패"}
+                        {QUEST_PROGRESS_LABELS[status]}
                       </span>
                     ) : null}
                     <h3>{name}</h3>
@@ -213,7 +220,10 @@ export function QuestOverlaySurface({
                   <ul className="quest-overlay-objectives">
                     {orderedObjectives.map((objective) => {
                       const text = objectiveDisplayText(objective, "ko");
-                      const completed = Boolean(profile.objectiveProgress[objective.id]);
+                      const completed = isObjectiveComplete(
+                        profile.objectiveProgress,
+                        objective,
+                      );
                       return (
                         <li className={completed ? "completed" : ""} key={objective.id}>
                           <label>
@@ -224,7 +234,9 @@ export function QuestOverlaySurface({
                             />
                             <span>{text}</span>
                           </label>
-                          {objective.mapName ? <small>{objective.mapName}</small> : null}
+                          {objective.mapNames?.length || objective.mapName ? (
+                            <small>{objective.mapNames?.join(", ") || objective.mapName}</small>
+                          ) : null}
                         </li>
                       );
                     })}

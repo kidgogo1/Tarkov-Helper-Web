@@ -1,6 +1,7 @@
 import type {
   QuestData,
   QuestItemRequirement,
+  QuestObjective,
   QuestRequirement,
 } from "../types/data";
 import type {
@@ -105,7 +106,7 @@ export interface QuestStatusResolver {
 
 const ACTIVE_REQUIREMENT_TYPES = new Set(["active", "start", "accept"]);
 const FAILED_REQUIREMENT_TYPES = new Set(["failed", "fail"]);
-const COMPLETED_REQUIREMENT_TYPES = new Set(["complete", "completed", "done"]);
+const COMPLETED_REQUIREMENT_TYPES = new Set(["complete", "completed", "done", "success"]);
 
 function normalizeKey(value: string | undefined): string {
   return value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
@@ -149,6 +150,30 @@ function getCaseInsensitiveRecordValue<T>(
     (candidate) => normalizeKey(candidate) === normalized,
   );
   return matchingKey === undefined ? undefined : record[matchingKey];
+}
+
+/**
+ * Reads the stable app key first, then legacy upstream keys used by older
+ * bundles. An explicit false app value overrides a legacy true value so two
+ * formerly-colliding objectives can be changed independently.
+ */
+export function isObjectiveComplete(
+  progress: Readonly<Record<string, boolean>>,
+  objective: Pick<
+    QuestObjective,
+    "id" | "progressIdAliases" | "bsgId" | "bsgIdAliases"
+  >,
+): boolean {
+  for (const key of [
+    objective.id,
+    ...(objective.progressIdAliases ?? []),
+    objective.bsgId,
+    ...(objective.bsgIdAliases ?? []),
+  ]) {
+    const completed = getCaseInsensitiveRecordValue(progress, key);
+    if (completed !== undefined) return completed;
+  }
+  return false;
 }
 
 function getSavedStatus(
@@ -216,10 +241,12 @@ export function isFactionRequirementMet(
   quest: QuestData,
   profile: Pick<ProfileState, "faction">,
 ): boolean {
+  const requiredFaction = normalizeKey(quest.faction);
   return (
-    !quest.faction ||
+    !requiredFaction ||
+    requiredFaction === "any" ||
     !profile.faction ||
-    normalizeKey(quest.faction) === normalizeKey(profile.faction)
+    requiredFaction === normalizeKey(profile.faction)
   );
 }
 
@@ -507,13 +534,31 @@ function inventoryForItem(
   profile: Pick<ProfileState, "inventory">,
   requirement: QuestItemRequirement,
 ): InventoryAmount {
-  return (
-    getCaseInsensitiveRecordValue(profile.inventory, requirement.itemId) ??
-    getCaseInsensitiveRecordValue(profile.inventory, requirement.itemName) ?? {
-      fir: 0,
-      nonFir: 0,
-    }
-  );
+  const acceptedItems = [
+    { id: requirement.itemId, name: requirement.itemName },
+    ...(requirement.alternativeItemIds ?? []).map((id, index) => ({
+      id,
+      name: requirement.alternativeItemNames?.[index],
+    })),
+  ];
+  const seenIds = new Set<string>();
+
+  return acceptedItems.reduce<InventoryAmount>((total, acceptedItem) => {
+    const normalizedId = normalizeKey(acceptedItem.id);
+    if (!normalizedId || seenIds.has(normalizedId)) return total;
+    seenIds.add(normalizedId);
+
+    const inventory =
+      getCaseInsensitiveRecordValue(profile.inventory, acceptedItem.id) ??
+      getCaseInsensitiveRecordValue(profile.inventory, acceptedItem.name) ?? {
+        fir: 0,
+        nonFir: 0,
+      };
+    return {
+      fir: total.fir + inventory.fir,
+      nonFir: total.nonFir + inventory.nonFir,
+    };
+  }, { fir: 0, nonFir: 0 });
 }
 
 function analyzeItemRequirements(

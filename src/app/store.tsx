@@ -352,7 +352,9 @@ function sanitizeProfile(value: unknown): ProfileState {
   const questProgress: Record<string, SavedQuestStatus> = {};
   if (isRecord(value.questProgress)) {
     for (const [id, status] of Object.entries(value.questProgress)) {
-      if (status === "done" || status === "failed") questProgress[id] = status;
+      if (status === "active" || status === "done" || status === "failed") {
+        questProgress[id] = status;
+      }
     }
   }
 

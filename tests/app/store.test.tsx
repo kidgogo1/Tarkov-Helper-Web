@@ -225,6 +225,32 @@ describe("AppStoreProvider", () => {
     expect(result.current.profile.customMarkers).toEqual([]);
   });
 
+  it("restores active quest progress while discarding unknown saved statuses", () => {
+    const state = createDefaultState();
+    const savedState = {
+      ...state,
+      profiles: {
+        ...state.profiles,
+        pvp: {
+          ...state.profiles.pvp,
+          questProgress: {
+            "quest-started": "active",
+            "quest-completed": "done",
+            "quest-invalid": "started",
+          },
+        },
+      },
+    };
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(savedState));
+
+    const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
+
+    expect(result.current.profile.questProgress).toEqual({
+      "quest-started": "active",
+      "quest-completed": "done",
+    });
+  });
+
   it("bounds the saved quest-window selection list", () => {
     const { result } = renderHook(() => useAppStore(), { wrapper: StoreWrapper });
 

@@ -119,6 +119,55 @@ describe("App quest sync integration", () => {
     expect(persistedProgress()).not.toHaveProperty("target");
   });
 
+  it("imports a quest started event as active", async () => {
+    const target = quest("target", "진행 시작 퀘스트", { bsgId: "bsg-target" });
+    renderApp(dataWithQuests([target]));
+
+    await openLogSyncSettings();
+    fireEvent.change(screen.getByLabelText("로그 파일 선택"), {
+      target: {
+        files: [mockLogFile(
+          '{"type":"new_message","message":{"type":10,"templateId":"bsg-target text","dt":1}}',
+        )],
+      },
+    });
+
+    const startedSelection = await screen.findByRole("checkbox", {
+      name: "진행 시작 퀘스트 변경 선택",
+    });
+    expect(startedSelection).toBeChecked();
+    expect(startedSelection).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "선택 변경 적용" }));
+
+    await waitFor(() => {
+      expect(persistedProgress()).toEqual({ target: "active" });
+    });
+  });
+
+  it("keeps the latest completed event terminal when an earlier start exists", async () => {
+    const target = quest("target", "완료 우선 퀘스트", { bsgId: "bsg-target" });
+    renderApp(dataWithQuests([target]));
+
+    await openLogSyncSettings();
+    fireEvent.change(screen.getByLabelText("로그 파일 선택"), {
+      target: {
+        files: [mockLogFile([
+          '{"type":"new_message","message":{"type":10,"templateId":"bsg-target text","dt":1}}',
+          '{"type":"new_message","message":{"type":12,"templateId":"bsg-target text","dt":2}}',
+        ].join("\n"))],
+      },
+    });
+
+    await screen.findByRole("heading", { name: "로그 가져오기 미리보기" });
+    expect(screen.getByText("완료", { selector: ".log-event .badge" })).toBeVisible();
+    expect(screen.getAllByRole("checkbox", { name: /변경 선택/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "선택 변경 적용" }));
+
+    await waitFor(() => {
+      expect(persistedProgress()).toEqual({ target: "done" });
+    });
+  });
+
   it("offers enabled alternative prerequisites and applies the chosen route", async () => {
     const routeA = quest("route-a", "경로 A", { alternativeQuestIds: ["route-b"] });
     const routeB = quest("route-b", "경로 B", { alternativeQuestIds: ["route-a"] });

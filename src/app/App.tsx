@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, FileClock, LoaderCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Dialog } from "../components/Dialog";
 import { EmptyState } from "../components/EmptyState";
@@ -8,8 +8,10 @@ import {
   detectMapFromLogLine,
   parseQuestLogContent,
 } from "../domain/map";
+import { selectQuestCatalog } from "../domain/quest-catalog";
 import {
   applyAlternativeQuestSelections,
+  applyStartedQuest,
   collectAlternativeQuestGroups,
   type AlternativeQuestGroupPlan,
 } from "../domain/quest-sync";
@@ -108,6 +110,11 @@ export function App() {
   const store = useAppStore();
   const publicUpdate = usePublicUpdate(undefined, { persistState: store.persistState });
   const [data, setData] = useState<TarkovData | null>(null);
+  const activeData = useMemo<TarkovData | null>(() => {
+    if (!data) return null;
+    const quests = selectQuestCatalog(data, store.activeProfile);
+    return quests === data.quests ? data : { ...data, quests };
+  }, [data, store.activeProfile]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [route, setRoute] = useState<AppRoute>(() =>
     parseAppRoute(window.location.hash, window.history.state),
@@ -257,7 +264,7 @@ export function App() {
     historyRestoreRoute === serializeAppRoute(route);
 
   const handleLogFiles = async (files: File[]) => {
-    if (!data || !files.length) return;
+    if (!activeData || !files.length) return;
     setLogImportError(null);
     setReadingLogs(true);
     try {
@@ -266,8 +273,11 @@ export function App() {
       for (const file of files) {
         const content = await file.text();
         for (const event of parseQuestLogContent(content, file.name)) {
-          const quest = data.quests.find(
-            (candidate) => candidate.bsgId === event.questId || candidate.id === event.questId,
+          const quest = activeData.quests.find(
+            (candidate) =>
+              candidate.bsgId === event.questId
+              || candidate.id === event.questId
+              || candidate.bsgIdAliases?.includes(event.questId),
           );
           collected.push({
             questId: quest?.id ?? event.questId,
@@ -276,13 +286,13 @@ export function App() {
             sourceFile: file.name,
             timestamp: event.timestamp,
             known: Boolean(quest),
-            selected: Boolean(quest) && event.eventType !== "started",
+            selected: Boolean(quest),
           });
         }
         for (const line of content.split(/\r?\n/)) {
           const detected = detectMapFromLogLine(line);
           if (!detected) continue;
-          const config = data.mapConfigs.find((map) =>
+          const config = activeData.mapConfigs.find((map) =>
             [map.key, map.displayName, ...map.aliases]
               .some((name) => name.toLocaleLowerCase() === detected.toLocaleLowerCase()),
           );
@@ -292,7 +302,7 @@ export function App() {
       const records = collapseQuestLogEvents(collected);
       const alternativeGroups = collectAlternativeQuestGroups(
         eventQuestIds(records),
-        data.quests,
+        activeData.quests,
         store.profile.questProgress,
       );
       setLogPreview({
@@ -319,12 +329,14 @@ export function App() {
   };
 
   const applyLogPreview = () => {
-    if (!data || !logPreview) return;
+    if (!activeData || !logPreview) return;
     let progress: Record<string, SavedQuestStatus> = { ...store.profile.questProgress };
     for (const record of logPreview.records) {
-      if (!record.known || !record.selected || record.eventType === "started") continue;
-      if (record.eventType === "completed") {
-        progress = completeQuest(record.questId, data.quests, progress, {
+      if (!record.known || !record.selected) continue;
+      if (record.eventType === "started") {
+        progress = applyStartedQuest(progress, record.questId, activeData.quests);
+      } else if (record.eventType === "completed") {
+        progress = completeQuest(record.questId, activeData.quests, progress, {
           completePrerequisites: false,
         });
       } else {
@@ -342,9 +354,9 @@ export function App() {
     setLogPreview(null);
   };
 
-  const mapPage = data ? (
+  const mapPage = activeData ? (
     <MapPage
-      data={data}
+      data={activeData}
       focusQuestId={mapFocusQuestId}
       onOpenQuest={openQuest}
       onOpenMiniMapSettings={() => setMiniMapSettingsOpen(true)}
@@ -353,12 +365,12 @@ export function App() {
   ) : null;
 
   const page = (() => {
-    if (!data) return null;
+    if (!activeData) return null;
     switch (activeTab) {
       case "quests":
         return (
           <QuestsPage
-            data={data}
+            data={activeData}
             focusQuestId={route.tab === "quests" ? route.questId : undefined}
             focusRequested={focusRequested}
             onOpenItem={openItem}
@@ -370,7 +382,7 @@ export function App() {
       case "hideout":
         return (
           <HideoutPage
-            data={data}
+            data={activeData}
             focusLevel={route.tab === "hideout" ? route.stationLevel : undefined}
             focusRequested={focusRequested}
             focusStationId={route.tab === "hideout" ? route.stationId : undefined}
@@ -380,7 +392,7 @@ export function App() {
       case "items":
         return (
           <ItemsPage
-            data={data}
+            data={activeData}
             focusItemId={route.tab === "items" ? route.itemId : undefined}
             focusRequested={focusRequested}
             onItemSelect={selectItemRoute}
@@ -389,7 +401,7 @@ export function App() {
           />
         );
       case "collector":
-        return <CollectorPage data={data} />;
+        return <CollectorPage data={activeData} />;
       case "prices":
         return <PriceSearchPage activeProfile={store.activeProfile} />;
       case "modding":
@@ -433,7 +445,7 @@ export function App() {
     );
   }
 
-  if (!data) {
+  if (!activeData) {
     return (
       <div className="startup-state">
         <LoaderCircle aria-hidden="true" className="spin" size={34} />
@@ -458,7 +470,7 @@ export function App() {
         questWindowOpen={questOverlayOpen}
         storageWarning={store.storageWarning}
         trackedQuestCount={store.profile.trackedQuestIds.filter(
-          (questId) => data.quests.some((quest) => quest.id === questId),
+          (questId) => activeData.quests.some((quest) => quest.id === questId),
         ).length}
       >
         <div
@@ -477,14 +489,14 @@ export function App() {
         onQuestMapRouteChange={store.setQuestMapRoute}
         onQuestTrackedChange={store.setQuestTracked}
         profile={store.profile}
-        mapConfigs={data.mapConfigs}
-        mapFloorLocations={data.mapFloorLocations}
-        quests={data.quests}
+        mapConfigs={activeData.mapConfigs}
+        mapFloorLocations={activeData.mapFloorLocations}
+        quests={activeData.quests}
         ref={questOverlayRef}
       />
 
       <SettingsDialog
-        dataMeta={data.meta}
+        dataMeta={activeData.meta}
         logImportError={logImportError}
         onClose={() => setSettingsOpen(false)}
         onLogFiles={handleLogFiles}
@@ -517,7 +529,7 @@ export function App() {
         onClose={() => setInProgressQuestsOpen(false)}
         open={inProgressQuestsOpen}
         progress={store.profile.questProgress}
-        quests={data.quests}
+        quests={activeData.quests}
       />
 
       <Dialog
@@ -582,7 +594,7 @@ export function App() {
                     <input
                       aria-label={`${record.questName} 변경 선택`}
                       checked={record.selected}
-                      disabled={!record.known || record.eventType === "started"}
+                      disabled={!record.known}
                       onChange={(event) => {
                         const selected = event.target.checked;
                         setLogPreview((current) => {
@@ -592,7 +604,7 @@ export function App() {
                           );
                           const alternativeGroups = collectAlternativeQuestGroups(
                             eventQuestIds(records),
-                            data.quests,
+                            activeData.quests,
                             store.profile.questProgress,
                           );
                           return {
@@ -606,7 +618,7 @@ export function App() {
                           };
                         });
                       }}
-                      title={record.eventType === "started" ? "시작 이벤트는 진행도를 변경하지 않습니다." : undefined}
+                      title={record.eventType === "started" ? "진행 중 상태로 반영합니다." : undefined}
                       type="checkbox"
                     />
                     <span className={`badge ${record.eventType === "completed" ? "success" : record.eventType === "failed" ? "danger" : ""}`}>

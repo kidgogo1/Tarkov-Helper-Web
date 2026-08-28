@@ -14,6 +14,7 @@ import {
 } from "../../src/features/overlay/QuestOverlay";
 import type { QuestData } from "../../src/types/data";
 import { createDefaultState } from "../../src/app/store";
+import type { SavedQuestStatus } from "../../src/types/state";
 
 const mapConfigs = [{
   key: "Customs",
@@ -99,13 +100,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 function OverlayHarness({
   nativeRequest,
   openPopup,
+  questStatus,
 }: {
   nativeRequest?: typeof fetch;
   openPopup: () => Window | null;
+  questStatus?: SavedQuestStatus;
 }) {
   const profile = createDefaultState().profiles.pvp;
   profile.trackedQuestIds = [trackedQuest.id];
   profile.objectiveProgress["objective-extract"] = true;
+  if (questStatus) profile.questProgress[trackedQuest.id] = questStatus;
   const overlayRef = createRef<QuestOverlayHandle>();
 
   return (
@@ -163,6 +167,16 @@ describe("QuestOverlay", () => {
       .not.toBeInTheDocument();
     await waitFor(() => expect(opener).toHaveFocus());
     expect(recordClientDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("labels an imported active quest as in progress", async () => {
+    render(<OverlayHarness openPopup={() => null} questStatus="active" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "퀘스트 창 토글" }));
+    const overlay = await screen.findByRole("complementary", { name: "퀘스트 창" });
+
+    expect(within(overlay).getByText("진행 중")).toBeVisible();
+    expect(within(overlay).queryByText("실패")).not.toBeInTheDocument();
   });
 
   it("records a privacy-safe warning when popup setup throws before the portal is ready", async () => {

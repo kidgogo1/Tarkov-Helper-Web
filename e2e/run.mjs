@@ -376,6 +376,29 @@ try {
   await page.locator(".quest-list button").first().click();
   await page.getByRole("button", { name: "퀘스트 완료" }).click();
   await page.locator(".quest-detail .status-done").waitFor();
+
+  await questSearch.fill("Beyond the Red Meat - Part 2");
+  await page.getByRole("button", { name: /The Secret Recipe/ }).waitFor();
+  await questSearch.fill("The Secret Recipe");
+  await page.getByRole("button", { name: /The Secret Recipe/ }).click();
+  await page.getByRole("heading", { name: "The Secret Recipe" }).waitFor();
+  await page.locator(".quest-detail").getByText(
+    "이전 이름: Beyond the Red Meat - Part 2",
+    { exact: true },
+  ).waitFor();
+  assert(
+    await page.locator(".quest-detail .quest-objectives > li").count() === 2,
+    "The Secret Recipe should expose both current objectives",
+  );
+  assert(
+    await page.getByRole("heading", { name: "선행 퀘스트" }).count() === 0,
+    "The Secret Recipe should not retain the removed legacy prerequisite",
+  );
+  assert(
+    await page.getByRole("link", { name: "위키 열기", exact: true }).getAttribute("href") ===
+      "https://escapefromtarkov.fandom.com/wiki/The_Secret_Recipe",
+    "The Secret Recipe should use the current wiki page",
+  );
   await questSearch.fill("");
 
   await page.getByRole("button", { name: /설정/ }).click();

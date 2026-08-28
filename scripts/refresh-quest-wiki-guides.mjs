@@ -63,7 +63,7 @@ function infoboxLocation(wikitext) {
 function objectiveLines(wikitext) {
   return section(wikitext, "Objectives")
     .split(/\r?\n/)
-    .map((line) => line.match(/^\s*[*#]+\s+(.+)$/)?.[1])
+    .map((line) => line.match(/^\s*[*#]+\s*(.+)$/)?.[1])
     .filter(Boolean)
     .map(cleanWiki)
     .filter((line) => line.length > 1 && !/^optional$/i.test(line))
@@ -77,7 +77,12 @@ function guideSummary(wikitext) {
     .replace(/^\s*[*#].*$/gm, "")
     .split(/\r?\n\s*\r?\n/)
     .map(cleanWiki)
-    .find((line) => line.length >= 24 && !/^file:/i.test(line) && !/^(?:[a-z]{2}):/i.test(line));
+    .find((line) => (
+      line.length >= 24
+      && !/^file:/i.test(line)
+      && !/^(?:[a-z]{2}):/i.test(line)
+      && !/^\s*[*#-]/.test(line)
+    ));
   return guide ? guide.slice(0, 1200) : "";
 }
 
@@ -104,6 +109,40 @@ function questTitle(link) {
   } catch {
     return "";
   }
+}
+
+function wikiPageIdentity(link) {
+  try {
+    const url = new URL(String(link ?? "").trim());
+    const title = decodeURIComponent(url.pathname.replace(/^\/wiki\//, ""))
+      .trim()
+      .replace(/[ _]+/g, "_");
+    return title ? `${url.hostname.toLocaleLowerCase("en-US")}/${title}` : "";
+  } catch {
+    return "";
+  }
+}
+
+function guideEntryIsReusable(entry) {
+  return Boolean(
+    entry
+    && !entry.error
+    && !/^\s*[*#-]/.test(String(entry.guideSummary ?? ""))
+    && (
+      (Array.isArray(entry.wikiObjectives) && entry.wikiObjectives.length > 0)
+      || entry.wikiObjectivesSectionPresent === false
+    ),
+  );
+}
+
+function reusableEntriesByPage(entries) {
+  const index = new Map();
+  for (const entry of Object.values(entries ?? {})) {
+    if (!guideEntryIsReusable(entry)) continue;
+    const identity = wikiPageIdentity(entry.wikiPageLink);
+    if (identity && !index.has(identity)) index.set(identity, entry);
+  }
+  return index;
 }
 
 function isTransientError(error) {
@@ -139,6 +178,7 @@ async function fetchQuest(quest) {
     wikiRevisionId: Number.isInteger(parsed.revid) ? parsed.revid : undefined,
     wikiLocation: infoboxLocation(wikitext),
     wikiObjectives: objectiveLines(wikitext),
+    wikiObjectivesSectionPresent: /^==\s*Objectives\s*==\s*$/im.test(wikitext),
     guideSummary: guideSummary(wikitext),
     images: galleryImages(parsed.text),
   }];
@@ -154,29 +194,84 @@ async function main() {
   } catch {
     // A first refresh has no prior guide index to reuse.
   }
-  const quests = Array.isArray(data.quests) ? data.quests : [];
+  const questsById = new Map();
+  const questLists = [
+    Array.isArray(data.quests) ? data.quests : [],
+    ...Object.values(data.questCatalogs ?? {}).filter(Array.isArray),
+  ];
+  for (const quest of questLists.flat()) {
+    if (!quest?.id) continue;
+    const previous = questsById.get(quest.id);
+    if (!previous || (!previous.wikiPageLink && quest.wikiPageLink)) {
+      questsById.set(quest.id, quest);
+      continue;
+    }
+    const previousPage = wikiPageIdentity(previous.wikiPageLink);
+    const currentPage = wikiPageIdentity(quest.wikiPageLink);
+    if (previousPage && currentPage && previousPage !== currentPage) {
+      throw new Error(`Quest ${quest.id} has conflicting Wiki pages across catalogs.`);
+    }
+  }
+  const quests = [...questsById.values()];
   const entries = {};
+  const force = process.argv.includes("--force");
+  const reuseVerified = process.argv.includes("--reuse-verified") && !force;
+  const reusableByPage = reusableEntriesByPage(previousEntries);
+  const pendingByPage = new Map();
+  let reused = 0;
+  for (const quest of quests) {
+    if (!quest.wikiPageLink) {
+      entries[quest.id] = { error: "NO_WIKI_LINK" };
+      continue;
+    }
+    if (reuseVerified) {
+      const identity = wikiPageIdentity(quest.wikiPageLink);
+      const previous = previousEntries[quest.id];
+      const reusable = guideEntryIsReusable(previous)
+        && wikiPageIdentity(previous.wikiPageLink) === identity
+        ? previous
+        : reusableByPage.get(identity);
+      if (reusable) {
+        entries[quest.id] = { ...reusable, wikiPageLink: quest.wikiPageLink };
+        reused += 1;
+        continue;
+      }
+    }
+    const identity = wikiPageIdentity(quest.wikiPageLink);
+    const key = identity || `quest:${quest.id}`;
+    const group = pendingByPage.get(key) ?? [];
+    group.push(quest);
+    pendingByPage.set(key, group);
+  }
+  const pendingGroups = [...pendingByPage.values()];
+  const pendingQuestCount = pendingGroups.reduce((count, group) => count + group.length, 0);
   let cursor = 0;
   let completed = 0;
   async function worker() {
-    while (cursor < quests.length) {
+    while (cursor < pendingGroups.length) {
       const index = cursor++;
-      const quest = quests[index];
-      const [id, entry] = await fetchQuest(quest);
-      const previous = previousEntries[id];
-      entries[id] = isTransientError(entry?.error)
-        && previous
-        && !previous.error
-        && previous.wikiPageLink === quest.wikiPageLink
-        ? previous
-        : entry;
+      const group = pendingGroups[index];
+      const representative = group[0];
+      const [, fetchedEntry] = await fetchQuest(representative);
+      for (const quest of group) {
+        const previous = previousEntries[quest.id];
+        entries[quest.id] = isTransientError(fetchedEntry?.error)
+          && guideEntryIsReusable(previous)
+          && wikiPageIdentity(previous.wikiPageLink) === wikiPageIdentity(quest.wikiPageLink)
+          ? { ...previous, wikiPageLink: quest.wikiPageLink }
+          : (fetchedEntry?.error
+              ? fetchedEntry
+              : { ...fetchedEntry, wikiPageLink: quest.wikiPageLink });
+      }
       completed += 1;
-      if (completed % 25 === 0 || completed === quests.length) {
-        console.error(`Wiki quest guides: ${completed}/${quests.length}`);
+      if (completed % 25 === 0 || completed === pendingGroups.length) {
+        console.error(`Wiki pages fetched: ${completed}/${pendingGroups.length}`);
       }
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, quests.length) }, worker));
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, pendingGroups.length) }, worker),
+  );
   const orderedEntries = Object.fromEntries(
     quests.map((quest) => [quest.id, entries[quest.id]]),
   );
@@ -192,7 +287,15 @@ async function main() {
   await rename(temporaryPath, outputPath);
   const good = Object.values(entries).filter((entry) => !entry.error).length;
   const withImages = Object.values(entries).filter((entry) => !entry.error && entry.images?.length).length;
-  console.log(JSON.stringify({ output: outputPath, questCount: quests.length, verifiedPages: good, pagesWithImages: withImages }, null, 2));
+  console.log(JSON.stringify({
+    output: outputPath,
+    questCount: quests.length,
+    fetchedPages: pendingGroups.length,
+    fetchedQuests: pendingQuestCount,
+    reused,
+    verifiedPages: good,
+    pagesWithImages: withImages,
+  }, null, 2));
 }
 
 main().catch((error) => {

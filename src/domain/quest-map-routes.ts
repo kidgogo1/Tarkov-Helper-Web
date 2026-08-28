@@ -4,6 +4,7 @@ import type {
   MapFloorLocation,
   QuestData,
   QuestObjective,
+  QuestObjectiveMapLocation,
   WorldPoint,
 } from "../types/data";
 
@@ -58,10 +59,31 @@ export function objectiveRouteMapName(
   return uniqueLocations.size === 1 ? [...uniqueLocations.values()][0] : undefined;
 }
 
+/** Selects only the points attributed to the requested map. */
+export function objectiveRouteLocationForMap(
+  quest: QuestData,
+  objective: QuestObjective,
+  config: MapConfig,
+): QuestObjectiveMapLocation | undefined {
+  if (objective.mapLocations?.length) {
+    return objective.mapLocations.find((location) =>
+      mapConfigMatchesRouteName(config, location.mapName));
+  }
+  const mapName = objectiveRouteMapName(quest, objective);
+  if (!mapName || !mapConfigMatchesRouteName(config, mapName)) return undefined;
+  return {
+    mapName,
+    locationPoints: objective.locationPoints,
+    optionalPoints: objective.optionalPoints,
+  };
+}
+
 export function objectiveHasUnambiguousMapRoute(
   quest: QuestData,
   objective: QuestObjective,
 ): boolean {
+  if (objective.mapLocations?.some((location) =>
+    location.locationPoints.length > 0 || location.optionalPoints.length > 0)) return true;
   return Boolean(
     objectiveRouteMapName(quest, objective) &&
     (objective.locationPoints.length > 0 || objective.optionalPoints.length > 0),
@@ -114,6 +136,13 @@ export function objectiveHasDisplayableMapRoute(
   configs: readonly MapConfig[],
   floorLocations: readonly MapFloorLocation[],
 ): boolean {
+  if (objective.mapLocations?.length) {
+    return objective.mapLocations.some((location) => {
+      const config = findRouteMapConfig(configs, location.mapName);
+      return Boolean(config && [...location.locationPoints, ...location.optionalPoints]
+        .some((point) => routePointIsDisplayable(config, point, floorLocations)));
+    });
+  }
   const config = findRouteMapConfig(configs, objectiveRouteMapName(quest, objective));
   return Boolean(config && [...objective.locationPoints, ...objective.optionalPoints]
     .some((point) => routePointIsDisplayable(config, point, floorLocations)));

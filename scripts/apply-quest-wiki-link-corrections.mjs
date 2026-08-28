@@ -10,14 +10,26 @@ const dataPath = path.join(root, "public", "data", "tarkov-data.json");
 
 const data = JSON.parse(await readFile(dataPath, "utf8"));
 const quests = applyWikiQuestRenames(data.quests ?? []);
-const corrections = quests.reduce((count, quest, index) => {
-  const previous = data.quests?.[index];
-  return count + (previous?.wikiPageLink !== quest?.wikiPageLink ? 1 : 0);
-}, 0);
+const questCatalogs = data.questCatalogs
+  ? Object.fromEntries(Object.entries(data.questCatalogs).map(([name, catalog]) => [
+      name,
+      applyWikiQuestRenames(Array.isArray(catalog) ? catalog : []),
+    ]))
+  : undefined;
+const corrections = [
+  [data.quests ?? [], quests],
+  ...Object.keys(questCatalogs ?? {}).map((name) => [
+    data.questCatalogs?.[name] ?? [],
+    questCatalogs[name],
+  ]),
+].reduce((total, [before, after]) => total + after.reduce((count, quest, index) => (
+  count + (before[index]?.wikiPageLink !== quest?.wikiPageLink ? 1 : 0)
+), 0), 0);
 const unverified = quests.filter((quest) => !quest?.wikiPageLink).length;
 const output = {
   ...data,
   quests,
+  ...(questCatalogs ? { questCatalogs } : {}),
   meta: {
     ...data.meta,
     sources: {

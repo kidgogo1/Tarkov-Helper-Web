@@ -44,6 +44,29 @@ const mainQuest = quest("q-main", {
     { questId: "q-alt", requirementType: "complete", groupId: 1 },
     { questId: "q-choice", requirementType: "complete", groupId: 1 },
   ],
+  traderRequirements: [{
+    id: "skier-level-2",
+    traderId: "skier",
+    traderName: "Skier",
+    requirementType: "level",
+    compareMethod: ">=",
+    value: 2,
+  }],
+  otherRequirements: [
+    {
+      id: "skier-dialogue",
+      type: "dialogue",
+      traderIds: ["skier"],
+      traderNames: ["Skier"],
+    },
+    {
+      id: "story-progress",
+      type: "globalVariable",
+      variableId: "story-progress-id",
+      compareMethod: ">=",
+      value: 1,
+    },
+  ],
   alternativeQuestIds: ["q-alt"],
   followUpQuestIds: ["q-follow"],
   objectives: [
@@ -258,6 +281,19 @@ describe("QuestsPage", () => {
     expect(within(list).getByRole("button", { name: /쉬운 임무 B/ })).toBeInTheDocument();
   });
 
+  it("shows live trader and game-progress gates without guessing their completion state", () => {
+    renderPage();
+
+    const detail = screen.getByRole("article", { name: "퀘스트 상세" });
+    const conditions = within(detail).getByRole("region", { name: "추가 해금 조건" });
+    expect(within(conditions).getByText("Skier 충성도 레벨 ≥ 2")).toBeInTheDocument();
+    expect(within(conditions).getByText("Skier 대화 진행 필요")).toBeInTheDocument();
+    expect(within(conditions).getByText("게임 진행 조건 · story-progress-id ≥ 1"))
+      .toBeInTheDocument();
+    expect(within(conditions).getByText("게임 안의 현재 상태를 앱이 자동 판정할 수 없는 조건입니다."))
+      .toBeInTheDocument();
+  });
+
   it("switches quest names between Korean and English while searching both languages", () => {
     renderPage();
 
@@ -321,6 +357,58 @@ describe("QuestsPage", () => {
 
     fireEvent.change(itemSearch, { target: { value: "does-not-exist" } });
     expect(within(list).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("finds a quest by an alternative hand-in item name", () => {
+    const alternativeQuest = quest("q-alternative-item", {
+      nameKo: "교환 가능한 의료품",
+      requiredItems: [
+        {
+          id: "requirement-medical",
+          itemId: "item-salewa",
+          itemName: "Salewa first aid kit",
+          alternativeItemIds: ["item-grizzly"],
+          alternativeItemNames: ["Grizzly medical kit"],
+          count: 1,
+          requiresFir: false,
+          requirementType: "handover",
+          sortOrder: 0,
+        },
+      ],
+    });
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={{
+            ...testData,
+            quests: [alternativeQuest],
+            items: [
+              ...testData.items,
+              {
+                id: "item-grizzly",
+                name: "Grizzly medical kit",
+                nameEn: "Grizzly medical kit",
+                nameKo: "그리즐리 구급낭",
+                categories: ["Medical"],
+                isDogtagItem: false,
+              },
+            ],
+          }}
+          onOpenMap={vi.fn()}
+        />
+      </AppStoreProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "제출 아이템 검색" }), {
+      target: { value: "그리즐리" },
+    });
+
+    expect(
+      within(screen.getByRole("region", { name: "퀘스트 목록" })).getByRole(
+        "button",
+        { name: /교환 가능한 의료품/ },
+      ),
+    ).toBeInTheDocument();
   });
 
   it("finds quests by the stored legacy name and shows that alias in the result", () => {
@@ -631,6 +719,60 @@ describe("QuestsPage", () => {
 
     fireEvent.click(within(detail).getByRole("button", { name: /살레와 구급낭/ }));
     expect(onOpenItem).toHaveBeenCalledWith("item-salewa");
+  });
+
+  it("combines alternative item inventory and exposes each accepted item", () => {
+    const alternativeQuest = quest("q-alternative-item", {
+      nameKo: "교환 가능한 의료품",
+      requiredItems: [
+        {
+          id: "requirement-medical",
+          itemId: "item-salewa",
+          itemName: "Salewa first aid kit",
+          alternativeItemIds: ["item-grizzly"],
+          alternativeItemNames: ["Grizzly medical kit"],
+          count: 2,
+          requiresFir: true,
+          requirementType: "handover",
+          sortOrder: 0,
+        },
+      ],
+    });
+    const state = createDefaultState();
+    state.profiles.pvp.inventory["item-salewa"] = { fir: 1, nonFir: 10 };
+    state.profiles.pvp.inventory["item-grizzly"] = { fir: 1, nonFir: 10 };
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    const onOpenItem = vi.fn();
+    render(
+      <AppStoreProvider>
+        <QuestsPage
+          data={{
+            ...testData,
+            quests: [alternativeQuest],
+            items: [
+              ...testData.items,
+              {
+                id: "item-grizzly",
+                name: "Grizzly medical kit",
+                nameEn: "Grizzly medical kit",
+                nameKo: "그리즐리 구급낭",
+                categories: ["Medical"],
+                isDogtagItem: false,
+              },
+            ],
+          }}
+          focusQuestId="q-alternative-item"
+          onOpenItem={onOpenItem}
+          onOpenMap={vi.fn()}
+        />
+      </AppStoreProvider>,
+    );
+
+    expect(screen.getByText("보유 2 / 필요 2")).toBeInTheDocument();
+    expect(screen.getByText("충족")).toBeInTheDocument();
+    expect(screen.getByText(/또는/)).toHaveTextContent("또는 그리즐리 구급낭");
+    fireEvent.click(screen.getByRole("button", { name: "그리즐리 구급낭" }));
+    expect(onOpenItem).toHaveBeenCalledWith("item-grizzly");
   });
 
   it("opens a required item's exact Wiki page in a separate safe tab", () => {

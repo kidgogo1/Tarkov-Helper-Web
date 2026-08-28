@@ -3,10 +3,18 @@ import { ExternalLink, MapPin, RotateCcw } from "lucide-react";
 import { ProgressBar } from "../../components/ProgressBar";
 import {
   groupQuestRequirementsForDisplay,
+  isObjectiveComplete,
   isScavKarmaRequirementMet,
   type QuestStatusResolver,
 } from "../../domain/quests";
-import type { QuestData, QuestRequirement, TarkovData } from "../../types/data";
+import type {
+  ItemData,
+  QuestData,
+  QuestOtherRequirement,
+  QuestRequirement,
+  QuestTraderRequirement,
+  TarkovData,
+} from "../../types/data";
 import type { ProfileState, QuestStatus } from "../../types/state";
 import {
   alternateQuestDisplayName,
@@ -52,6 +60,36 @@ function requirementLabel(requirement: QuestRequirement): string {
   return "완료 필요";
 }
 
+function comparisonLabel(value: string | undefined): string {
+  if (value === ">=") return "≥";
+  if (value === "<=") return "≤";
+  if (value === "==" || value === "===") return "=";
+  return value || "=";
+}
+
+function traderRequirementLabel(requirement: QuestTraderRequirement): string {
+  const trader = requirement.traderName || requirement.traderId;
+  const comparison = comparisonLabel(requirement.compareMethod);
+  const kind = requirement.requirementType.toLocaleLowerCase("en-US") === "level"
+    ? "충성도 레벨"
+    : "평판";
+  return `${trader} ${kind} ${comparison} ${requirement.value}`;
+}
+
+function otherRequirementLabel(requirement: QuestOtherRequirement): string {
+  if (requirement.type.toLocaleLowerCase("en-US") === "dialogue") {
+    const traders = requirement.traderNames?.length
+      ? requirement.traderNames
+      : requirement.traderIds;
+    return `${traders?.join(", ") || "상인"} 대화 진행 필요`;
+  }
+  if (requirement.type.toLocaleLowerCase("en-US") === "globalvariable") {
+    const value = requirement.value === undefined ? "" : ` ${requirement.value}`;
+    return `게임 진행 조건 · ${requirement.variableId || requirement.id} ${comparisonLabel(requirement.compareMethod)}${value}`;
+  }
+  return `게임 진행 조건 · ${requirement.type} (${requirement.id})`;
+}
+
 function dogtagConditionLabel(
   minimumLevel: number | undefined,
   faction: string | undefined,
@@ -65,6 +103,16 @@ function dogtagConditionLabel(
 
 function canCompleteQuest(status: QuestStatus): boolean {
   return status === "active" || status === "locked" || status === "levelLocked";
+}
+
+function itemDisplayName(
+  item: ItemData | undefined,
+  fallbackName: string,
+  language: QuestLanguage,
+): string {
+  return language === "ko"
+    ? item?.nameKo || fallbackName
+    : item?.nameEn || item?.name || fallbackName;
 }
 
 function RelatedQuestList({
@@ -261,6 +309,26 @@ export function QuestDetail({
         </div>
       ) : null}
 
+      {(quest.traderRequirements?.length || quest.otherRequirements?.length) ? (
+        <section
+          aria-label="추가 해금 조건"
+          className="quest-detail-section quest-live-requirements"
+        >
+          <h3>추가 해금 조건</h3>
+          <ul className="quest-condition-list">
+            {(quest.traderRequirements ?? []).map((requirement) => (
+              <li key={requirement.id}>{traderRequirementLabel(requirement)}</li>
+            ))}
+            {(quest.otherRequirements ?? []).map((requirement) => (
+              <li key={requirement.id}>{otherRequirementLabel(requirement)}</li>
+            ))}
+          </ul>
+          <p className="quest-condition-note">
+            게임 안의 현재 상태를 앱이 자동 판정할 수 없는 조건입니다.
+          </p>
+        </section>
+      ) : null}
+
       {quest.objectives.length > 0 ? (
         <section className="quest-detail-section">
           <h3>목표</h3>
@@ -276,7 +344,7 @@ export function QuestDetail({
                   <li key={objective.id}>
                     <label>
                       <input
-                        checked={Boolean(profile.objectiveProgress[objective.id])}
+                        checked={isObjectiveComplete(profile.objectiveProgress, objective)}
                         onChange={(event) =>
                           onObjectiveChange(objective.id, event.target.checked)
                         }
@@ -285,7 +353,9 @@ export function QuestDetail({
                       <span>{objectiveDisplayText(objective, language)}</span>
                     </label>
                     <span className="quest-objective-meta">
-                      {objective.mapName ? <small>{objective.mapName}</small> : null}
+                      {objective.mapNames?.length || objective.mapName ? (
+                        <small>{objective.mapNames?.join(", ") || objective.mapName}</small>
+                      ) : null}
                       {dogtagCondition ? (
                         <small className="quest-dogtag-meta">{dogtagCondition}</small>
                       ) : null}
@@ -310,20 +380,38 @@ export function QuestDetail({
             {[...quest.requiredItems]
               .sort((left, right) => left.sortOrder - right.sortOrder)
               .map((requirement) => {
-                const inventory = profile.inventory[requirement.itemId] ?? {
-                  fir: 0,
-                  nonFir: 0,
-                };
-                const owned = requirement.requiresFir
-                  ? inventory.fir
-                  : inventory.fir + inventory.nonFir;
-                const fulfilled = owned >= requirement.count;
                 const item = data.items.find(
                   (candidate) => candidate.id === requirement.itemId,
                 );
-                const itemDisplayName = language === "ko"
-                  ? item?.nameKo || requirement.itemName
-                  : item?.nameEn || item?.name || requirement.itemName;
+                const primaryItemDisplayName = itemDisplayName(
+                  item,
+                  requirement.itemName,
+                  language,
+                );
+                const seenItemIds = new Set([requirement.itemId]);
+                const alternativeItems = (requirement.alternativeItemIds ?? [])
+                  .flatMap((itemId, index) => {
+                    if (seenItemIds.has(itemId)) return [];
+                    seenItemIds.add(itemId);
+                    const alternativeItem = data.items.find(
+                      (candidate) => candidate.id === itemId,
+                    );
+                    return [{
+                      id: itemId,
+                      displayName: itemDisplayName(
+                        alternativeItem,
+                        requirement.alternativeItemNames?.[index] || itemId,
+                        language,
+                      ),
+                    }];
+                  });
+                const owned = [...seenItemIds].reduce((total, itemId) => {
+                  const inventory = profile.inventory[itemId] ?? { fir: 0, nonFir: 0 };
+                  return total + (requirement.requiresFir
+                    ? inventory.fir
+                    : inventory.fir + inventory.nonFir);
+                }, 0);
+                const fulfilled = owned >= requirement.count;
                 const dogtagCondition = dogtagConditionLabel(
                   requirement.dogtagMinLevel,
                   requirement.dogtagFaction,
@@ -331,22 +419,41 @@ export function QuestDetail({
                 return (
                   <li className={fulfilled ? "fulfilled" : ""} key={requirement.id}>
                     <div className="quest-required-item-primary">
-                      <button
-                        className="quest-item-link"
-                        onClick={() => onOpenItem(requirement.itemId)}
-                        type="button"
-                      >
-                        <strong>{itemDisplayName}</strong>
-                        {item && language === "ko" && item.nameEn && item.nameEn !== item.nameKo ? (
-                          <small>{item.nameEn}</small>
+                      <div>
+                        <button
+                          className="quest-item-link"
+                          onClick={() => onOpenItem(requirement.itemId)}
+                          type="button"
+                        >
+                          <strong>{primaryItemDisplayName}</strong>
+                          {item && language === "ko" && item.nameEn && item.nameEn !== item.nameKo ? (
+                            <small>{item.nameEn}</small>
+                          ) : null}
+                          {dogtagCondition ? (
+                            <small className="quest-dogtag-meta">{dogtagCondition}</small>
+                          ) : null}
+                        </button>
+                        {alternativeItems.length > 0 ? (
+                          <small>
+                            또는{" "}
+                            {alternativeItems.map((alternativeItem, index) => (
+                              <span key={alternativeItem.id}>
+                                {index > 0 ? ", " : null}
+                                <button
+                                  className="quest-item-link"
+                                  onClick={() => onOpenItem(alternativeItem.id)}
+                                  type="button"
+                                >
+                                  {alternativeItem.displayName}
+                                </button>
+                              </span>
+                            ))}
+                          </small>
                         ) : null}
-                        {dogtagCondition ? (
-                          <small className="quest-dogtag-meta">{dogtagCondition}</small>
-                        ) : null}
-                      </button>
+                      </div>
                       {item?.wikiPageLink ? (
                         <a
-                          aria-label={`${itemDisplayName} 위키 열기`}
+                          aria-label={`${primaryItemDisplayName} 위키 열기`}
                           className="quest-item-wiki-link"
                           href={item.wikiPageLink}
                           rel="noopener noreferrer"

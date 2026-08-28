@@ -24,6 +24,11 @@ export interface DataMeta {
     wikiLocationCorrections?: number;
     wikiLinkCorrections?: number;
     wikiLinkUnverifiedQuests?: number;
+    questCatalogCounts?: {
+      regular: number;
+      pve: number;
+      pvpSeason: number;
+    };
   };
   counts: {
     quests: number;
@@ -40,6 +45,27 @@ export interface QuestRequirement {
   groupId: number;
 }
 
+/** A current live-task gate based on a trader's loyalty level or reputation. */
+export interface QuestTraderRequirement {
+  id: string;
+  traderId: string;
+  traderName?: string;
+  requirementType: string;
+  compareMethod: string;
+  value: number;
+}
+
+/** A live-task gate that cannot be inferred safely from the local profile. */
+export interface QuestOtherRequirement {
+  id: string;
+  type: string;
+  traderIds?: string[];
+  traderNames?: string[];
+  variableId?: string;
+  compareMethod?: string;
+  value?: number;
+}
+
 export interface QuestItemRequirement {
   id: string;
   itemId: string;
@@ -50,6 +76,9 @@ export interface QuestItemRequirement {
   sortOrder: number;
   dogtagMinLevel?: number;
   dogtagFaction?: string;
+  /** Alternative items accepted by the same live objective (OR, not AND). */
+  alternativeItemIds?: string[];
+  alternativeItemNames?: string[];
 }
 
 /** An item granted when a quest is turned in. Older data packs may omit this. */
@@ -80,8 +109,19 @@ export interface WorldPoint {
   floorId?: string;
 }
 
+export interface QuestObjectiveMapLocation {
+  mapName: string;
+  locationPoints: WorldPoint[];
+  optionalPoints: WorldPoint[];
+}
+
 export interface QuestObjective {
   id: string;
+  /** Older app storage keys retained when a duplicate id had to be namespaced. */
+  progressIdAliases?: string[];
+  /** Current BSG objective id; `id` remains stable for saved checklist state. */
+  bsgId?: string;
+  bsgIdAliases?: string[];
   sortOrder: number;
   objectiveType: string;
   description: string;
@@ -89,6 +129,13 @@ export interface QuestObjective {
   targetType?: string;
   targetCount?: number;
   itemId?: string;
+  alternativeItemIds?: string[];
+  questItemId?: string;
+  mapNames?: string[];
+  /** World positions grouped by map; legacy fields below hold the primary map only. */
+  mapLocations?: QuestObjectiveMapLocation[];
+  requiredKeyGroups?: string[][];
+  isOptional?: boolean;
   requiresFir: boolean;
   mapName?: string;
   locationName?: string;
@@ -102,6 +149,8 @@ export interface QuestObjective {
 export interface QuestData {
   id: string;
   bsgId?: string;
+  /** Historical BSG ids retained for older logs and imported progress. */
+  bsgIdAliases?: string[];
   normalizedName: string;
   name: string;
   nameEn: string;
@@ -121,6 +170,8 @@ export interface QuestData {
   requiredDecodeCount?: number;
   requiredPrestigeLevel?: number;
   requirements: QuestRequirement[];
+  traderRequirements?: QuestTraderRequirement[];
+  otherRequirements?: QuestOtherRequirement[];
   alternativeQuestIds: string[];
   followUpQuestIds: string[];
   objectives: QuestObjective[];
@@ -132,6 +183,15 @@ export interface QuestData {
   rewardSkills?: QuestRewardSkill[];
   rewardUnlocks?: string[];
   rewardText?: string[];
+}
+
+/**
+ * Mode-specific quest lists shipped alongside the legacy regular quest list.
+ * Optional fields keep data packs created before mode catalogs compatible.
+ */
+export interface QuestCatalogs {
+  pve?: QuestData[];
+  pvpSeason?: QuestData[];
 }
 
 /**
@@ -150,6 +210,8 @@ export interface QuestWikiGuide {
   wikiRevisionId?: number;
   wikiLocation: string[];
   wikiObjectives: string[];
+  /** Distinguishes a page with no Objectives section from an outdated empty parse. */
+  wikiObjectivesSectionPresent?: boolean;
   guideSummary: string;
   images: QuestWikiGuideImage[];
   error?: string;
@@ -292,6 +354,11 @@ export interface MapFloorLocation {
 export interface TarkovData {
   meta: DataMeta;
   quests: QuestData[];
+  /**
+   * `quests` remains the regular catalog for backwards compatibility. These
+   * optional catalogs override it only for their matching player profile.
+   */
+  questCatalogs?: QuestCatalogs;
   items: ItemData[];
   hideoutStations: HideoutStation[];
   traders: TraderData[];

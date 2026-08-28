@@ -451,11 +451,30 @@
 
 .quest-objectives,
 .quest-required-items,
-.quest-related-list {
+.quest-related-list,
+.quest-condition-list {
   display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.quest-condition-list {
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.quest-condition-list li {
+  border-left: 2px solid var(--warning);
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+}
+
+.quest-condition-note {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 10px;
 }
 
 .quest-objectives li {

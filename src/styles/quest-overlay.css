@@ -229,6 +229,11 @@ body:has(.app-page-layer:not(.app-page-layer--preserved) .map-page)
   color: var(--success);
 }
 
+.quest-overlay-status--active {
+  border-color: color-mix(in srgb, var(--info) 35%, transparent);
+  color: var(--info);
+}
+
 .quest-overlay-status--failed {
   border-color: rgb(255 98 98 / 35%);
   color: var(--danger);

@@ -20,7 +20,6 @@ function normalize(value) {
 
 const data = JSON.parse(await readFile(dataPath, "utf8"));
 const guides = JSON.parse(await readFile(guidesPath, "utf8"));
-const linkCorrectedQuests = applyWikiGuideLinkErrors(data.quests ?? [], guides);
 const mapAliases = new Map();
 for (const map of data.mapConfigs ?? []) {
   const canonical = map.displayName;
@@ -31,26 +30,45 @@ for (const map of data.mapConfigs ?? []) {
 mapAliases.set("labs", "The Lab");
 
 const corrections = [];
-const quests = linkCorrectedQuests.map((quest) => {
-  const guide = guides.entries?.[quest.id];
-  if (!guide || guide.error) return quest;
-  const wikiMaps = [...new Set((guide.wikiLocation ?? [])
-    .map((name) => mapAliases.get(normalize(name)))
-    .filter(Boolean))];
-  if (wikiMaps.length === 0) return quest;
-  const appMaps = [...new Set((quest.locations ?? [])
-    .map((name) => mapAliases.get(normalize(name)))
-    .filter(Boolean))];
-  // Wiki infoboxes sometimes list only one map for multi-map tasks. Only fill
-  // an empty app location set; never erase verified objective map data.
-  if (appMaps.length > 0) return quest;
-  corrections.push({ questId: quest.id, name: quest.nameEn, from: quest.locations ?? [], to: wikiMaps });
-  return { ...quest, locations: wikiMaps };
-});
+function correctLocations(inputQuests, recordCorrections = false) {
+  const linkCorrected = applyWikiGuideLinkErrors(inputQuests ?? [], guides);
+  return linkCorrected.map((quest) => {
+    const guide = guides.entries?.[quest.id];
+    if (!guide || guide.error) return quest;
+    const wikiMaps = [...new Set((guide.wikiLocation ?? [])
+      .map((name) => mapAliases.get(normalize(name)))
+      .filter(Boolean))];
+    if (wikiMaps.length === 0) return quest;
+    const appMaps = [...new Set((quest.locations ?? [])
+      .map((name) => mapAliases.get(normalize(name)))
+      .filter(Boolean))];
+    // Wiki infoboxes sometimes list only one map for multi-map tasks. Only fill
+    // an empty app location set; never erase verified objective map data.
+    if (appMaps.length > 0) return quest;
+    if (recordCorrections) {
+      corrections.push({
+        questId: quest.id,
+        name: quest.nameEn,
+        from: quest.locations ?? [],
+        to: wikiMaps,
+      });
+    }
+    return { ...quest, locations: wikiMaps };
+  });
+}
+
+const quests = correctLocations(data.quests ?? [], true);
+const questCatalogs = data.questCatalogs
+  ? Object.fromEntries(Object.entries(data.questCatalogs).map(([name, catalog]) => [
+      name,
+      correctLocations(Array.isArray(catalog) ? catalog : []),
+    ]))
+  : undefined;
 
 const output = {
   ...data,
   quests,
+  ...(questCatalogs ? { questCatalogs } : {}),
   meta: {
     ...data.meta,
     sources: {

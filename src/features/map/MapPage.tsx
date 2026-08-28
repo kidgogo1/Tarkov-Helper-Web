@@ -52,7 +52,7 @@ import {
   type ScreenPoint,
   type ScreenshotPosition,
 } from "../../domain/map";
-import { createQuestStatusResolver } from "../../domain/quests";
+import { createQuestStatusResolver, isObjectiveComplete } from "../../domain/quests";
 import { objectiveDisplayText } from "../quests/quest-language";
 import {
   keyItemFullName,
@@ -64,7 +64,8 @@ import {
   findRouteMapConfig,
   MAX_MAP_ROUTE_QUESTS,
   mapConfigMatchesRouteName,
-  objectiveRouteMapName,
+  objectiveHasDisplayableMapRoute,
+  objectiveRouteLocationForMap,
   resolveRoutePointFloor,
   routePointIsDisplayable,
 } from "../../domain/quest-map-routes";
@@ -360,6 +361,8 @@ function focusedQuestMap(
   if (!quest) return undefined;
 
   for (const mapName of [
+    ...quest.objectives.flatMap((objective) =>
+      objective.mapLocations?.map((location) => location.mapName) ?? []),
     ...quest.objectives.map((objective) => objective.mapName),
     ...quest.locations,
   ]) {
@@ -383,6 +386,8 @@ function localQuestName(quest: QuestData): string {
 function questAppliesToMap(quest: QuestData, config: MapConfig): boolean {
   return [
     ...quest.locations,
+    ...quest.objectives.flatMap((objective) =>
+      objective.mapLocations?.map((location) => location.mapName) ?? []),
     ...quest.objectives.map((objective) => objective.mapName),
   ].some((mapName) => mapMatches(config, mapName));
 }
@@ -397,6 +402,8 @@ function questSearchText(quest: QuestData): string {
     quest.trader,
     ...quest.locations,
     ...quest.objectives.map((objective) => objective.descriptionKo),
+    ...quest.objectives.flatMap((objective) =>
+      objective.mapLocations?.map((location) => location.mapName) ?? []),
     ...quest.objectives.map((objective) => objective.mapName),
     ...quest.objectives.map((objective) => objective.locationName),
     ...quest.objectives.map((objective) => objective.description),
@@ -422,6 +429,10 @@ function rewardItemsForQuest(quest: QuestData) {
 }
 
 function objectiveAppliesToMap(entry: ObjectiveEntry, config: MapConfig): boolean {
+  if (entry.objective.mapLocations?.length) {
+    return entry.objective.mapLocations.some((location) =>
+      mapMatches(config, location.mapName));
+  }
   return entry.objective.mapName
     ? mapMatches(config, entry.objective.mapName)
     : entry.quest.locations.some((location) => mapMatches(config, location));
@@ -434,7 +445,11 @@ function objectiveTargetMap(
 ): MapConfig | undefined {
   if (objectiveAppliesToMap(entry, currentConfig)) return currentConfig;
 
-  for (const mapName of [entry.objective.mapName, ...entry.quest.locations]) {
+  for (const mapName of [
+    ...(entry.objective.mapLocations?.map((location) => location.mapName) ?? []),
+    entry.objective.mapName,
+    ...entry.quest.locations,
+  ]) {
     const config = findMapConfig(configs, mapName);
     if (config) return config;
   }
@@ -463,8 +478,8 @@ function buildQuestMapPoints(
   config: MapConfig,
   floorLocations: TarkovData["mapFloorLocations"],
 ): QuestMapPoint[] {
-  const markerMapName = objectiveRouteMapName(entry.quest, entry.objective);
-  if (!markerMapName || !mapMatches(config, markerMapName)) return [];
+  const routeLocation = objectiveRouteLocationForMap(entry.quest, entry.objective, config);
+  if (!routeLocation) return [];
 
   const buildPoint = (
     point: WorldPoint,
@@ -490,10 +505,10 @@ function buildQuestMapPoints(
   };
 
   return [
-    ...entry.objective.locationPoints.flatMap((point, index) =>
+    ...routeLocation.locationPoints.flatMap((point, index) =>
       buildPoint(point, index, false),
     ),
-    ...entry.objective.optionalPoints.flatMap((point, index) =>
+    ...routeLocation.optionalPoints.flatMap((point, index) =>
       buildPoint(point, index, true),
     ),
   ];
@@ -1146,18 +1161,13 @@ export function MapPage({
     [profile.mapRouteQuestIds],
   );
   const selectableRouteQuestIds = useMemo(
-    () => data.quests.flatMap((quest) => quest.objectives.some((objective) => {
-      const targetConfig = findRouteMapConfig(
+    () => data.quests.flatMap((quest) => quest.objectives.some((objective) =>
+      objectiveHasDisplayableMapRoute(
+        quest,
+        objective,
         data.mapConfigs,
-        objectiveRouteMapName(quest, objective),
-      );
-      return Boolean(targetConfig && [...objective.locationPoints, ...objective.optionalPoints]
-        .some((point) => routePointIsDisplayable(
-          targetConfig,
-          point,
-          data.mapFloorLocations,
-        )));
-    }) ? [quest.id] : []),
+        data.mapFloorLocations,
+      )) ? [quest.id] : []),
     [data.mapConfigs, data.mapFloorLocations, data.quests],
   );
   const selectedRouteQuestCount = useMemo(() => {
@@ -1311,7 +1321,7 @@ export function MapPage({
   const filteredObjectiveEntries = useMemo(
     () =>
       sortedObjectiveEntries.filter((entry) => {
-        const completed = Boolean(profile.objectiveProgress[entry.objective.id]);
+        const completed = isObjectiveComplete(profile.objectiveProgress, entry.objective);
         if (objectiveStatusFilter === "incomplete" && completed) return false;
         if (objectiveStatusFilter === "completed" && !completed) return false;
         if (
@@ -1346,7 +1356,7 @@ export function MapPage({
   const completedObjectiveCount = useMemo(
     () =>
       objectiveEntries.filter(({ objective }) =>
-        Boolean(profile.objectiveProgress[objective.id]),
+        isObjectiveComplete(profile.objectiveProgress, objective),
       ).length,
     [objectiveEntries, profile.objectiveProgress],
   );
@@ -1428,7 +1438,7 @@ export function MapPage({
             (point) =>
               markerFloorVisible(point.floorId, selectedFloor) &&
               (mapSettings.showCompletedObjectives ||
-                (!profile.objectiveProgress[point.objective.id] &&
+                (!isObjectiveComplete(profile.objectiveProgress, point.objective) &&
                   !completedQuestIds.has(point.quest.id))),
           );
       return [...new Map(visible.map((point) => [point.id, point])).values()];
@@ -1453,7 +1463,7 @@ export function MapPage({
             (point) =>
               markerFloorVisible(point.floorId, selectedFloor) &&
               (mapSettings.showCompletedObjectives ||
-                (!profile.objectiveProgress[point.objective.id] &&
+                (!isObjectiveComplete(profile.objectiveProgress, point.objective) &&
                   !completedQuestIds.has(point.quest.id))),
           );
       return [...new Map(visible.map((point) => [point.id, point])).values()];
@@ -1523,7 +1533,7 @@ export function MapPage({
         screen: point.screen,
         summary: `퀘스트 목표 · ${localQuestName(point.quest)} · ${objectiveDisplayText(point.objective, "ko")} · ${objectiveTypeLabel(point.objective.objectiveType)}`,
         selected: selectedMarkerId === point.id,
-        completed: Boolean(profile.objectiveProgress[point.objective.id]),
+        completed: isObjectiveComplete(profile.objectiveProgress, point.objective),
       })),
       ...miniMapVisibleDataMarkers.flatMap((marker) => {
         const screen = markerScreenPosition(config, marker);
@@ -2543,7 +2553,7 @@ export function MapPage({
         quest.id,
         objective.id,
         completedQuestIds.has(quest.id),
-        Boolean(profile.objectiveProgress[objective.id]),
+        isObjectiveComplete(profile.objectiveProgress, objective),
       ]),
     }),
     [completedQuestIds, config.key, mapRouteObjectiveEntries,
@@ -2587,7 +2597,7 @@ export function MapPage({
         quest &&
         (regionQuestRoutePoints.get(quest.id)?.some((point) =>
           mapSettings.showCompletedObjectives ||
-          (!profile.objectiveProgress[point.objective.id] &&
+          (!isObjectiveComplete(profile.objectiveProgress, point.objective) &&
             !completedQuestIds.has(point.quest.id))) ?? false) &&
         !state.keys.has(`${quest.id}:${config.key}`),
       ));
@@ -2604,7 +2614,7 @@ export function MapPage({
         quest,
         points: (regionQuestRoutePoints.get(quest.id) ?? []).filter((point) =>
           mapSettings.showCompletedObjectives ||
-          (!profile.objectiveProgress[point.objective.id] &&
+          (!isObjectiveComplete(profile.objectiveProgress, point.objective) &&
             !completedQuestIds.has(point.quest.id))),
       }))
       .map((entry) => ({
@@ -2663,7 +2673,7 @@ export function MapPage({
 
   const renderObjectiveItem = (entry: ObjectiveEntry, showQuestMeta: boolean) => {
     const { quest, objective } = entry;
-    const completed = Boolean(profile.objectiveProgress[objective.id]);
+    const completed = isObjectiveComplete(profile.objectiveProgress, objective);
     const onCurrentMap = objectiveAppliesToMap(entry, config);
     const targetConfig = objectiveTargetMap(entry, data.mapConfigs, config);
     const targetPoint = targetConfig
@@ -3291,7 +3301,7 @@ export function MapPage({
                 {groupObjectivesByQuest ? (
                   groupedObjectiveEntries.map(({ quest, entries }) => {
                     const completedCount = entries.filter(({ objective }) =>
-                      Boolean(profile.objectiveProgress[objective.id]),
+                      isObjectiveComplete(profile.objectiveProgress, objective),
                     ).length;
                     return (
                       <section className="map-objective-group" key={quest.id}>
@@ -3724,7 +3734,10 @@ export function MapPage({
 
               {visibleQuestPoints
                     .map((point) => {
-                      const completed = Boolean(profile.objectiveProgress[point.objective.id]);
+                      const completed = isObjectiveComplete(
+                        profile.objectiveProgress,
+                        point.objective,
+                      );
                       const choiceLabel = point.isOptional
                         ? `선택 ${point.optionalIndex ?? 1}`
                         : undefined;

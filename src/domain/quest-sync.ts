@@ -41,6 +41,30 @@ function savedStatus(quest: QuestData, progress: QuestProgress): SavedQuestStatu
   return match?.[1] ?? null;
 }
 
+export function applyStartedQuest(
+  progress: QuestProgress,
+  questId: string,
+  quests: readonly QuestData[],
+): Record<string, SavedQuestStatus> {
+  const result: Record<string, SavedQuestStatus> = { ...progress };
+  const quest = buildLookup(quests).get(normalize(questId));
+  if (!quest) return result;
+
+  const aliases = new Set(
+    [quest.id, quest.normalizedName].map(normalize).filter(Boolean),
+  );
+  const alreadyCompleted = Object.entries(progress).some(
+    ([key, status]) => aliases.has(normalize(key)) && status === "done",
+  );
+  if (alreadyCompleted) return result;
+
+  for (const key of Object.keys(result)) {
+    if (aliases.has(normalize(key))) delete result[key];
+  }
+  result[storageKey(quest)] = "active";
+  return result;
+}
+
 function collectPrerequisites(
   questIds: readonly string[],
   lookup: ReadonlyMap<string, QuestData>,

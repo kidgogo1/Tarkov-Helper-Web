@@ -58,7 +58,10 @@ export function questSearchText(quest: QuestData): string {
       objective.locationName,
       objective.targetType,
     ]),
-    ...quest.requiredItems.map((item) => item.itemName),
+    ...quest.requiredItems.flatMap((item) => [
+      item.itemName,
+      ...(item.alternativeItemNames ?? []),
+    ]),
   ]
     .filter((value): value is string => Boolean(value))
     .join(" ");
@@ -105,16 +108,29 @@ export function questRequiredItemSearchText(
 ): string {
   return quest.requiredItems
     .flatMap((requirement) => {
-      const item = itemsById.get(requirement.itemId);
+      const acceptedItems = [
+        { id: requirement.itemId, name: requirement.itemName },
+        ...(requirement.alternativeItemIds ?? []).map((id, index) => ({
+          id,
+          name: requirement.alternativeItemNames?.[index],
+        })),
+      ];
       return [
         requirement.itemName,
-        item?.name,
-        item?.nameEn,
-        item?.nameKo,
-        item?.nameJa,
-        item?.shortNameEn,
-        item?.shortNameKo,
-        item?.shortNameJa,
+        ...(requirement.alternativeItemNames ?? []),
+        ...acceptedItems.flatMap(({ id, name }) => {
+          const item = itemsById.get(id);
+          return [
+            name,
+            item?.name,
+            item?.nameEn,
+            item?.nameKo,
+            item?.nameJa,
+            item?.shortNameEn,
+            item?.shortNameKo,
+            item?.shortNameJa,
+          ];
+        }),
       ];
     })
     .filter((value): value is string => Boolean(value))
