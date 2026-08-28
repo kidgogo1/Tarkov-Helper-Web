@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -22,7 +22,7 @@ function startLauncher(appRoot, stateDirectory, upstreamBaseUrl) {
       ...process.env,
       TARKOV_HELPER_PRICE_TEST_MODE: "1",
       TARKOV_HELPER_PRICE_TEST_BASE_URL: upstreamBaseUrl,
-      TARKOV_HELPER_PRICE_TEST_FRESH_SECONDS: "1",
+      TARKOV_HELPER_PRICE_TEST_FRESH_SECONDS: "600",
       TARKOV_HELPER_PRICE_TEST_MAX_BYTES: "1024",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -148,7 +148,12 @@ test("portable price API validates same-origin queries and serves live, fresh-ca
   assert.equal(cached.isStale, false);
   assert.equal(upstreamCalls, 2);
 
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const cachePath = path.join(stateDirectory, "price-cache-v1", `pvp-${itemId}.json`);
+  const cache = JSON.parse(await readFile(cachePath, "utf8"));
+  const staleFetchedAt = new Date(Date.now() - 601_000);
+  cache.fetchedAt = staleFetchedAt.toISOString();
+  cache.expiresAt = new Date(staleFetchedAt.getTime() + 600_000).toISOString();
+  await writeFile(cachePath, JSON.stringify(cache), "utf8");
   failUpstream = true;
   const stale = await (await fetch(quoteUrl, { headers })).json();
   assert.equal(stale.source, "STALE_CACHE");

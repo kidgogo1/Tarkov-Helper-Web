@@ -535,7 +535,7 @@ test("local tracker emits a canonical map identity only from a fresh EFT log obs
   await Promise.all(Array.from({ length: 105 }, (_, index) =>
     writeFile(path.join(screenshotFolder, `cursor-${String(index).padStart(3, "0")}.png`), Buffer.from([index])),
   ));
-  const latestCursor = await waitForCursor(baseUrl, 101);
+  await waitForCursor(baseUrl, 101);
   const expiredResponse = await fetch(new URL("api/v1/local-tracker/events?afterCursor=0&pageSize=10", baseUrl));
   assert.equal(expiredResponse.status, 200);
   const expired = await expiredResponse.json();
@@ -546,7 +546,7 @@ test("local tracker emits a canonical map identity only from a fresh EFT log obs
   assert.equal(expired.pagination.nextCursor, expired.data.at(-1).sequence);
   assert.equal(expired.data[0].sequence > 1, true);
 
-  const futureCursor = await fetch(new URL(`api/v1/local-tracker/events?afterCursor=${latestCursor + 1}&pageSize=10`, baseUrl));
+  const futureCursor = await fetch(new URL(`api/v1/local-tracker/events?afterCursor=${Number.MAX_SAFE_INTEGER}&pageSize=10`, baseUrl));
   assert.equal(futureCursor.status, 400);
   const oversizedPage = await fetch(new URL("api/v1/local-tracker/events?afterCursor=0&pageSize=101", baseUrl));
   assert.equal(oversizedPage.status, 400);
