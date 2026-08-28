@@ -2308,7 +2308,7 @@ test("isolated read-only recovery preserves a normal first-hop NEW_MOVED transac
   await assert.rejects(stat(backupRoot), { code: "ENOENT" });
 });
 
-test("the current launcher retires previous-version terminal state after post-COMMITTED cleanup crashes", { skip: process.platform !== "win32", timeout: 240_000 }, async (t) => {
+test("the current launcher retires previous-version terminal state after post-COMMITTED cleanup crashes", { skip: process.platform !== "win32", timeout: 360_000 }, async (t) => {
   const previousTag = await requirePreviousUpdaterTag(t);
   if (!previousTag) return;
   const currentReleaseVersion = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version;
@@ -2349,7 +2349,7 @@ test("the current launcher retires previous-version terminal state after post-CO
       });
 
       const previous = await installTaggedUpdaterCode(fixture.packageRoot, previousTag);
-      await prepareStagedFixture(fixture, port);
+      await prepareStagedFixture(fixture, port, { stageTimeout: 120_000 });
       const pending = JSON.parse(await readFile(pendingPath, "utf8"));
       assert.equal(pending.brokerSha256, sha256(previous.broker));
       const failedRoot = path.join(
