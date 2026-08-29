@@ -516,7 +516,12 @@ export async function fetchPublicUpdateStatus(
       },
       signal,
     });
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (signal?.aborted) {
+      if (isAbortError(signal.reason)) throw signal.reason;
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
     throw new PublicUpdateApiError("REQUEST_FAILED", "The local update service could not be reached.");
   }
   return parseMutationResponse(response, session);
@@ -531,23 +536,31 @@ export function checkForPublicUpdate(
   signal?: AbortSignal,
   request?: UpdateRequest,
 ): Promise<PublicUpdateStatus>;
-export function checkForPublicUpdate(
+export async function checkForPublicUpdate(
   session: PublicUpdateSession,
   signalOrRequest?: AbortSignal | UpdateRequest,
   maybeRequest?: UpdateRequest,
 ): Promise<PublicUpdateStatus> {
   const { signal, request } = resolveMutationRequest(signalOrRequest, maybeRequest);
-  return sendUpdateMutation(CHECK_PATH, session, "{}", request, signal).then((status) => {
-    if (
-      status.state !== "CHECKING" &&
-      status.state !== "CURRENT" &&
-      status.state !== "AVAILABLE" &&
-      !(status.state === "ERROR" && status.operation === "CHECK")
-    ) {
-      throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher returned an invalid check result.");
-    }
-    return status;
-  });
+  let status: PublicUpdateStatus;
+  let recoveredReadyConflict = false;
+  try {
+    status = await sendUpdateMutation(CHECK_PATH, session, "{}", request, signal);
+  } catch (error: unknown) {
+    if (!(error instanceof PublicUpdateApiError && error.code === "UPDATE_READY")) throw error;
+    status = await fetchPublicUpdateStatus(session, signal, request);
+    recoveredReadyConflict = true;
+  }
+  if (
+    status.state !== "CHECKING" &&
+    status.state !== "CURRENT" &&
+    status.state !== "AVAILABLE" &&
+    !(recoveredReadyConflict && status.state === "READY_TO_RESTART") &&
+    !(status.state === "ERROR" && status.operation === "CHECK")
+  ) {
+    throw new PublicUpdateApiError("INVALID_RESPONSE", "The launcher returned an invalid check result.");
+  }
+  return status;
 }
 
 export function stagePublicUpdate(
@@ -571,13 +584,19 @@ export async function stagePublicUpdate(
     throw new PublicUpdateApiError("INVALID_CANDIDATE", "The requested update candidate is invalid.");
   }
   const { signal, request } = resolveMutationRequest(signalOrRequest, maybeRequest);
-  const status = await sendUpdateMutation(
-    STAGE_PATH,
-    session,
-    JSON.stringify({ candidateId }),
-    request,
-    signal,
-  );
+  let status: PublicUpdateStatus;
+  try {
+    status = await sendUpdateMutation(
+      STAGE_PATH,
+      session,
+      JSON.stringify({ candidateId }),
+      request,
+      signal,
+    );
+  } catch (error: unknown) {
+    if (!(error instanceof PublicUpdateApiError && error.code === "UPDATE_READY")) throw error;
+    status = await fetchPublicUpdateStatus(session, signal, request);
+  }
   if (
     !(status.state === "DOWNLOADING" || status.state === "VERIFYING" || status.state === "READY_TO_RESTART") ||
     status.candidateId !== candidateId

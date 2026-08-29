@@ -184,6 +184,66 @@ describe("public GitHub update API boundary", () => {
     });
   });
 
+  it("re-synchronizes authenticated status when the launcher reports an already staged update", async () => {
+    const ready = {
+      state: "READY_TO_RESTART",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      stagedAt: "2026-08-09T03:05:06.000Z",
+    } as const;
+    const alreadyReady = () => jsonResponse({
+      error: {
+        code: "UPDATE_READY",
+        message: "The staged update is ready to apply.",
+      },
+    }, 409);
+    const readyStatus = () => jsonResponse({ protocolVersion: 1, status: ready });
+    const checkRequest = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(alreadyReady())
+      .mockResolvedValueOnce(readyStatus());
+    const stageRequest = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(alreadyReady())
+      .mockResolvedValueOnce(readyStatus());
+
+    await expect(checkForPublicUpdate(session, checkRequest)).resolves.toEqual(ready);
+    await expect(stagePublicUpdate(session, availableStatus.candidateId, stageRequest)).resolves.toEqual(ready);
+
+    for (const request of [checkRequest, stageRequest]) {
+      expect(request.mock.calls[1]).toEqual([
+        "/api/v1/app-update/status",
+        {
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+            "X-Tarkov-Update": session.token,
+          },
+          signal: undefined,
+        },
+      ]);
+    }
+  });
+
+  it("preserves cancellation while re-synchronizing an already staged update", async () => {
+    const controller = new AbortController();
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        error: {
+          code: "UPDATE_READY",
+          message: "The staged update is ready to apply.",
+        },
+      }, 409))
+      .mockImplementationOnce((_input, init) => {
+        controller.abort();
+        expect(init?.signal).toBe(controller.signal);
+        return Promise.reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+
+    await expect(checkForPublicUpdate(session, controller.signal, request)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
   it("stages only the version the user reviewed", async () => {
     const downloading = {
       state: "DOWNLOADING",

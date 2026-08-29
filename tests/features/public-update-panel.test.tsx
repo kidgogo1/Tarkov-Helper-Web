@@ -375,6 +375,104 @@ describe("public update settings", () => {
     expect(request.mock.calls[6]?.[0]).toBe("/api/v1/app-update/apply");
   });
 
+  it("recovers a completed stage race instead of showing UPDATE_READY as an error", async () => {
+    const ready = {
+      state: "READY_TO_RESTART",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      stagedAt: "2026-08-09T03:05:06.000Z",
+    } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: availableStatus }))
+      .mockResolvedValueOnce(jsonResponse({
+        error: {
+          code: "UPDATE_READY",
+          message: "The staged update is ready to apply.",
+        },
+      }, 409))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: ready }))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 1,
+        status: {
+          state: "APPLYING",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          startedAt: "2026-08-09T03:05:07.000Z",
+        },
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse({
+        ...idleSession,
+        token: "r".repeat(43),
+        status: {
+          state: "UPDATED",
+          currentVersion: "1.1.0",
+          previousVersion: "1.0.0",
+          updatedAt: "2026-08-09T03:05:10.000Z",
+        },
+      }));
+    const reload = vi.fn();
+    const { result } = renderHook(() => usePublicUpdate(request, { reload }));
+    await waitFor(() => expect(result.current.status).toEqual(availableStatus));
+
+    await act(async () => result.current.install());
+
+    expect(result.current.clientError).toBeNull();
+    expect(result.current.status?.state).toBe("UPDATED");
+    expect(reload).toHaveBeenCalledOnce();
+    expect(request.mock.calls[2]?.[0]).toBe("/api/v1/app-update/status");
+    expect(request.mock.calls[3]?.[0]).toBe("/api/v1/app-update/apply");
+  });
+
+  it("re-synchronizes a stale download after a manual check reports UPDATE_READY", async () => {
+    const downloading = {
+      state: "DOWNLOADING",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      downloadedBytes: 0,
+      downloadBytes: availableStatus.downloadBytes,
+      startedAt: "2026-08-09T03:05:05.000Z",
+    } as const;
+    const ready = {
+      state: "READY_TO_RESTART",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      candidateId: availableStatus.candidateId,
+      stagedAt: "2026-08-09T03:05:06.000Z",
+    } as const;
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...idleSession, status: availableStatus }))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: downloading }, 202))
+      .mockRejectedValueOnce(new TypeError("temporary status connection failure"))
+      .mockResolvedValueOnce(jsonResponse({
+        error: {
+          code: "UPDATE_READY",
+          message: "The staged update is ready to apply.",
+        },
+      }, 409))
+      .mockResolvedValueOnce(jsonResponse({ protocolVersion: 1, status: ready }));
+    const { result } = renderHook(() => usePublicUpdate(request));
+    await waitFor(() => expect(result.current.status).toEqual(availableStatus));
+
+    await act(async () => result.current.install());
+    expect(result.current.status).toEqual(downloading);
+    expect(result.current.clientError).not.toBeNull();
+
+    await act(async () => result.current.check());
+
+    expect(result.current.status).toEqual(ready);
+    expect(result.current.clientError).toBeNull();
+    expect(result.current.busy).toBeNull();
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/app-update/session",
+      "/api/v1/app-update/stage",
+      "/api/v1/app-update/status",
+      "/api/v1/app-update/check",
+      "/api/v1/app-update/status",
+    ]);
+  });
+
   it("refuses to apply when stage polling switches to a different candidate", async () => {
     const switchedCandidate = "d".repeat(43);
     const request = vi.fn<typeof fetch>()
