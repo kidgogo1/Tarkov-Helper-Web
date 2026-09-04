@@ -279,6 +279,71 @@ describe("App related navigation", () => {
     openPopup.mockRestore();
   });
 
+  it("can focus the same quest from the quest page after its regional map marker was toggled off", async () => {
+    const mapData: TarkovData = {
+      ...data,
+      meta: {
+        ...data.meta,
+        counts: { ...data.meta.counts, maps: 1 },
+      },
+      quests: data.quests.map((quest) => quest.id === "target-quest"
+        ? {
+            ...quest,
+            locations: ["Customs"],
+            objectives: quest.objectives.map((objective) => ({
+              ...objective,
+              locationPoints: [{ x: 200, y: 1, z: 240, floorId: "main" }],
+            })),
+          }
+        : quest),
+      mapConfigs: [{
+        key: "Customs",
+        displayName: "Customs",
+        svgFileName: "Customs.svg",
+        imageWidth: 1000,
+        imageHeight: 800,
+        aliases: [],
+        playerMarkerTransform: [1, 0, 0, 1, 0, 0],
+        svgBounds: [0, 1000, 0, 800],
+        floors: [{
+          layerId: "main",
+          displayName: "Ground Floor",
+          order: 0,
+          isDefault: true,
+        }],
+      }],
+    };
+    dataMocks.loadTarkovData.mockResolvedValueOnce(mapData);
+    window.history.replaceState(null, "", "#/map");
+
+    renderApp();
+
+    const region = await screen.findByRole("region", { name: "지역 퀘스트 검색" });
+    const regionQuest = within(region).getByRole("button", { name: /목표 임무/ });
+    fireEvent.click(regionQuest);
+    expect(screen.getByRole("button", {
+      name: "퀘스트 마커 목표 지점을 확인하기",
+    })).toBeInTheDocument();
+    fireEvent.click(regionQuest);
+    expect(screen.queryByRole("button", {
+      name: "퀘스트 마커 목표 지점을 확인하기",
+    })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "퀘스트" }));
+    const questList = await screen.findByRole("region", { name: "퀘스트 목록" });
+    fireEvent.click(within(questList).getByText("목표 임무").closest("button")!);
+    const questDetail = await screen.findByRole("article", { name: "퀘스트 상세" });
+    fireEvent.click(within(questDetail).getByRole("button", { name: "지도에서 보기" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "지도" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    ));
+    expect(screen.getByRole("button", {
+      name: "퀘스트 마커 목표 지점을 확인하기",
+    })).toBeInTheDocument();
+  });
+
   it("restores the selected item from an item deep link", async () => {
     window.history.replaceState(null, "", "#/items?item=bolts");
 

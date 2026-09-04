@@ -450,6 +450,181 @@ describe("MapPage", () => {
     );
   });
 
+  it("shows quest markers only after an explicit quest focus or route selection", async () => {
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    // Old releases persisted these switches. They must not revive automatic
+    // quest markers after the feature is removed.
+    state.settings.map.showQuestMarkers = true;
+    state.settings.map.miniMapShowQuestMarkers = true;
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage();
+
+    expect(screen.queryAllByRole("button", { name: /퀘스트 마커/ })).toHaveLength(0);
+    expect(screen.queryAllByRole("checkbox", {
+      name: "일반 퀘스트 마커 (선택 경로 제외)",
+    })).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "활성 퀘스트 목표" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "미니맵 열기" }));
+    const miniMap = await screen.findByTestId("map-minimap-fallback");
+    expect(within(miniMap).queryByRole("img", { name: /퀘스트 목표/ }))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "물방 찾기 지도 경로 표시" }));
+    expect(screen.getAllByRole("button", { name: /퀘스트 마커 기숙사 물방 방문/ }))
+      .toHaveLength(3);
+    expect(within(miniMap).getAllByRole("img", {
+      name: /퀘스트 목표 · 물방 찾기 · 기숙사 물방 방문/,
+    })).toHaveLength(3);
+  });
+
+  it("sorts and filters regional quests using profile status, trader, and objective progress", () => {
+    const availableQuest: QuestData = {
+      ...quest,
+      id: "quest-available-customs",
+      normalizedName: "available-customs",
+      name: "Zulu Available",
+      nameEn: "Zulu Available",
+      nameKo: "후순위 이름 진행 가능",
+      objectives: quest.objectives.map((objective, index) => ({
+        ...objective,
+        id: `objective-available-${index}`,
+        optionalPoints: [],
+      })),
+    };
+    const lockedQuest: QuestData = {
+      ...quest,
+      id: "quest-locked-customs",
+      normalizedName: "locked-customs",
+      name: "Alpha Locked",
+      nameEn: "Alpha Locked",
+      nameKo: "가나다 잠긴 퀘스트",
+      trader: "Jaeger",
+      requirements: [{ questId: woodsQuest.id, requirementType: "complete", groupId: 0 }],
+      objectives: [{
+        ...quest.objectives[0],
+        id: "objective-locked",
+        description: "잠긴 목표",
+        optionalPoints: [],
+      }],
+    };
+    const completedQuest: QuestData = {
+      ...quest,
+      id: "quest-completed-customs",
+      normalizedName: "completed-customs",
+      name: "Bravo Completed",
+      nameEn: "Bravo Completed",
+      nameKo: "라마바 완료 퀘스트",
+      trader: "Prapor",
+      objectives: [{
+        ...quest.objectives[0],
+        id: "objective-completed",
+        description: "완료된 목표",
+        optionalPoints: [],
+      }],
+    };
+    const pageData: TarkovData = {
+      ...data,
+      quests: [completedQuest, lockedQuest, availableQuest, woodsQuest],
+      traders: [
+        {
+          id: "therapist",
+          name: "Therapist",
+          nameKo: "테라피스트",
+          normalizedName: "therapist",
+        },
+        {
+          id: "jaeger",
+          name: "Jaeger",
+          nameKo: "예거",
+          normalizedName: "jaeger",
+        },
+        {
+          id: "prapor",
+          name: "Prapor",
+          nameKo: "프라퍼",
+          normalizedName: "prapor",
+        },
+      ],
+    };
+    const state = createDefaultState();
+    state.settings.map.lastMapKey = "Customs";
+    state.profiles.pvp.questProgress[completedQuest.id] = "done";
+    state.profiles.pvp.objectiveProgress[availableQuest.objectives[0].id] = true;
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+
+    renderPage({}, true, pageData);
+
+    const region = screen.getByRole("region", { name: "지역 퀘스트 검색" });
+    expect(within(region).getByText("완료 1/3")).toBeInTheDocument();
+    expect(within(region).getByText("진행 가능 1")).toBeInTheDocument();
+    expect(within(region).getByText("미완료 2")).toBeInTheDocument();
+
+    let items = within(region).getAllByTestId("map-region-quest-item");
+    expect(items.map((item) => within(item).getByRole("strong").textContent)).toEqual([
+      "후순위 이름 진행 가능",
+      "가나다 잠긴 퀘스트",
+      "라마바 완료 퀘스트",
+    ]);
+    expect(within(items[0]).getByText("진행 가능")).toBeInTheDocument();
+    expect(within(items[0]).getByText("목표 1/2")).toBeInTheDocument();
+    expect(within(items[0]).getByRole("progressbar", {
+      name: "후순위 이름 진행 가능 목표 진행률",
+    })).toHaveAttribute("value", "1");
+    expect(within(items[1]).getByText("잠김")).toBeInTheDocument();
+    expect(within(items[2]).getByText("목표 1/1")).toBeInTheDocument();
+    expect(items[2]).toHaveClass("is-completed");
+
+    fireEvent.change(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상인 필터",
+    }), { target: { value: "Jaeger" } });
+    items = within(region).getAllByTestId("map-region-quest-item");
+    expect(items).toHaveLength(1);
+    expect(within(items[0]).getByRole("strong")).toHaveTextContent("가나다 잠긴 퀘스트");
+
+    fireEvent.change(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상인 필터",
+    }), { target: { value: "all" } });
+    fireEvent.change(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상태 필터",
+    }), { target: { value: "completed" } });
+    items = within(region).getAllByTestId("map-region-quest-item");
+    expect(items).toHaveLength(1);
+    expect(within(items[0]).getByRole("strong")).toHaveTextContent("라마바 완료 퀘스트");
+
+    fireEvent.change(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상태 필터",
+    }), { target: { value: "all" } });
+
+    fireEvent.change(within(region).getByRole("searchbox", {
+      name: "현재 지역 퀘스트 검색",
+    }), { target: { value: "예거" } });
+    items = within(region).getAllByTestId("map-region-quest-item");
+    expect(items).toHaveLength(1);
+    expect(within(items[0]).getByRole("strong")).toHaveTextContent("가나다 잠긴 퀘스트");
+    fireEvent.change(within(region).getByRole("searchbox", {
+      name: "현재 지역 퀘스트 검색",
+    }), { target: { value: "" } });
+
+    fireEvent.change(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상인 필터",
+    }), { target: { value: "Jaeger" } });
+    const mapPicker = screen.getByRole("combobox", { name: "지도 선택" });
+    fireEvent.change(mapPicker, { target: { value: "Terminal" } });
+    expect(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상인 필터",
+    })).toHaveValue("all");
+    fireEvent.change(mapPicker, { target: { value: "Customs" } });
+    expect(within(region).getByRole("combobox", {
+      name: "지역 퀘스트 상인 필터",
+    })).toHaveValue("all");
+
+    fireEvent.click(screen.getByRole("button", { name: "PVE 테스트 프로필" }));
+    expect(within(region).getByText("완료 0/3")).toBeInTheDocument();
+  });
+
   it("selects a region quest route and connects its visible objectives to the current position", async () => {
     renderPage({ focusQuestId: "quest-customs" }, true);
 
@@ -892,10 +1067,9 @@ describe("MapPage", () => {
       "true",
     );
     fireEvent.click(regionFocus);
-    expect(screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    expect(screen.queryByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" }))
+      .not.toBeInTheDocument();
+    expect(onOpenQuest).toHaveBeenCalledTimes(1);
 
     const allSearch = screen.getByRole("searchbox", { name: "전체 퀘스트 검색" });
     fireEvent.change(allSearch, { target: { value: "Woods Route" } });
@@ -951,10 +1125,6 @@ describe("MapPage", () => {
     expect(screen.queryByRole("button", { name: "보스 마커 Reshala" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "퀘스트 마커 2층 문서 획득" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("checkbox", {
-      name: "일반 퀘스트 마커 (선택 경로 제외)",
-    }));
-    expect(screen.queryByRole("button", { name: /퀘스트 마커/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "탈출구 표시" }));
     expect(screen.queryByRole("button", { name: "탈출구 마커 Upper exit" })).not.toBeInTheDocument();
 
@@ -2151,9 +2321,9 @@ describe("MapPage", () => {
     expect(within(panel).getByText("전체 지도 레이어")).toBeInTheDocument();
     expect(within(panel).getByRole("heading", { name: "마커 표시" })).toBeInTheDocument();
     expect(panel.querySelector(".map-marker-layer-grid")).toBeInTheDocument();
-    expect(within(panel).getByRole("checkbox", {
+    expect(within(panel).queryByRole("checkbox", {
       name: "일반 퀘스트 마커 (선택 경로 제외)",
-    })).toBeChecked();
+    })).not.toBeInTheDocument();
     expect(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" })).toBeChecked();
 
     fireEvent.click(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" }));
@@ -2173,12 +2343,8 @@ describe("MapPage", () => {
     );
   });
 
-  it("tracks objective progress and selects its corresponding marker", () => {
+  it("selects explicitly focused quest and extraction markers", () => {
     renderPage({ focusQuestId: "quest-customs" }, true);
-
-    const objective = screen.getByRole("checkbox", { name: "기숙사 물방 방문 완료" });
-    fireEvent.click(objective);
-    expect(profileState().objectiveProgress["objective-main"]).toBe(true);
 
     const marker = screen.getByRole("button", { name: "퀘스트 마커 기숙사 물방 방문" });
     expect(within(marker).queryByText("기숙사 물방 방문")).not.toBeInTheDocument();
@@ -2198,65 +2364,9 @@ describe("MapPage", () => {
     expect(extraction).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("lists every active objective with progress, grouping, filters, and cross-map focus", () => {
+  it("does not render the removed active objective panel", () => {
     renderPage({ focusQuestId: "quest-customs" }, true);
-    const drawer = screen.getByRole("region", { name: "활성 퀘스트 목표" });
-
-    expect(within(drawer).getByRole("progressbar", { name: "전체 목표 진행률" })).toHaveAttribute(
-      "value",
-      "0",
-    );
-    expect(within(drawer).getByText("0/3 완료")).toBeInTheDocument();
-
-    const currentMapOnly = within(drawer).getByRole("checkbox", { name: "현재 지도만" });
-    expect(currentMapOnly).toBeChecked();
-    expect(within(drawer).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
-      "물방 찾기",
-    ]);
-    expect(within(drawer).queryByText("벌목장 표시")).not.toBeInTheDocument();
-
-    fireEvent.click(currentMapOnly);
-    expect(within(drawer).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
-      "물방 찾기",
-      "숲길 확인",
-    ]);
-    expect(within(drawer).getAllByTestId("map-objective-item").map((item) => item.textContent)).toEqual([
-      expect.stringContaining("기숙사 물방 방문"),
-      expect.stringContaining("2층 문서 획득"),
-      expect.stringContaining("벌목장 표시"),
-    ]);
-
-    fireEvent.change(within(drawer).getByRole("combobox", { name: "목표 유형 필터" }), {
-      target: { value: "visit" },
-    });
-    expect(within(drawer).getByText("기숙사 물방 방문")).toBeInTheDocument();
-    expect(within(drawer).queryByText("2층 문서 획득")).not.toBeInTheDocument();
-    expect(within(drawer).queryByText("벌목장 표시")).not.toBeInTheDocument();
-
-    fireEvent.click(within(drawer).getByRole("checkbox", { name: "기숙사 물방 방문 완료" }));
-    expect(within(drawer).getByText("1/3 완료")).toBeInTheDocument();
-    fireEvent.change(within(drawer).getByRole("combobox", { name: "완료 상태 필터" }), {
-      target: { value: "completed" },
-    });
-    expect(within(drawer).getByText("기숙사 물방 방문")).toBeInTheDocument();
-
-    fireEvent.change(within(drawer).getByRole("combobox", { name: "완료 상태 필터" }), {
-      target: { value: "all" },
-    });
-    fireEvent.change(within(drawer).getByRole("combobox", { name: "목표 유형 필터" }), {
-      target: { value: "all" },
-    });
-    fireEvent.click(within(drawer).getByRole("button", { name: "벌목장 표시 마커 선택" }));
-
-    expect(screen.getByRole("combobox", { name: "지도 선택" })).toHaveValue("Woods");
-    expect(screen.getByRole("img", { name: "Woods 지도" })).toHaveAttribute(
-      "data",
-      "/assets/maps/Woods.svg",
-    );
-    expect(screen.getByRole("button", { name: "퀘스트 마커 벌목장 표시" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.queryByRole("region", { name: "활성 퀘스트 목표" })).not.toBeInTheDocument();
   });
 
   it("renders optional quest points as numbered orange choices with distinct tooltips", () => {

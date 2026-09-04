@@ -709,9 +709,9 @@ describe("MapMiniMap", () => {
     expect(within(panel).getByText("미니맵 레이어")).toBeInTheDocument();
     expect(within(panel).getByRole("heading", { name: "마커 표시" })).toBeInTheDocument();
     expect(panel.querySelector(".map-marker-layer-grid")).toBeInTheDocument();
-    expect(within(panel).getByRole("checkbox", {
+    expect(within(panel).queryByRole("checkbox", {
       name: "일반 퀘스트 마커 (선택 경로 제외)",
-    })).toBeChecked();
+    })).not.toBeInTheDocument();
     expect(within(panel).getByRole("checkbox", { name: "탈출구 이름표 표시" })).toBeChecked();
     expect(within(panel).getByRole("checkbox", { name: "PMC 탈출구 표시" })).toBeChecked();
 

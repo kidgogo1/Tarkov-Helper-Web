@@ -219,10 +219,10 @@ export function App() {
 
   const openQuest = (questId: string) => {
     // A quest selected from the map should keep the map visible so its
-    // objective marker can be inspected immediately. Other callers still
-    // open the quest list as before.
+    // objective marker can be inspected immediately. MapPage already owns
+    // that local focus; re-queuing the same quest here would leave a stale
+    // parent focus request after the marker is toggled off.
     if (activeTab === "map") {
-      setMapFocusQuestId(questId);
       return;
     }
     navigate({ tab: "quests", questId }, false, "focus");

@@ -16,7 +16,6 @@ import {
 import {
   Crosshair,
   ExternalLink,
-  Focus,
   KeyRound,
   LocateFixed,
   Maximize2,
@@ -88,6 +87,7 @@ import type {
   CustomMapMarker,
   KeyMapMarker,
   MapDisplaySettings,
+  QuestStatus,
 } from "../../types/state";
 import { MAP_KEY_ITEM_IDS } from "./key-map-index";
 import "../../styles/map.css";
@@ -135,6 +135,22 @@ interface ObjectiveEntry {
   objective: QuestObjective;
 }
 
+type ObjectiveFocusResult = "focused" | "cleared" | "unavailable";
+
+type RegionQuestStatusFilter =
+  | "all"
+  | "available"
+  | "incomplete"
+  | "completed"
+  | "other";
+
+interface RegionQuestEntry {
+  quest: QuestData;
+  status: QuestStatus;
+  completedObjectives: number;
+  totalObjectives: number;
+}
+
 interface RewardItemSearchResult {
   item: TarkovData["items"][number];
   quests: QuestData[];
@@ -152,8 +168,6 @@ type ViewIntent =
   | { kind: "fit"; mapKey: string }
   | { kind: "focus"; mapKey: string; point: ScreenPoint; scale: "fit" | number }
   | { kind: "manual"; mapKey: string };
-
-type ObjectiveStatusFilter = "all" | "incomplete" | "completed";
 
 interface MarkerEditorState {
   marker: CustomMapMarker;
@@ -174,6 +188,46 @@ const EMPTY_MAP: MapConfig = {
   aliases: [],
   floors: [],
 };
+
+const REGION_QUEST_STATUS_LABELS: Record<QuestStatus, string> = {
+  active: "진행 가능",
+  locked: "잠김",
+  levelLocked: "레벨 제한",
+  unavailable: "이용 불가",
+  done: "완료",
+  failed: "실패",
+};
+
+const REGION_QUEST_STATUS_ORDER: Record<QuestStatus, number> = {
+  active: 0,
+  locked: 1,
+  levelLocked: 2,
+  unavailable: 3,
+  failed: 3,
+  done: 4,
+};
+
+function isIncompleteRegionQuest(status: QuestStatus): boolean {
+  return status === "active" || status === "locked" || status === "levelLocked";
+}
+
+function regionQuestMatchesStatusFilter(
+  status: QuestStatus,
+  filter: RegionQuestStatusFilter,
+): boolean {
+  switch (filter) {
+    case "available":
+      return status === "active";
+    case "incomplete":
+      return isIncompleteRegionQuest(status);
+    case "completed":
+      return status === "done";
+    case "other":
+      return status === "failed" || status === "unavailable";
+    default:
+      return true;
+  }
+}
 
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
@@ -848,7 +902,6 @@ export function MapPage({
     activeProfile,
     profile,
     settings,
-    setObjectiveProgress,
     setQuestMapRoute,
     upsertCustomMarker,
     deleteCustomMarker,
@@ -890,14 +943,12 @@ export function MapPage({
     [mapSettings.hiddenMarkerTypes],
   );
   const [selectedMarkerId, setSelectedMarkerId] = useState<string>();
-  const [objectiveStatusFilter, setObjectiveStatusFilter] =
-    useState<ObjectiveStatusFilter>("all");
-  const [objectiveTypeFilter, setObjectiveTypeFilter] = useState("all");
   const [regionQuestQuery, setRegionQuestQuery] = useState("");
+  const [regionQuestStatusFilter, setRegionQuestStatusFilter] =
+    useState<RegionQuestStatusFilter>("all");
+  const [regionTraderFilter, setRegionTraderFilter] = useState("all");
   const [allQuestQuery, setAllQuestQuery] = useState("");
   const [rewardItemQuery, setRewardItemQuery] = useState("");
-  const [currentMapObjectivesOnly, setCurrentMapObjectivesOnly] = useState(true);
-  const [groupObjectivesByQuest, setGroupObjectivesByQuest] = useState(true);
   const [playerPositions, setPlayerPositions] = useState<PlayerMapPosition[]>([]);
   const [positionError, setPositionError] = useState("");
   const [routeNotice, setRouteNotice] = useState("");
@@ -1052,6 +1103,7 @@ export function MapPage({
   useEffect(() => {
     if (previousMapRef.current === config.key) return;
     previousMapRef.current = config.key;
+    setRegionTraderFilter("all");
     playerFloorOverrideRef.current = undefined;
     const pendingFocus =
       pendingMapFocusRef.current?.mapKey === config.key
@@ -1092,7 +1144,10 @@ export function MapPage({
   }, [applyViewIntent, config, resetView, selectFloor]);
 
   useEffect(() => {
-    if (!focusQuestId) return;
+    if (!focusQuestId) {
+      consumedQuestRef.current = undefined;
+      return;
+    }
     if (consumedQuestRef.current === focusQuestId) return;
     consumedQuestRef.current = focusQuestId;
     setFocusedQuestId(focusQuestId);
@@ -1135,26 +1190,17 @@ export function MapPage({
     return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
   }, []);
 
-  const objectiveEntries = useMemo<ObjectiveEntry[]>(() => {
-    const entries: ObjectiveEntry[] = [];
-    const seenObjectiveIds = new Set<string>();
-
-    for (const quest of data.quests) {
-      const status = questStatusResolver.getStatus(quest);
-      const isFocused =
-        quest.id === focusedQuestId || quest.normalizedName === focusedQuestId;
-      if (status !== "active" && !isFocused) continue;
-
-      for (const objective of [...quest.objectives].sort(
-        (left, right) => left.sortOrder - right.sortOrder,
-      )) {
-        if (seenObjectiveIds.has(objective.id)) continue;
-        seenObjectiveIds.add(objective.id);
-        entries.push({ quest, objective });
-      }
-    }
-    return entries;
-  }, [data.quests, focusedQuestId, questStatusResolver]);
+  const focusedQuestObjectiveEntries = useMemo<ObjectiveEntry[]>(() => {
+    if (!focusedQuestId) return [];
+    const quest = data.quests.find(
+      (candidate) =>
+        candidate.id === focusedQuestId || candidate.normalizedName === focusedQuestId,
+    );
+    if (!quest) return [];
+    return [...quest.objectives]
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+      .map((objective) => ({ quest, objective }));
+  }, [data.quests, focusedQuestId]);
 
   const mapRouteQuestIds = useMemo(
     () => new Set(profile.mapRouteQuestIds),
@@ -1186,22 +1232,82 @@ export function MapPage({
   );
 
   const regionQuests = useMemo(
-    () => data.quests
-      .filter((quest) => questAppliesToMap(quest, config))
-      .sort((left, right) =>
-        localQuestName(left).localeCompare(localQuestName(right), "ko-KR")),
+    () => data.quests.filter((quest) => questAppliesToMap(quest, config)),
     [config, data.quests],
+  );
+  const traderLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const trader of data.traders) {
+      const label = trader.nameKo || trader.name;
+      labels.set(normalized(trader.name), label);
+      labels.set(normalized(trader.normalizedName), label);
+    }
+    return labels;
+  }, [data.traders]);
+  const regionTraderOptions = useMemo(
+    () => [...new Set(regionQuests.map((quest) => quest.trader))]
+      .map((value) => ({ value, label: traderLabels.get(normalized(value)) || value }))
+      .sort((left, right) => left.label.localeCompare(right.label, "ko-KR")),
+    [regionQuests, traderLabels],
+  );
+  const effectiveRegionTraderFilter =
+    regionTraderFilter === "all" ||
+    regionTraderOptions.some((option) => option.value === regionTraderFilter)
+      ? regionTraderFilter
+      : "all";
+  const regionQuestEntries = useMemo<RegionQuestEntry[]>(
+    () => regionQuests
+      .map((quest) => {
+        const status = questStatusResolver.getStatus(quest);
+        const totalObjectives = quest.objectives.length;
+        const completedObjectives = status === "done"
+          ? totalObjectives
+          : quest.objectives.filter((objective) =>
+              isObjectiveComplete(profile.objectiveProgress, objective)).length;
+        return { quest, status, completedObjectives, totalObjectives };
+      })
+      .sort((left, right) =>
+        REGION_QUEST_STATUS_ORDER[left.status] - REGION_QUEST_STATUS_ORDER[right.status] ||
+        left.quest.trader.localeCompare(right.quest.trader, "en") ||
+        localQuestName(left.quest).localeCompare(localQuestName(right.quest), "ko-KR")),
+    [profile.objectiveProgress, questStatusResolver, regionQuests],
+  );
+  const regionQuestCounts = useMemo(
+    () => regionQuestEntries.reduce(
+      (counts, entry) => {
+        if (entry.status === "done") counts.completed += 1;
+        if (entry.status === "active") counts.available += 1;
+        if (isIncompleteRegionQuest(entry.status)) counts.incomplete += 1;
+        if (entry.status === "failed" || entry.status === "unavailable") counts.other += 1;
+        return counts;
+      },
+      { available: 0, incomplete: 0, completed: 0, other: 0 },
+    ),
+    [regionQuestEntries],
   );
   const allQuests = useMemo(
     () => [...data.quests].sort((left, right) =>
       localQuestName(left).localeCompare(localQuestName(right), "ko-KR")),
     [data.quests],
   );
-  const filteredRegionQuests = useMemo(() => {
+  const filteredRegionQuestEntries = useMemo(() => {
     const needle = normalized(regionQuestQuery);
-    if (!needle) return regionQuests;
-    return regionQuests.filter((quest) => questSearchText(quest).includes(needle));
-  }, [regionQuestQuery, regionQuests]);
+    return regionQuestEntries.filter(({ quest, status }) => {
+      const traderLabel = traderLabels.get(normalized(quest.trader)) || quest.trader;
+      const matchesQuery = !needle ||
+        questSearchText(quest).includes(needle) ||
+        normalized(traderLabel).includes(needle);
+      return matchesQuery &&
+        (effectiveRegionTraderFilter === "all" || quest.trader === effectiveRegionTraderFilter) &&
+        regionQuestMatchesStatusFilter(status, regionQuestStatusFilter);
+    });
+  }, [
+    effectiveRegionTraderFilter,
+    regionQuestEntries,
+    regionQuestQuery,
+    regionQuestStatusFilter,
+    traderLabels,
+  ]);
   const regionQuestRoutePoints = useMemo(() => {
     const pointsByQuest = new Map<string, QuestMapPoint[]>();
     for (const quest of regionQuests) {
@@ -1269,10 +1375,10 @@ export function MapPage({
 
   const questPoints = useMemo(
     () =>
-      objectiveEntries.flatMap((entry) =>
+      focusedQuestObjectiveEntries.flatMap((entry) =>
         buildQuestMapPoints(entry, config, data.mapFloorLocations),
       ),
-    [config, data.mapFloorLocations, objectiveEntries],
+    [config, data.mapFloorLocations, focusedQuestObjectiveEntries],
   );
   const mapRouteQuestPoints = useMemo(
     () => mapRouteObjectiveEntries.flatMap((entry) =>
@@ -1284,81 +1390,6 @@ export function MapPage({
       .filter((quest) => questStatusResolver.getStatus(quest) === "done")
       .map((quest) => quest.id)),
     [data.quests, questStatusResolver],
-  );
-
-  const sortedObjectiveEntries = useMemo(
-    () =>
-      [...objectiveEntries].sort((left, right) => {
-        const currentMapOrder =
-          Number(!objectiveAppliesToMap(left, config)) -
-          Number(!objectiveAppliesToMap(right, config));
-        if (currentMapOrder !== 0) return currentMapOrder;
-
-        const questOrder = localQuestName(left.quest).localeCompare(
-          localQuestName(right.quest),
-          "ko",
-        );
-        if (questOrder !== 0) return questOrder;
-        return (
-          left.objective.sortOrder - right.objective.sortOrder ||
-          left.objective.description.localeCompare(right.objective.description, "ko")
-        );
-      }),
-    [config, objectiveEntries],
-  );
-
-  const objectiveTypeOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    for (const { objective } of objectiveEntries) {
-      const key = objective.objectiveType.toLocaleLowerCase("en-US");
-      if (!options.has(key)) options.set(key, objective.objectiveType);
-    }
-    return [...options].sort(([, left], [, right]) =>
-      objectiveTypeLabel(left).localeCompare(objectiveTypeLabel(right), "ko"),
-    );
-  }, [objectiveEntries]);
-
-  const filteredObjectiveEntries = useMemo(
-    () =>
-      sortedObjectiveEntries.filter((entry) => {
-        const completed = isObjectiveComplete(profile.objectiveProgress, entry.objective);
-        if (objectiveStatusFilter === "incomplete" && completed) return false;
-        if (objectiveStatusFilter === "completed" && !completed) return false;
-        if (
-          objectiveTypeFilter !== "all" &&
-          entry.objective.objectiveType.toLocaleLowerCase("en-US") !==
-            objectiveTypeFilter
-        ) {
-          return false;
-        }
-        return !currentMapObjectivesOnly || objectiveAppliesToMap(entry, config);
-      }),
-    [
-      config,
-      currentMapObjectivesOnly,
-      objectiveStatusFilter,
-      objectiveTypeFilter,
-      profile.objectiveProgress,
-      sortedObjectiveEntries,
-    ],
-  );
-
-  const groupedObjectiveEntries = useMemo(() => {
-    const groups = new Map<string, { quest: QuestData; entries: ObjectiveEntry[] }>();
-    for (const entry of filteredObjectiveEntries) {
-      const group = groups.get(entry.quest.id);
-      if (group) group.entries.push(entry);
-      else groups.set(entry.quest.id, { quest: entry.quest, entries: [entry] });
-    }
-    return [...groups.values()];
-  }, [filteredObjectiveEntries]);
-
-  const completedObjectiveCount = useMemo(
-    () =>
-      objectiveEntries.filter(({ objective }) =>
-        isObjectiveComplete(profile.objectiveProgress, objective),
-      ).length,
-    [objectiveEntries, profile.objectiveProgress],
   );
 
   const mapMarkers = useMemo(
@@ -1432,7 +1463,7 @@ export function MapPage({
   const visibleQuestPoints = useMemo(
     () => {
       const visible = [
-        ...(mapSettings.showQuestMarkers ? questPoints : []),
+        ...questPoints,
         ...mapRouteQuestPoints,
       ].filter(
             (point) =>
@@ -1445,7 +1476,6 @@ export function MapPage({
     },
     [
       mapSettings.showCompletedObjectives,
-      mapSettings.showQuestMarkers,
       mapRouteQuestPoints,
       completedQuestIds,
       profile.objectiveProgress,
@@ -1457,7 +1487,7 @@ export function MapPage({
   const miniMapVisibleQuestPoints = useMemo(
     () => {
       const visible = [
-        ...(mapSettings.miniMapShowQuestMarkers ? questPoints : []),
+        ...questPoints,
         ...mapRouteQuestPoints,
       ].filter(
             (point) =>
@@ -1469,7 +1499,6 @@ export function MapPage({
       return [...new Map(visible.map((point) => [point.id, point])).values()];
     },
     [
-      mapSettings.miniMapShowQuestMarkers,
       mapSettings.showCompletedObjectives,
       mapRouteQuestPoints,
       completedQuestIds,
@@ -1616,25 +1645,25 @@ export function MapPage({
     centerOnPoint(point.screen);
   }, [centerOnPoint, selectFloor]);
 
-  const focusObjectiveEntry = (entry: ObjectiveEntry) => {
+  const focusObjectiveEntry = (entry: ObjectiveEntry): ObjectiveFocusResult => {
     const targetConfig = objectiveTargetMap(entry, data.mapConfigs, config);
-    if (!targetConfig) return;
+    if (!targetConfig) return "unavailable";
     const targetPoint = buildQuestMapPoints(
       entry,
       targetConfig,
       data.mapFloorLocations,
     )[0];
-    if (!targetPoint) return;
+    if (!targetPoint) return "unavailable";
 
     setFocusedQuestId(entry.quest.id);
     if (targetConfig.key === config.key) {
       if (selectedMarkerId === targetPoint.id) {
         setSelectedMarkerId(undefined);
         setFocusedQuestId(undefined);
-        return;
+        return "cleared";
       }
       focusQuestPoint(targetPoint);
-      return;
+      return "focused";
     }
 
     pendingMapFocusRef.current = {
@@ -1644,6 +1673,7 @@ export function MapPage({
       floorId: targetPoint.floorId,
     };
     setSelectedMapKey(targetConfig.key);
+    return "focused";
   };
 
   const firstQuestFocusEntry = (quest: QuestData): ObjectiveEntry | undefined =>
@@ -1661,9 +1691,9 @@ export function MapPage({
 
   const focusRegionQuest = (quest: QuestData) => {
     const entry = firstQuestFocusEntry(quest);
-    if (entry) focusObjectiveEntry(entry);
-    else setFocusedQuestId(quest.id);
-    onOpenQuest?.(quest.id);
+    const result = entry ? focusObjectiveEntry(entry) : "unavailable";
+    if (!entry) setFocusedQuestId(quest.id);
+    if (result !== "cleared") onOpenQuest?.(quest.id);
   };
 
   const questTargetConfig = (quest: QuestData): MapConfig | undefined => {
@@ -2671,65 +2701,6 @@ export function MapPage({
   const markerScale = config.markerScale ?? 1;
   const trackerNote = localTrackerNote(localTracker);
 
-  const renderObjectiveItem = (entry: ObjectiveEntry, showQuestMeta: boolean) => {
-    const { quest, objective } = entry;
-    const completed = isObjectiveComplete(profile.objectiveProgress, objective);
-    const onCurrentMap = objectiveAppliesToMap(entry, config);
-    const targetConfig = objectiveTargetMap(entry, data.mapConfigs, config);
-    const targetPoint = targetConfig
-      ? buildQuestMapPoints(entry, targetConfig, data.mapFloorLocations)[0]
-      : undefined;
-    const selected = questPoints.some(
-      (point) => point.objective.id === objective.id && point.id === selectedMarkerId,
-    );
-
-    return (
-      <li
-        className={selected ? "selected" : ""}
-        data-testid="map-objective-item"
-        key={`${quest.id}:${objective.id}`}
-      >
-        {showQuestMeta ? (
-          <div className="map-objective-meta">
-            <span>{localQuestName(quest)}</span>
-            <small>{quest.trader}</small>
-          </div>
-        ) : null}
-        <div className="map-objective-tags">
-          <span className="map-objective-type">{objectiveTypeLabel(objective.objectiveType)}</span>
-          {!onCurrentMap && targetConfig ? (
-            <span className="map-objective-map">{targetConfig.displayName}</span>
-          ) : null}
-        </div>
-        <div className="map-objective-row">
-          <label>
-            <input
-              aria-label={`${objective.description} 완료`}
-              checked={completed}
-              onChange={(event) => setObjectiveProgress(objective.id, event.target.checked)}
-              type="checkbox"
-            />
-            <span className={completed ? "completed" : ""}>{objective.description}</span>
-          </label>
-          <button
-            aria-label={`${objective.description} 마커 선택`}
-            className="ghost icon-button compact"
-            disabled={!targetPoint}
-            onClick={() => focusObjectiveEntry(entry)}
-            title={
-              targetConfig && !onCurrentMap
-                ? `${targetConfig.displayName} 지도로 이동`
-                : "목표 마커로 이동"
-            }
-            type="button"
-          >
-            <Focus aria-hidden="true" size={15} />
-          </button>
-        </div>
-      </li>
-    );
-  };
-
   if (!hasMaps) {
     return (
       <section className="map-page panel">
@@ -2813,11 +2784,13 @@ export function MapPage({
               >
                 <label>
                   <input
-                    checked={mapSettings.showQuestMarkers}
-                    onChange={(event) => updateMapSettings({ showQuestMarkers: event.target.checked })}
+                    checked={mapSettings.showCompletedObjectives}
+                    onChange={(event) =>
+                      updateMapSettings({ showCompletedObjectives: event.target.checked })
+                    }
                     type="checkbox"
                   />
-                  <span>일반 퀘스트 마커 (선택 경로 제외)</span>
+                  <span>완료한 목표 포함</span>
                 </label>
                 <label>
                   <input
@@ -3011,12 +2984,18 @@ export function MapPage({
                 <p className="map-eyebrow">현재 지도</p>
                 <h2 id="map-region-quests-title">지역 퀘스트 검색</h2>
               </div>
-              <span className="badge">{filteredRegionQuests.length}/{regionQuests.length}</span>
+              <span className="badge">완료 {regionQuestCounts.completed}/{regionQuestEntries.length}</span>
             </div>
             <p className="map-search-note" id="map-route-selection-help">
-              핀을 선택하면 전체 지도와 미니맵에 목표가 표시됩니다. 좌표가 없거나
+              표시할 퀘스트의 핀을 직접 선택하면 전체 지도와 미니맵에 목표가 표시됩니다. 좌표가 없거나
               {` ${MAX_MAP_ROUTE_QUESTS}개 한도에 도달한 퀘스트는 선택할 수 없습니다.`}
             </p>
+            <div aria-label="지역 퀘스트 진행 요약" className="map-region-quest-statistics">
+              <span>진행 가능 {regionQuestCounts.available}</span>
+              <span>미완료 {regionQuestCounts.incomplete}</span>
+              {regionQuestCounts.other > 0 ? <span>기타 {regionQuestCounts.other}</span> : null}
+              <span>표시 {filteredRegionQuestEntries.length}</span>
+            </div>
             <div className="map-route-selection-summary">
               <span>선택 {selectedRouteQuestCount}/{MAX_MAP_ROUTE_QUESTS}</span>
               <button
@@ -3027,6 +3006,37 @@ export function MapPage({
               >
                 선택 경로 모두 해제
               </button>
+            </div>
+            <div className="map-region-quest-filters">
+              <label>
+                <span>상인</span>
+                <select
+                  aria-label="지역 퀘스트 상인 필터"
+                  onChange={(event) => setRegionTraderFilter(event.target.value)}
+                  value={effectiveRegionTraderFilter}
+                >
+                  <option value="all">전체 상인</option>
+                  {regionTraderOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>상태</span>
+                <select
+                  aria-label="지역 퀘스트 상태 필터"
+                  onChange={(event) =>
+                    setRegionQuestStatusFilter(event.target.value as RegionQuestStatusFilter)
+                  }
+                  value={regionQuestStatusFilter}
+                >
+                  <option value="all">전체 상태</option>
+                  <option value="available">진행 가능</option>
+                  <option value="incomplete">미완료</option>
+                  <option value="completed">완료</option>
+                  <option value="other">실패·이용 불가</option>
+                </select>
+              </label>
             </div>
             <label className="map-region-quest-search">
               <Search aria-hidden="true" size={15} />
@@ -3039,70 +3049,100 @@ export function MapPage({
                 value={regionQuestQuery}
               />
             </label>
-            {filteredRegionQuests.length > 0 ? (
+            {filteredRegionQuestEntries.length > 0 ? (
               <ul className="map-region-quest-list">
-                {filteredRegionQuests.map((quest) => (
-                  <li key={quest.id} data-testid="map-region-quest-item">
-                    <div className="map-search-result-row">
-                      <label
-                        className="map-region-route-toggle"
-                        title={regionQuestRoutePoints.get(quest.id)?.length
-                          ? selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS &&
-                              !profile.mapRouteQuestIds.includes(quest.id)
-                            ? `지도 경로는 프로필마다 최대 ${MAX_MAP_ROUTE_QUESTS}개까지 선택할 수 있습니다`
-                            : "전체 지도와 미니맵에 목표 마커·현재 위치 연결선 표시"
-                          : "이 지도에 사용할 수 있는 안전한 목표 좌표가 없습니다"}
-                      >
-                        <input
-                          aria-describedby="map-route-selection-help"
-                          aria-label={`${localQuestName(quest)} 지도 경로 표시${
-                            !(regionQuestRoutePoints.get(quest.id)?.length)
-                              ? ": 지도 좌표 없음"
-                              : selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS &&
-                                  !profile.mapRouteQuestIds.includes(quest.id)
-                                ? `: ${MAX_MAP_ROUTE_QUESTS}개 선택 한도 도달`
-                                : ""
-                          }`}
-                          checked={profile.mapRouteQuestIds.includes(quest.id)}
-                          disabled={
-                            !profile.mapRouteQuestIds.includes(quest.id) &&
-                            (!(regionQuestRoutePoints.get(quest.id)?.length) ||
-                              selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS)
-                          }
-                          onChange={(event) => {
-                            if (event.target.checked && !(regionQuestRoutePoints.get(quest.id)?.length)) {
-                              return;
+                {filteredRegionQuestEntries.map(({
+                  quest,
+                  status,
+                  completedObjectives,
+                  totalObjectives,
+                }) => {
+                  const isCompleted = status === "done";
+                  const progressMax = Math.max(totalObjectives, 1);
+                  const progressValue = isCompleted && totalObjectives === 0
+                    ? progressMax
+                    : completedObjectives;
+                  const traderLabel = traderLabels.get(normalized(quest.trader)) || quest.trader;
+
+                  return (
+                    <li
+                      className={`map-region-quest-item status-${status}${isCompleted ? " is-completed" : ""}`}
+                      data-testid="map-region-quest-item"
+                      key={quest.id}
+                    >
+                      <div className="map-search-result-row">
+                        <label
+                          className="map-region-route-toggle"
+                          title={regionQuestRoutePoints.get(quest.id)?.length
+                            ? selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS &&
+                                !profile.mapRouteQuestIds.includes(quest.id)
+                              ? `지도 경로는 프로필마다 최대 ${MAX_MAP_ROUTE_QUESTS}개까지 선택할 수 있습니다`
+                              : "전체 지도와 미니맵에 목표 마커·현재 위치 연결선 표시"
+                            : "이 지도에 사용할 수 있는 안전한 목표 좌표가 없습니다"}
+                        >
+                          <input
+                            aria-describedby="map-route-selection-help"
+                            aria-label={`${localQuestName(quest)} 지도 경로 표시${
+                              !(regionQuestRoutePoints.get(quest.id)?.length)
+                                ? ": 지도 좌표 없음"
+                                : selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS &&
+                                    !profile.mapRouteQuestIds.includes(quest.id)
+                                  ? `: ${MAX_MAP_ROUTE_QUESTS}개 선택 한도 도달`
+                                  : ""
+                            }`}
+                            checked={profile.mapRouteQuestIds.includes(quest.id)}
+                            disabled={
+                              !profile.mapRouteQuestIds.includes(quest.id) &&
+                              (!(regionQuestRoutePoints.get(quest.id)?.length) ||
+                                selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS)
                             }
-                            if (
-                              event.target.checked &&
-                              selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS
-                            ) return;
-                            setRegionQuestRoute(quest, event.target.checked);
-                          }}
-                          type="checkbox"
-                        />
-                        <MapPin aria-hidden="true" size={13} />
-                      </label>
-                      <button
-                        className="map-region-quest-button"
-                        onClick={() => focusRegionQuest(quest)}
-                        title="첫 목표 마커로 이동"
-                        type="button"
-                      >
-                        <span>
-                          <strong>{localQuestName(quest)}</strong>
-                          <small>
-                            {quest.trader} · {quest.objectives.length}개 목표
-                            {quest.objectives[0]?.description ? ` · ${quest.objectives[0].description}` : ""}
-                            {!(regionQuestRoutePoints.get(quest.id)?.length) ? " · 지도 좌표 없음" : ""}
-                          </small>
-                        </span>
-                        <span aria-hidden="true">›</span>
-                      </button>
-                      {renderQuestSearchActions(quest, false)}
-                    </div>
-                  </li>
-                ))}
+                            onChange={(event) => {
+                              if (event.target.checked && !(regionQuestRoutePoints.get(quest.id)?.length)) {
+                                return;
+                              }
+                              if (
+                                event.target.checked &&
+                                selectedRouteQuestCount >= MAX_MAP_ROUTE_QUESTS
+                              ) return;
+                              setRegionQuestRoute(quest, event.target.checked);
+                            }}
+                            type="checkbox"
+                          />
+                          <MapPin aria-hidden="true" size={13} />
+                        </label>
+                        <button
+                          className="map-region-quest-button"
+                          onClick={() => focusRegionQuest(quest)}
+                          title="첫 목표 마커로 이동"
+                          type="button"
+                        >
+                          <span className="map-region-quest-copy">
+                            <span className="map-region-quest-title-row">
+                              <strong>{localQuestName(quest)}</strong>
+                              <span className="map-region-quest-status" data-status={status}>
+                                {REGION_QUEST_STATUS_LABELS[status]}
+                              </span>
+                            </span>
+                            <small>
+                              {traderLabel} · <span className="map-region-quest-progress-copy">
+                                목표 {completedObjectives}/{totalObjectives}
+                              </span>
+                              {quest.objectives[0]?.description ? ` · ${quest.objectives[0].description}` : ""}
+                              {!(regionQuestRoutePoints.get(quest.id)?.length) ? " · 지도 좌표 없음" : ""}
+                            </small>
+                            <progress
+                              aria-label={`${localQuestName(quest)} 목표 진행률`}
+                              max={progressMax}
+                              value={progressValue}
+                            />
+                          </span>
+                          <span aria-hidden="true">›</span>
+                        </button>
+                        {renderQuestSearchActions(quest, false)}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p className="map-empty-copy">검색 조건에 맞는 지역 퀘스트가 없습니다.</p>
@@ -3215,117 +3255,6 @@ export function MapPage({
               </ul>
             ) : (
               <p className="map-empty-copy">검색 조건에 맞는 보상 아이템이 없습니다.</p>
-            )}
-          </section>
-
-          <section aria-labelledby="map-objectives-title" className="map-side-section map-objectives-section">
-            <div className="map-section-heading">
-              <div>
-                <p className="map-eyebrow">프로필 진행도</p>
-                <h2 id="map-objectives-title">활성 퀘스트 목표</h2>
-              </div>
-              <span className="badge">{objectiveEntries.length}</span>
-            </div>
-            <div className="map-objective-progress">
-              <div>
-                <span>전체 진행률</span>
-                <strong>{completedObjectiveCount}/{objectiveEntries.length} 완료</strong>
-              </div>
-              <progress
-                aria-label="전체 목표 진행률"
-                max={Math.max(objectiveEntries.length, 1)}
-                value={completedObjectiveCount}
-              />
-            </div>
-
-            <div className="map-objective-filters">
-              <label>
-                <span>완료 상태</span>
-                <select
-                  aria-label="완료 상태 필터"
-                  onChange={(event) =>
-                    setObjectiveStatusFilter(event.target.value as ObjectiveStatusFilter)
-                  }
-                  value={objectiveStatusFilter}
-                >
-                  <option value="all">전체</option>
-                  <option value="incomplete">미완료</option>
-                  <option value="completed">완료</option>
-                </select>
-              </label>
-              <label>
-                <span>목표 유형</span>
-                <select
-                  aria-label="목표 유형 필터"
-                  onChange={(event) => setObjectiveTypeFilter(event.target.value)}
-                  value={objectiveTypeFilter}
-                >
-                  <option value="all">모든 유형</option>
-                  {objectiveTypeOptions.map(([value, type]) => (
-                    <option key={value} value={value}>{objectiveTypeLabel(type)}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="map-objective-toggles">
-              <label className="map-check-row map-compact-check">
-                <input
-                  checked={currentMapObjectivesOnly}
-                  onChange={(event) => setCurrentMapObjectivesOnly(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>현재 지도만</span>
-              </label>
-              <label className="map-check-row map-compact-check">
-                <input
-                  checked={groupObjectivesByQuest}
-                  onChange={(event) => setGroupObjectivesByQuest(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>퀘스트별 그룹화</span>
-              </label>
-              <label className="map-check-row map-compact-check">
-                <input
-                  aria-label="완료한 목표 포함"
-                  checked={mapSettings.showCompletedObjectives}
-                  onChange={(event) => updateMapSettings({ showCompletedObjectives: event.target.checked })}
-                  type="checkbox"
-                />
-                <span>완료한 목표 마커 표시</span>
-              </label>
-            </div>
-
-            {filteredObjectiveEntries.length > 0 ? (
-              <div className="map-objective-scroll">
-                {groupObjectivesByQuest ? (
-                  groupedObjectiveEntries.map(({ quest, entries }) => {
-                    const completedCount = entries.filter(({ objective }) =>
-                      isObjectiveComplete(profile.objectiveProgress, objective),
-                    ).length;
-                    return (
-                      <section className="map-objective-group" key={quest.id}>
-                        <header>
-                          <div>
-                            <h3>{localQuestName(quest)}</h3>
-                            <small>{quest.trader}</small>
-                          </div>
-                          <span>{completedCount}/{entries.length}</span>
-                        </header>
-                        <ul className="map-objective-list map-objective-list-grouped">
-                          {entries.map((entry) => renderObjectiveItem(entry, false))}
-                        </ul>
-                      </section>
-                    );
-                  })
-                ) : (
-                  <ul className="map-objective-list">
-                    {filteredObjectiveEntries.map((entry) => renderObjectiveItem(entry, true))}
-                  </ul>
-                )}
-              </div>
-            ) : (
-              <p className="map-empty-copy">선택한 필터에 맞는 활성 퀘스트 목표가 없습니다.</p>
             )}
           </section>
 
@@ -3495,11 +3424,13 @@ export function MapPage({
             <div className="map-layer-grid">
               <label className="map-check-row">
                 <input
-                  checked={mapSettings.showQuestMarkers}
-                  onChange={(event) => updateMapSettings({ showQuestMarkers: event.target.checked })}
+                  checked={mapSettings.showCompletedObjectives}
+                  onChange={(event) =>
+                    updateMapSettings({ showCompletedObjectives: event.target.checked })
+                  }
                   type="checkbox"
                 />
-                <span>일반 퀘스트 마커 (선택 경로 제외)</span>
+                <span>완료한 목표 포함</span>
               </label>
               <label className="map-check-row">
                 <input

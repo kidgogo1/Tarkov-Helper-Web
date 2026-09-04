@@ -71,6 +71,7 @@ export interface ProfileState {
 export interface MapDisplaySettings {
   lastMapKey: string;
   fixedView: boolean;
+  /** @deprecated Retained only so older persisted settings can still be migrated safely. */
   showQuestMarkers: boolean;
   showExtractMarkers: boolean;
   showPmcExtracts: boolean;
@@ -98,6 +99,7 @@ export interface MapDisplaySettings {
   miniMapPlayerMarkerScale: number;
   miniMapOffsetX: number;
   miniMapOffsetY: number;
+  /** @deprecated Retained only so older persisted settings can still be migrated safely. */
   miniMapShowQuestMarkers: boolean;
   miniMapShowExtractMarkers: boolean;
   miniMapShowExtractLabels: boolean;

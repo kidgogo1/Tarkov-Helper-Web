@@ -372,12 +372,79 @@
 
 .map-region-quest-list {
   display: grid;
-  max-height: 230px;
+  max-height: 360px;
   gap: 4px;
   overflow: auto;
   margin: 9px -4px 0;
   padding: 0 4px;
   list-style: none;
+}
+
+.map-region-quest-statistics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 4px;
+}
+
+.map-region-quest-statistics span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-region-quest-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 7px;
+}
+
+.map-region-quest-filters label {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.map-region-quest-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 4px 7px;
+  font-size: 10px;
+}
+
+.map-region-quest-filters select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 0;
+}
+
+.map-region-quest-item {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.map-region-quest-item.status-active {
+  border-color: color-mix(in srgb, var(--success) 26%, transparent);
+  background: color-mix(in srgb, var(--success) 4%, transparent);
+}
+
+.map-region-quest-item.is-completed {
+  opacity: 0.7;
 }
 
 .map-global-search-section {
@@ -531,6 +598,73 @@
   display: grid;
   min-width: 0;
   gap: 3px;
+}
+
+.map-region-quest-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-region-quest-title-row strong {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.map-region-quest-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  padding: 2px 5px;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.map-region-quest-status[data-status="active"] {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--line));
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.map-region-quest-status[data-status="done"] {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.map-region-quest-status[data-status="failed"],
+.map-region-quest-status[data-status="unavailable"] {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.map-region-quest-status[data-status="levelLocked"] {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+  color: var(--warning);
+}
+
+.map-region-quest-copy progress {
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  accent-color: var(--accent);
+}
+
+.map-region-quest-item.status-active .map-region-quest-copy progress {
+  accent-color: var(--success);
+}
+
+.map-region-quest-item.is-completed .map-region-quest-copy strong,
+.map-region-quest-item.is-completed .map-region-quest-copy small {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 .map-region-quest-button strong,
@@ -698,92 +832,6 @@
   color: var(--text);
 }
 
-.map-compact-check {
-  margin: -2px 0 9px;
-  font-size: 11px;
-}
-
-.map-objective-progress {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.map-objective-progress > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.map-objective-progress strong {
-  color: var(--accent-strong);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.map-objective-progress progress {
-  width: 100%;
-  height: 6px;
-  overflow: hidden;
-  appearance: none;
-  border: 0;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 7%);
-}
-
-.map-objective-progress progress::-webkit-progress-bar {
-  border-radius: 999px;
-  background: rgb(255 255 255 / 7%);
-}
-
-.map-objective-progress progress::-webkit-progress-value {
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-.map-objective-progress progress::-moz-progress-bar {
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-.map-objective-filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  margin-bottom: 9px;
-}
-
-.map-objective-filters label {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-  color: var(--text-dim);
-  font-size: 9px;
-  font-weight: 750;
-}
-
-.map-objective-filters select {
-  width: 100%;
-  min-width: 0;
-  min-height: 30px;
-  padding: 4px 7px;
-  font-size: 10px;
-}
-
-.map-objective-toggles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px 8px;
-  margin-bottom: 9px;
-}
-
-.map-objective-toggles .map-compact-check {
-  margin: 0;
-}
-
 .map-empty-copy,
 .map-browser-note p,
 .map-dialog-coordinates {
@@ -816,162 +864,6 @@
   padding: 7px 10px;
   font-size: 11px;
   line-height: 1.45;
-}
-
-.map-objective-list {
-  display: grid;
-  max-height: 294px;
-  gap: 6px;
-  overflow: auto;
-  margin: 0 -4px;
-  padding: 0 4px;
-  list-style: none;
-}
-
-.map-objective-scroll {
-  display: grid;
-  max-height: 360px;
-  gap: 8px;
-  overflow: auto;
-  margin: 0 -4px;
-  padding: 0 4px;
-}
-
-.map-objective-scroll .map-objective-list {
-  max-height: none;
-  overflow: visible;
-  margin: 0;
-  padding: 0;
-}
-
-.map-objective-group {
-  display: grid;
-  gap: 5px;
-}
-
-.map-objective-group > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-left: 2px solid var(--accent);
-  background: rgb(217 184 63 / 5%);
-  padding: 5px 7px;
-}
-
-.map-objective-group > header > div {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.map-objective-group h3 {
-  overflow: hidden;
-  margin: 0;
-  color: var(--accent-strong);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.map-objective-group header small,
-.map-objective-group header > span {
-  color: var(--text-dim);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-}
-
-.map-objective-list-grouped li {
-  margin-left: 9px;
-}
-
-.map-objective-list li {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgb(255 255 255 / 1.5%);
-  padding: 8px;
-}
-
-.map-objective-list li.selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px rgb(217 184 63 / 16%);
-}
-
-.map-objective-meta {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.map-objective-meta span {
-  overflow: hidden;
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.map-objective-meta small {
-  flex: 0 0 auto;
-  color: var(--text-dim);
-  font-size: 9px;
-}
-
-.map-objective-tags {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 5px;
-}
-
-.map-objective-type,
-.map-objective-map {
-  border: 1px solid rgb(217 184 63 / 24%);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  padding: 1px 5px;
-  font-size: 8px;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-.map-objective-map {
-  border-color: rgb(110 183 255 / 28%);
-  background: rgb(110 183 255 / 8%);
-  color: var(--info);
-}
-
-.map-objective-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 5px;
-}
-
-.map-objective-row > label {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: 15px minmax(0, 1fr);
-  align-items: start;
-  gap: 7px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.map-objective-row input {
-  margin: 1px 0 0;
-}
-
-.map-objective-row .completed {
-  color: var(--text-dim);
-  text-decoration: line-through;
 }
 
 .map-custom-marker-list {
@@ -1886,10 +1778,6 @@
   .map-side-section:nth-child(n + 3) {
     border-top: 1px solid var(--line);
     border-left: 0;
-  }
-
-  .map-objective-list {
-    max-height: 240px;
   }
 
   .map-canvas-topline {

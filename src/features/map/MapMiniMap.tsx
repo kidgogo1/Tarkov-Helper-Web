@@ -1310,14 +1310,6 @@ export function MapMiniMap(props: MapMiniMapProps) {
             >
               <label>
                 <input
-                  checked={mapSettings.miniMapShowQuestMarkers}
-                  onChange={(event) => updateMapSettings({ miniMapShowQuestMarkers: event.target.checked })}
-                  type="checkbox"
-                />
-                <span>일반 퀘스트 마커 (선택 경로 제외)</span>
-              </label>
-              <label>
-                <input
                   checked={mapSettings.miniMapShowExtractMarkers}
                   onChange={(event) => updateMapSettings({ miniMapShowExtractMarkers: event.target.checked })}
                   type="checkbox"
