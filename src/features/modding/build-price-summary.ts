@@ -1,4 +1,4 @@
-import { flattenBuildTree } from "../../domain/weapon-build";
+import { createFactoryBuild, flattenBuildTree } from "../../domain/weapon-build";
 import type { ProfileType } from "../../types/data";
 import type {
   TraderOffer,
@@ -13,6 +13,20 @@ import {
 } from "./part-candidate-controls";
 
 export type BuildPriceStrategy = "trader" | "flea" | "cheapest";
+export type BuildPurchaseMode = "buy" | "owned";
+
+/** Additional parts only; the factory gun is priced separately. */
+export interface BuildPurchaseLine {
+  itemId: string;
+  name: string;
+  imageUrl?: string;
+  quantity: number;
+  /** Unit price in roubles. Missing prices must not be presented as zero. */
+  priceRoubles?: number;
+  source: "trader" | "flea" | "missing";
+  traderOffer?: TraderOffer;
+  fleaMinimumPlayerLevel?: number;
+}
 
 export interface BuildPriceMissingItem {
   instanceId: string;
@@ -50,6 +64,7 @@ export interface BuildPriceGroupSummary {
 export interface BuildPriceStrategySummary {
   fleaMinimumPlayerLevel?: number;
   parts: BuildPriceGroupSummary;
+  purchaseLines: BuildPurchaseLine[];
   questUnlocks: BuildTraderQuestUnlock[];
   sourceCounts: { flea: number; trader: number };
   total: BuildPriceGroupSummary;
@@ -60,6 +75,15 @@ export interface BuildPriceStrategySummary {
 export interface BuildPriceSummary {
   itemCount: number;
   partCount: number;
+  purchaseMode: BuildPurchaseMode;
+  includedPartCount: number;
+  additionalPartCount: number;
+  removedFactoryPartCount: number;
+  /** Informational only: neither quote guarantees the default gun assembly. */
+  weaponReferences: {
+    receiverTrader: BuildPriceGroupSummary;
+    flea: BuildPriceGroupSummary;
+  };
   strategies: Record<BuildPriceStrategy, BuildPriceStrategySummary>;
 }
 
@@ -81,6 +105,7 @@ export function summarizeBuildPrice(
   catalog: WeaponCatalog,
   build: WeaponBuild,
   activeProfile: ProfileType,
+  purchaseMode: BuildPurchaseMode = "buy",
 ): BuildPriceSummary {
   const itemById = new Map(catalog.items.map((item) => [item.id, item]));
   const items = flattenBuildTree(build.root).map<BuildPriceItem>((node) => ({
@@ -88,36 +113,93 @@ export function summarizeBuildPrice(
     item: itemById.get(node.itemId),
     itemId: node.itemId,
   }));
+  const factoryParts = flattenBuildTree(createFactoryBuild(catalog, build.weaponId).root).slice(1);
+  const remainingFactoryCounts = new Map<string, number>();
+  for (const part of factoryParts) {
+    remainingFactoryCounts.set(part.itemId, (remainingFactoryCounts.get(part.itemId) ?? 0) + 1);
+  }
+  // Match by item and quantity, not slot: stock parts can be moved or reused on a new parent.
+  const additionalParts = items.slice(1).filter((item) => {
+    const available = remainingFactoryCounts.get(item.itemId) ?? 0;
+    if (available === 0) return true;
+    remainingFactoryCounts.set(item.itemId, available - 1);
+    return false;
+  });
+  const includedPartCount = items.length - 1 - additionalParts.length;
+  const weapon = items[0];
+  const factoryWeapon = weapon.item?.kind === "weapon" ? {
+    ...weapon,
+    item: {
+      ...weapon.item,
+      traderOffers: undefined,
+      traderOffersByProfile: weapon.item.factoryTraderOffersByProfile ?? {},
+    },
+  } : weapon;
+  // A receiver offer or flea snapshot is not proof of a complete default preset.
+  const weaponPurchases = purchaseMode === "owned" ? [] : [selectPurchase(factoryWeapon, activeProfile, "trader")];
 
   return {
     itemCount: items.length,
     partCount: Math.max(0, items.length - 1),
+    purchaseMode,
+    includedPartCount,
+    additionalPartCount: additionalParts.length,
+    removedFactoryPartCount: factoryParts.length - includedPartCount,
+    weaponReferences: {
+      receiverTrader: summarizeGroup([selectPurchase(weapon, activeProfile, "trader")]),
+      flea: summarizeGroup([selectPurchase(weapon, activeProfile, "flea")]),
+    },
     strategies: {
-      cheapest: summarizeStrategy(items, activeProfile, "cheapest"),
-      flea: summarizeStrategy(items, activeProfile, "flea"),
-      trader: summarizeStrategy(items, activeProfile, "trader"),
+      cheapest: summarizeStrategy(additionalParts, weaponPurchases, activeProfile, "cheapest"),
+      flea: summarizeStrategy(additionalParts, weaponPurchases, activeProfile, "flea"),
+      trader: summarizeStrategy(additionalParts, weaponPurchases, activeProfile, "trader"),
     },
   };
 }
 
 function summarizeStrategy(
   items: readonly BuildPriceItem[],
+  weaponPurchases: readonly BuildPurchase[],
   activeProfile: ProfileType,
   strategy: BuildPriceStrategy,
 ): BuildPriceStrategySummary {
   const purchases = items.map((item) => selectPurchase(item, activeProfile, strategy));
-  const weapon = summarizeGroup(purchases.slice(0, 1));
-  const parts = summarizeGroup(purchases.slice(1));
-  const total = summarizeGroup(purchases);
+  const weapon = summarizeGroup(weaponPurchases);
+  const parts = summarizeGroup(purchases);
+  const total = summarizeGroup([...weaponPurchases, ...purchases]);
   return {
     fleaMinimumPlayerLevel: total.fleaMinimumPlayerLevel,
     parts,
+    purchaseLines: aggregatePurchaseLines(purchases),
     questUnlocks: total.questUnlocks,
     sourceCounts: total.sourceCounts,
     total,
     traderRequirements: total.traderRequirements,
     weapon,
   };
+}
+
+function aggregatePurchaseLines(purchases: readonly BuildPurchase[]): BuildPurchaseLine[] {
+  const byItemId = new Map<string, BuildPurchaseLine>();
+  for (const purchase of purchases) {
+    const existing = byItemId.get(purchase.item.itemId);
+    if (existing) {
+      existing.quantity += 1;
+      continue;
+    }
+    const { item, itemId } = purchase.item;
+    byItemId.set(itemId, {
+      itemId,
+      name: item?.nameKo ?? item?.name ?? itemId,
+      imageUrl: item?.iconUrl ?? item?.imageUrl,
+      quantity: 1,
+      priceRoubles: purchase.priceRoubles,
+      source: purchase.source,
+      traderOffer: purchase.traderOffer,
+      fleaMinimumPlayerLevel: purchase.fleaMinimumPlayerLevel,
+    });
+  }
+  return [...byItemId.values()];
 }
 
 function selectPurchase(

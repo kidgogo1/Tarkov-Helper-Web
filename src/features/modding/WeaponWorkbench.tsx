@@ -7,6 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   calculateBuildStats,
   evaluateCandidateCompatibility,
+  flattenBuildTree,
   getSlotCandidates,
   removeBuildSlot,
   replaceBuildSlotResolvingConflicts,
@@ -35,7 +36,7 @@ import {
 import { WeaponSlotTree, type SlotSelection } from "./WeaponSlotTree";
 import { WeaponHotspots } from "./WeaponHotspots";
 import { WeaponItemImage } from "./WeaponItemImage";
-import { summarizeBuildPrice } from "./build-price-summary";
+import { summarizeBuildPrice, type BuildPurchaseMode } from "./build-price-summary";
 
 interface WeaponWorkbenchProps {
   activeProfile: ProfileType;
@@ -72,11 +73,20 @@ export function WeaponWorkbench({
   });
   const [traderFilterByContext, setTraderFilterByContext] = useState<Record<string, string>>({});
   const [candidateSortKeys, setCandidateSortKeys] = useState<CandidateSortKey[]>([]);
+  const [purchaseMode, setPurchaseMode] = useState<BuildPurchaseMode>("buy");
   const weapon = itemById.get(build.weaponId);
+  const flatNodes = useMemo(() => flattenBuildTree(build.root), [build]);
+  const selectedParent = itemById.get(flatNodes.find(
+    (node) => node.instanceId === selectedSlot?.parentInstanceId,
+  )?.itemId ?? "");
+  const selectedSlotRule = selectedParent?.slots?.find((slot) => slot.id === selectedSlot?.slotId);
+  const selectedPartId = flatNodes.find((node) => selectedSlot &&
+    node.parentInstanceId === selectedSlot.parentInstanceId && node.slotId === selectedSlot.slotId)?.itemId;
+  const selectedPart = selectedPartId ? itemById.get(selectedPartId) : undefined;
   const stats = useMemo(() => calculateBuildStats(catalog, build), [build, catalog]);
   const priceSummary = useMemo(
-    () => summarizeBuildPrice(catalog, build, activeProfile),
-    [activeProfile, build, catalog],
+    () => summarizeBuildPrice(catalog, build, activeProfile, purchaseMode),
+    [activeProfile, build, catalog, purchaseMode],
   );
   const candidateChoices = useMemo<CandidateChoice[]>(() => {
     if (!selectedSlot) return [];
@@ -93,7 +103,9 @@ export function WeaponWorkbench({
         selectedSlot.slotId,
         candidate.id,
       );
-      const replacement = replaceBuildSlotResolvingConflicts(
+      const replacement: BuildMutationResult = candidate.id === selectedPartId
+        ? { ok: true, build, removedNodes: [] }
+        : replaceBuildSlotResolvingConflicts(
         catalog,
         build,
         selectedSlot.parentInstanceId,
@@ -139,6 +151,7 @@ export function WeaponWorkbench({
     catalog,
     itemById,
     selectedSlot,
+    selectedPartId,
     stats,
   ]);
   const traderOptions = useMemo(() => {
@@ -194,7 +207,7 @@ export function WeaponWorkbench({
   };
 
   const replacePart = (choice: CandidateChoice) => {
-    if (!selectedSlot || !choice.replacement.ok) return;
+    if (!selectedSlot || !choice.replacement.ok || choice.candidate.id === selectedPartId) return;
     const candidateName = choice.candidate.nameKo ?? choice.candidate.name;
     const conflictNames = choice.conflictItemNames.length
       ? choice.conflictItemNames.join(", ")
@@ -287,8 +300,10 @@ export function WeaponWorkbench({
           />
         </div>
 
-        <BuildPriceSummary activeProfile={activeProfile} summary={priceSummary} />
-        <BuildStats stats={stats} validation={validation} />
+        <BuildPriceSummary activeProfile={activeProfile} summary={priceSummary}
+          purchaseMode={purchaseMode} onPurchaseModeChange={setPurchaseMode}
+          factoryPriceUpdatedAt={weapon.factoryPriceUpdatedAt} />
+        <BuildStats itemById={itemById} stats={stats} validation={validation} />
       </section>
 
       <aside aria-label="장착·필수 파츠" className="modding-installed-parts" role="region">
@@ -320,6 +335,13 @@ export function WeaponWorkbench({
           <span>부품 선택</span>
           <small>{candidateCountLabel}</small>
         </header>
+        {selectedSlotRule ? (
+          <section aria-label="선택한 부위" className="modding-selection-context">
+            <strong>{selectedSlotRule.name}{selectedSlotRule.required ? " · 필수" : ""}</strong>
+            <span>{selectedParent?.shortName ?? selectedParent?.name}</span>
+            <small>현재 장착: {selectedPart?.shortName ?? selectedPart?.name ?? "비어 있음"}</small>
+          </section>
+        ) : null}
         {swapNotice ? <p className="modding-swap-notice" role="status">{swapNotice}</p> : null}
         {selectedSlot ? (
           candidateChoices.length ? (
@@ -333,6 +355,14 @@ export function WeaponWorkbench({
                 traderOptions={traderOptions}
                 visibleCount={visibleCandidateChoices.length}
               />
+              <div className="modding-candidate-results" aria-live="polite">
+                <span>표시 {visibleCandidateChoices.length} / 전체 {candidateChoices.length}개</span>
+                {visibleCandidateChoices.length < candidateChoices.length ? (
+                  <button type="button" onClick={() => updateCandidateFilters({ ...DEFAULT_PART_CANDIDATE_FILTERS })}>
+                    검색·필터 해제
+                  </button>
+                ) : null}
+              </div>
               {visibleCandidateChoices.length ? (
                 <ul aria-label="호환 부품 목록" className="modding-part-list">
                   {visibleCandidateChoices.map((choice) => {
@@ -344,7 +374,9 @@ export function WeaponWorkbench({
                         candidate={candidate}
                         conflictMessage={candidateConflictMessage(choice)}
                         disabled={!replacement.ok}
+                        equipped={candidate.id === selectedPartId}
                         filters={activeCandidateFilters}
+                        performanceDelta={choice.performanceDelta}
                         key={candidate.id}
                         onPreview={openPreview}
                         onSelect={() => replacePart(choice)}
@@ -377,7 +409,8 @@ function candidateConflictMessage(choice: CandidateChoice): string | null {
     : "장착 불가: 현재 총기 또는 상위 부품과 충돌";
 }
 
-function BuildStats({ stats, validation }: {
+function BuildStats({ itemById, stats, validation }: {
+  itemById: ReadonlyMap<string, WeaponCatalogItem>;
   stats: ReturnType<typeof calculateBuildStats>;
   validation: ReturnType<typeof validateWeaponBuild>;
 }) {
@@ -408,7 +441,12 @@ function BuildStats({ stats, validation }: {
         <div className="modding-issues">
           {validation.issues.slice(0, 6).map((issue, index) => (
             <p key={`${issue.code}:${index}`}>
-              <CircleAlert aria-hidden="true" size={14} />{issue.message}
+              <CircleAlert aria-hidden="true" size={14} />
+              {issue.code === "MISSING_REQUIRED_SLOT" ? (() => {
+                const item = itemById.get(issue.itemId ?? "");
+                const slot = item?.slots?.find((candidate) => candidate.id === issue.slotId);
+                return `${item?.shortName ?? item?.name ?? "부품"} · ${slot?.name ?? "필수 부위"}: 필수 부품 미장착`;
+              })() : issue.message}
             </p>
           ))}
         </div>

@@ -7,6 +7,7 @@ import { PartCandidatePrice } from "./PartCandidatePrice";
 import type {
   CandidateAvailability,
   PartCandidateFilters,
+  PartCandidatePerformanceDelta,
 } from "./part-candidate-controls";
 import { WeaponItemImage } from "./WeaponItemImage";
 
@@ -16,7 +17,9 @@ interface PartCandidateRowProps {
   candidate: WeaponPartItem;
   conflictMessage: string | null;
   disabled: boolean;
+  equipped: boolean;
   filters: PartCandidateFilters;
+  performanceDelta: PartCandidatePerformanceDelta;
   onPreview: (candidate: WeaponPartItem, trigger: HTMLButtonElement) => void;
   onSelect: () => void;
 }
@@ -27,13 +30,15 @@ export function PartCandidateRow({
   candidate,
   conflictMessage,
   disabled,
+  equipped,
   filters,
+  performanceDelta,
   onPreview,
   onSelect,
 }: PartCandidateRowProps) {
   const displayName = candidate.nameKo ?? candidate.name;
   return (
-    <li className={`modding-part-row ${availability}`}>
+    <li className={`modding-part-row ${availability}${equipped ? " equipped" : ""}`}>
       <button
         aria-haspopup="dialog"
         aria-label={`${displayName} 이미지 크게 보기`}
@@ -54,17 +59,20 @@ export function PartCandidateRow({
       </button>
       <button
         aria-label={`${displayName} 장착`}
+        aria-pressed={equipped}
         className={`modding-part-select ${availability}`}
-        disabled={disabled}
+        disabled={disabled || equipped}
         onClick={onSelect}
         type="button"
       >
         <span className="modding-part-details">
           <strong className="modding-part-name">{displayName}</strong>
+          {equipped ? <span className="modding-equipped-badge">현재 장착</span> : null}
           <span className="modding-part-summary">
             <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
             <PartPerformance item={candidate} />
           </span>
+          {!disabled && !equipped ? <ReplacementPerformance delta={performanceDelta} /> : null}
           {conflictMessage ? (
             <span className={`modding-part-conflict ${availability}`}>
               {conflictMessage}
@@ -74,6 +82,28 @@ export function PartCandidateRow({
         </span>
       </button>
     </li>
+  );
+}
+
+function ReplacementPerformance({ delta }: { delta: PartCandidatePerformanceDelta }) {
+  const metrics = [
+    { label: "수직 반동", value: delta.recoil, digits: 1, unit: "", lower: true },
+    { label: "인체공학", value: delta.ergonomics, digits: 1, unit: "", lower: false },
+    { label: "무게", value: delta.weight, digits: 3, unit: " kg", lower: true },
+    { label: "정확도", value: delta.accuracy, digits: 2, unit: " MOA", lower: true },
+    { label: "탄속 보정", value: delta.velocity, digits: 2, unit: "%p", lower: false },
+  ].filter(({ value, digits }) => value !== undefined && Number.isFinite(value) &&
+    Math.abs(value) >= 0.5 * 10 ** -digits);
+  return (
+    <span aria-label="교체 후 변화" className="modding-replacement-performance"
+      title="현재 빌드 대비 예상 변화입니다. 함께 제거되는 하위·충돌 부품도 반영합니다.">
+      <em>교체 후 변화</em>
+      {metrics.length ? metrics.map(({ label, value, digits, unit, lower }) => (
+        <span key={label} data-effect={(value! < 0) === lower ? "improved" : "reduced"}>
+          {label} {signed(value!, digits)}{unit}
+        </span>
+      )) : <span>성능 변화 없음</span>}
+    </span>
   );
 }
 

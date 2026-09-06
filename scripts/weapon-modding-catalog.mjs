@@ -439,6 +439,78 @@ function assertSourceIdentity(item, key) {
   return record;
 }
 
+function canonicalFactoryTree(nodes) {
+  return nodes.map((node) => ({
+    itemId: node.itemId,
+    slotId: node.slotId,
+    children: canonicalFactoryTree(node.children),
+  })).sort((left, right) => left.slotId.localeCompare(right.slotId));
+}
+
+function factoryPricingOf(weapon, sourceProfiles, generatedAt, tasks, taskEnglish, taskKorean, report) {
+  const missing = (profile, reason) => report?.[profile].missing.push({ itemId: weapon.id, reason });
+  if (!validItemId(weapon.factoryPresetId) || !Array.isArray(weapon.factoryPresetBuild)) {
+    for (const profile of Object.keys(sourceProfiles)) missing(profile, "no-factory-preset");
+    return {};
+  }
+  const expectedTree = JSON.stringify(canonicalFactoryTree(weapon.factoryPresetBuild));
+  const offersByProfile = {};
+  for (const [profile, items] of Object.entries(sourceProfiles)) {
+    const sourceWeapon = items[weapon.id];
+    if (!sourceWeapon) { missing(profile, "weapon-unavailable"); continue; }
+    assertSourceIdentity(sourceWeapon, weapon.id);
+    if (propertiesOf(sourceWeapon).defaultPreset !== weapon.factoryPresetId) {
+      missing(profile, "preset-id-changed"); continue;
+    }
+    const preset = items[weapon.factoryPresetId];
+    if (!preset) { missing(profile, "preset-unavailable"); continue; }
+    assertSourceIdentity(preset, weapon.factoryPresetId);
+    if (propertyType(preset) !== "ItemPropertiesPreset" ||
+        propertiesOf(preset).baseItem !== weapon.id || !Array.isArray(preset.containsItems) ||
+        preset.containsItems.filter((entry) => entry.item === weapon.id && entry.count === 1).length !== 1) {
+      missing(profile, "invalid-preset"); continue;
+    }
+    // A preset ID can survive a changed factory assembly. Quotes are only safe
+    // when its complete slot tree (including repeated parts) matches our baseline.
+    const { presetBuild } = directFactoryAssignments(sourceWeapon, items, {}, {});
+    if (JSON.stringify(canonicalFactoryTree(presetBuild)) !== expectedTree) {
+      missing(profile, "preset-tree-changed"); continue;
+    }
+    const offers = traderOffersOf(preset, tasks, taskEnglish, taskKorean);
+    if (offers) {
+      offersByProfile[profile] = offers;
+      if (report) report[profile].quoted += 1;
+    } else missing(profile, "no-cash-offer");
+  }
+  return Object.keys(offersByProfile).length ? {
+    factoryTraderOffersByProfile: offersByProfile,
+    factoryPriceUpdatedAt: new Date(generatedAt).toISOString(),
+  } : {};
+}
+
+/** Refresh only verified stock-package quotes; never silently migrate saved-build baselines. */
+export function enrichWeaponModFactoryPrices({ catalog, generatedAt, regular, pve, tasks, taskEnglish, taskKorean }) {
+  if (typeof generatedAt !== "string" || !Number.isFinite(Date.parse(generatedAt))) {
+    throw new Error("generatedAt must be an ISO timestamp");
+  }
+  if (catalog?.schemaVersion !== 1 || !Array.isArray(catalog.items) || !Array.isArray(catalog.weaponIds)) {
+    throw new Error("catalog must be a version 1 weapon catalog");
+  }
+  const sources = { pvp: sourceItems(regular), pve: sourceItems(pve) };
+  const allTasks = sourceTasks(tasks);
+  const english = translationMap(taskEnglish, "taskEnglish");
+  const korean = translationMap(taskKorean, "taskKorean");
+  const report = { pvp: { quoted: 0, missing: [] }, pve: { quoted: 0, missing: [] } };
+  const items = catalog.items.map((item) => {
+    if (item.kind !== "weapon") return item;
+    const updated = { ...item };
+    delete updated.factoryTraderOffersByProfile;
+    delete updated.factoryPriceUpdatedAt;
+    return { ...updated, ...factoryPricingOf(item, sources, generatedAt, allTasks, english, korean, report) };
+  });
+  return { catalog: { ...catalog, items }, report };
+}
+
 export function buildWeaponModCatalog({
   generatedAt,
   regular,
@@ -531,6 +603,11 @@ export function buildWeaponModCatalog({
     const factoryChildren = factoryAssignments?.children;
     const factoryPartIds = factoryChildren?.get(itemId) ?? [];
     const factoryPresetBuild = factoryAssignments?.presetBuild;
+    const factoryPricing = weapon ? factoryPricingOf(
+      { id: itemId, factoryPresetId, factoryPresetBuild },
+      { pvp: allItems, pve: pveItems }, dataVersion,
+      allTasks, taskEnglishTranslations, taskKoreanTranslations,
+    ) : {};
     const factoryPartsByParent = factoryChildren
       ? Object.fromEntries([...factoryChildren]
           .filter(([, childIds]) => childIds.length)
@@ -573,6 +650,7 @@ export function buildWeaponModCatalog({
         ? { factoryPartsByParent }
         : {}),
       ...(factoryPresetBuild ? { factoryPresetBuild } : {}),
+      ...factoryPricing,
       ...(conflicts ? { conflicts } : {}),
       ...(traderOffersByProfile ? { traderOffersByProfile } : {}),
       ...(fleaByProfile ? { fleaByProfile } : {}),

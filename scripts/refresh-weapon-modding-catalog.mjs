@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { buildWeaponModCatalog, fetchFixedJson } from "./weapon-modding-catalog.mjs";
+import { buildWeaponModCatalog, enrichWeaponModFactoryPrices, fetchFixedJson } from "./weapon-modding-catalog.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const defaultOutputPath = path.join(projectRoot, "public", "data", "weapon-modding", "catalog.json");
@@ -24,16 +24,18 @@ function option(name, fallback) {
 
 async function main() {
   const outputPath = path.resolve(option("--output", defaultOutputPath));
+  const factoryOnly = process.argv.includes("--factory-prices-only");
+  const existing = factoryOnly ? JSON.parse(await readFile(outputPath, "utf8")) : undefined;
   const [regular, pve, english, korean, tasks, taskEnglish, taskKorean] = await Promise.all([
     fetchFixedJson(sourceUrls.regular, 64 * 1024 * 1024),
     fetchFixedJson(sourceUrls.pve, 64 * 1024 * 1024),
-    fetchFixedJson(sourceUrls.english, 12 * 1024 * 1024),
-    fetchFixedJson(sourceUrls.korean, 12 * 1024 * 1024),
+    factoryOnly ? undefined : fetchFixedJson(sourceUrls.english, 12 * 1024 * 1024),
+    factoryOnly ? undefined : fetchFixedJson(sourceUrls.korean, 12 * 1024 * 1024),
     fetchFixedJson(sourceUrls.tasks, 24 * 1024 * 1024),
     fetchFixedJson(sourceUrls.taskEnglish, 12 * 1024 * 1024),
     fetchFixedJson(sourceUrls.taskKorean, 12 * 1024 * 1024),
   ]);
-  const catalog = buildWeaponModCatalog({
+  const input = {
     generatedAt: new Date().toISOString(),
     regular,
     pve,
@@ -42,7 +44,9 @@ async function main() {
     tasks,
     taskEnglish,
     taskKorean,
-  });
+  };
+  const enriched = factoryOnly ? enrichWeaponModFactoryPrices({ ...input, catalog: existing }) : undefined;
+  const catalog = enriched?.catalog ?? buildWeaponModCatalog(input);
   await mkdir(path.dirname(outputPath), { recursive: true });
   const temporaryPath = `${outputPath}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(catalog)}\n`, "utf8");
@@ -52,6 +56,7 @@ async function main() {
     dataVersion: catalog.dataVersion,
     weapons: catalog.weaponIds.length,
     items: catalog.items.length,
+    factoryPricing: enriched?.report,
   }, null, 2));
 }
 

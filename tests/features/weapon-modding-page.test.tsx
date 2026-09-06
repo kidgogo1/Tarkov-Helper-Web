@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WeaponModdingPage } from "../../src/features/modding/WeaponModdingPage";
+import { createFactoryBuild } from "../../src/domain/weapon-build";
+import { saveWeaponBuild } from "../../src/services/weapon-build-storage";
 
 const M4A1_ID = "5447a9cd4bdc2dbd208b4567";
 const SECOND_WEAPON_ID = "5644bd2b4bdc2d3b4c8b4572";
@@ -23,6 +25,12 @@ const catalog = {
       categories: ["Assault rifles"],
       imageUrl: "/assets/weapon-modding/m4a1.png",
       factoryPartIds: [],
+      factoryTraderOffersByProfile: {
+        pvp: [{ traderId: "5a7c2eca46aef81a7ca2145d", traderName: "Mechanic", price: 100_000,
+          priceRoubles: 100_000, currency: "RUB", loyaltyLevel: 3 }],
+        pve: [{ traderId: "5a7c2eca46aef81a7ca2145d", traderName: "Mechanic", price: 90_000,
+          priceRoubles: 90_000, currency: "RUB", loyaltyLevel: 2 }],
+      },
       baseStats: {
         verticalRecoil: 80,
         horizontalRecoil: 160,
@@ -139,6 +147,121 @@ afterEach(() => {
 });
 
 describe("WeaponModdingPage", () => {
+  it("saves multiple named modding profiles and loads their own snapshots", async () => {
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    const name = await screen.findByRole("textbox", { name: "모딩 이름" });
+    fireEvent.change(name, { target: { value: "기본 연습용" } });
+    fireEvent.click(screen.getByRole("button", { name: "새 모딩으로 저장" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }));
+    fireEvent.change(name, { target: { value: "조준경 세팅" } });
+    fireEvent.click(screen.getByRole("button", { name: "새 모딩으로 저장" }));
+    const presets = screen.getByRole("combobox", { name: "저장한 모딩" });
+    const emptyPreset = within(presets).getByRole("option", { name: "기본 연습용" }) as HTMLOptionElement;
+    const opticPreset = within(presets).getByRole("option", { name: "조준경 세팅" }) as HTMLOptionElement;
+    fireEvent.change(presets, { target: { value: emptyPreset.value } });
+    fireEvent.click(screen.getByRole("button", { name: "모딩 불러오기" }));
+    expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
+    fireEvent.change(presets, { target: { value: opticPreset.value } });
+    fireEvent.click(screen.getByRole("button", { name: "모딩 불러오기" }));
+    expect(screen.getByRole("button", { name: "조준경 부품 제거" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "최저가 혼합 구매 예상 비용" })).toHaveTextContent("₽106,000");
+  });
+
+  it("requires confirmation before overwriting or deleting a named profile", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "모딩 이름" }), { target: { value: "보관용" } });
+    fireEvent.click(screen.getByRole("button", { name: "새 모딩으로 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 모딩 덮어쓰기" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("보관용"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 모딩 삭제" }));
+    expect(screen.getByRole("option", { name: "보관용" })).toBeInTheDocument();
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "선택 모딩 삭제" }));
+    expect(screen.queryByRole("option", { name: "보관용" })).not.toBeInTheDocument();
+  });
+
+  it("keeps favorite weapons available independently of search and after reopening", async () => {
+    const first = render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "현재 총기 즐겨찾기 추가" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "총기 검색" }), { target: { value: "not-found" } });
+    const favorites = screen.getByRole("navigation", { name: "즐겨찾는 총기" });
+    fireEvent.click(within(favorites).getByRole("button", { name: /M4A1/ }));
+    expect(screen.getByRole("heading", { name: /Colt M4A1/ })).toBeInTheDocument();
+    first.unmount();
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    expect(await screen.findByRole("button", { name: "현재 총기 즐겨찾기 해제" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("navigation", { name: "즐겨찾는 총기" }))
+      .getByRole("button", { name: /M4A1/ })).toBeInTheDocument();
+  });
+
+  it("shows the selected slot, post-swap changes and an unambiguous equipped state", async () => {
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    const context = screen.getByRole("region", { name: "선택한 부위" });
+    expect(context).toHaveTextContent("조준경");
+    expect(context).toHaveTextContent("M4A1");
+    expect(context).toHaveTextContent("현재 장착: 비어 있음");
+    const choice = screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" });
+    expect(within(choice).getByLabelText("교체 후 변화")).toHaveTextContent("인체공학 -2");
+    expect(within(choice).getByLabelText("교체 후 변화")).toHaveTextContent("무게 +0.340 kg");
+    fireEvent.click(choice);
+    expect(choice).toHaveAttribute("aria-pressed", "true");
+    expect(choice).toBeDisabled();
+    expect(choice).toHaveTextContent("현재 장착");
+    expect(screen.getByRole("region", { name: "선택한 부위" })).toHaveTextContent("EXPS3");
+  });
+
+  it("keeps an incomplete saved draft instead of silently restoring factory parts", async () => {
+    const requiredCatalog = { ...catalog, items: catalog.items.map((item) => item.kind === "weapon"
+      ? { ...item, factoryPartIds: [EOTECH_ID], slots: item.slots.map((slot) => ({ ...slot, required: true })) }
+      : item) };
+    const first = render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(requiredCatalog)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "조준경 부품 제거" }));
+    expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("확인 필요");
+    first.unmount();
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(requiredCatalog)} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("필수 부품 미장착");
+  });
+
+  it("still rejects a saved draft containing an item incompatible with its slot", async () => {
+    const corrupted = createFactoryBuild(catalog, M4A1_ID);
+    corrupted.root.children = [{ instanceId: "wrong", itemId: M4A1_ID, slotId: SCOPE_SLOT_ID, children: [] }];
+    expect(saveWeaponBuild(corrupted)).toBe(true);
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("사용 가능");
+  });
+
+  it("shows hidden candidate counts and a recovery action even with filters collapsed", async () => {
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "부품 검색" }), { target: { value: "missing-part" } });
+    expect(screen.getByRole("button", { name: "필터·정렬" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("표시 0 / 전체 1개")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "검색·필터 해제" }));
+    expect(screen.getByRole("searchbox", { name: "부품 검색" })).toHaveValue("");
+    expect(screen.getByRole("list", { name: "호환 부품 목록" })).toBeInTheDocument();
+  });
+
   it("searches a weapon, opens one of its slots, and equips a compatible part", async () => {
     const onWeaponSelect = vi.fn();
 
@@ -222,7 +345,8 @@ describe("WeaponModdingPage", () => {
       .toBeInTheDocument();
     expect(within(candidateRow).getByText("EXPS3")).toBeInTheDocument();
     expect(within(candidateRow).getByText("부품 효과")).toBeInTheDocument();
-    expect(within(candidateRow).getByText("인체공학 -2")).toBeInTheDocument();
+    expect(within(within(candidateRow).getByTitle("부품 데이터에 등록된 고유 효과"))
+      .getByText("인체공학 -2")).toBeInTheDocument();
   });
 
   it("shows weapon prices, part totals, and required trader levels above the current build", async () => {
@@ -240,21 +364,17 @@ describe("WeaponModdingPage", () => {
     expect(priceSummary.compareDocumentPosition(buildStats) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
 
-    const weaponPrices = within(priceSummary).getByRole("region", {
-      name: "원본 총기 가격",
-    });
-    expect(within(weaponPrices).getByText("상점 최저")).toBeInTheDocument();
-    expect(within(weaponPrices).getByText("Mechanic LL1")).toBeInTheDocument();
-    expect(within(weaponPrices).getAllByText("₽20,000")).toHaveLength(2);
+    fireEvent.click(within(priceSummary).getByText("본체·플리 참고가 보기"));
+    const weaponPrices = within(priceSummary).getByRole("region", { name: "총기 참고가 · 합계 제외" });
+    expect(within(weaponPrices).getByText("본체 상점 참고가")).toBeInTheDocument();
+    expect(within(weaponPrices).getByText("₽20,000")).toBeInTheDocument();
     expect(within(weaponPrices).getByText("₽25,000")).toBeInTheDocument();
 
-    const partPrices = within(priceSummary).getByRole("region", {
-      name: "현재 장착 부품 가격 비교",
-    });
-    expect(within(partPrices).getByText("장착 부품 0개 · 원본 총기 제외"))
-      .toBeInTheDocument();
-    for (const planName of ["상인만 부품 가격", "플리만 부품 가격", "최저가 부품 가격"]) {
-      expect(within(within(partPrices).getByRole("region", { name: planName }))
+    expect(within(priceSummary).getByText("추가 구매 0개")).toBeInTheDocument();
+    for (const planName of ["상인만 구매 예상 비용", "플리만 구매 예상 비용", "최저가 혼합 구매 예상 비용"]) {
+      const plan = within(priceSummary).getByRole("region", { name: planName });
+      expect(within(plan).getAllByText("₽100,000")).toHaveLength(2);
+      expect(within(plan)
         .getByText("₽0")).toBeInTheDocument();
     }
 
@@ -265,23 +385,24 @@ describe("WeaponModdingPage", () => {
       name: "EOTech EXPS3 holographic sight 장착",
     }));
 
-    expect(within(partPrices).getByText("장착 부품 1개 · 원본 총기 제외"))
+    expect(within(priceSummary).getByText("추가 구매 1개"))
       .toBeInTheDocument();
-    expect(within(within(partPrices).getByRole("region", {
-      name: "상인만 부품 가격",
+    expect(within(within(priceSummary).getByRole("region", {
+      name: "상인만 구매 예상 비용",
     })).getByText("₽6,000")).toBeInTheDocument();
-    expect(within(within(partPrices).getByRole("region", {
-      name: "플리만 부품 가격",
+    expect(within(within(priceSummary).getByRole("region", {
+      name: "플리만 구매 예상 비용",
     })).getByText("₽45,000")).toBeInTheDocument();
-    expect(within(within(partPrices).getByRole("region", {
-      name: "최저가 부품 가격",
-    })).getByText("₽6,000")).toBeInTheDocument();
+    expect(within(within(priceSummary).getByRole("region", {
+      name: "최저가 혼합 구매 예상 비용",
+    })).getByText("₽106,000")).toBeInTheDocument();
 
     const requirements = within(priceSummary).getByRole("region", {
-      name: "장착 부품 상인 요구 조건",
+      name: "구매 상인 요구 조건",
     });
-    expect(within(requirements).getAllByText("Peacekeeper LL2")).toHaveLength(2);
-    expect(within(requirements).getAllByText(/약사/)).toHaveLength(2);
+    expect(within(requirements).getByText("Peacekeeper LL2")).toBeInTheDocument();
+    expect(within(requirements).getByText("Mechanic LL3")).toBeInTheDocument();
+    expect(within(requirements).getByText(/약사/)).toBeInTheDocument();
 
     view.rerender(
       <WeaponModdingPage
@@ -290,11 +411,15 @@ describe("WeaponModdingPage", () => {
         loadCatalog={() => Promise.resolve(catalog)}
       />,
     );
-    expect(within(weaponPrices).getAllByText("₽18,000")).toHaveLength(2);
+    expect(within(weaponPrices).getByText("₽18,000")).toBeInTheDocument();
     expect(within(weaponPrices).getByText("₽22,000")).toBeInTheDocument();
-    expect(within(within(partPrices).getByRole("region", {
-      name: "상인만 부품 가격",
-    })).getByText("₽5,000")).toBeInTheDocument();
+    const pvePlan = within(priceSummary).getByRole("region", { name: "상인만 구매 예상 비용" });
+    expect(within(pvePlan).getByText("₽5,000")).toBeInTheDocument();
+    expect(within(pvePlan).getByText("₽95,000")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "기본 총기 보유" }));
+    expect(within(pvePlan).getAllByText("₽5,000")).toHaveLength(2);
+    expect(within(requirements).queryByText("Mechanic LL2")).not.toBeInTheDocument();
+    expect(within(requirements).getByText("Mechanic LL1")).toBeInTheDocument();
   });
 
   it("does not present missing build prices as zero", async () => {
@@ -304,6 +429,7 @@ describe("WeaponModdingPage", () => {
         ...catalog.items[0],
         fleaByProfile: undefined,
         traderOffersByProfile: undefined,
+        factoryTraderOffersByProfile: undefined,
       }, ...catalog.items.slice(1)],
     };
     render(
@@ -317,10 +443,10 @@ describe("WeaponModdingPage", () => {
     await screen.findByRole("heading", { name: /Colt M4A1/ });
     const weaponPrices = within(
       screen.getByRole("region", { name: "빌드 가격 요약" }),
-    ).getByRole("region", { name: "원본 총기 가격" });
-    expect(within(weaponPrices).getAllByText("계산 불가")).toHaveLength(3);
-    expect(within(weaponPrices).getAllByText("가격 정보 없음 1개")).toHaveLength(3);
-    expect(within(weaponPrices).queryByText("₽0")).not.toBeInTheDocument();
+    ).getByRole("region", { name: "상인만 구매 예상 비용" });
+    expect(within(weaponPrices).getByText("가격 미확인")).toBeInTheDocument();
+    expect(within(weaponPrices).getByText("미확인 1개 · 총액 미완성")).toBeInTheDocument();
+    expect(within(weaponPrices).getByText("확인된 합계 ₽0")).toBeInTheDocument();
   });
 
   it("combines candidate filters and lets users reorder multiple sort priorities", async () => {

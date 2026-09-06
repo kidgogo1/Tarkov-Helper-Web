@@ -85,7 +85,7 @@ function sanitizeBuildNode(
       };
 }
 
-function sanitizeWeaponBuild(value: unknown): WeaponBuild | null {
+export function sanitizeWeaponBuild(value: unknown): WeaponBuild | null {
   if (
     !isRecord(value) ||
     value.schemaVersion !== STORAGE_SCHEMA_VERSION ||

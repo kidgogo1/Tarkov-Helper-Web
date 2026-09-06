@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { summarizeBuildPrice } from "../../src/features/modding/build-price-summary";
+import { createFactoryBuild } from "../../src/domain/weapon-build";
 import type {
   WeaponBuild,
   WeaponCatalog,
@@ -38,6 +39,16 @@ const catalog: WeaponCatalog = {
       kind: "weapon",
       name: "Test rifle",
       slots: [],
+      factoryTraderOffersByProfile: {
+        pvp: [{
+          currency: "RUB", loyaltyLevel: 2, price: 10_000, priceRoubles: 10_000,
+          traderId: "mechanic", traderName: "Mechanic",
+        }],
+        pve: [{
+          currency: "RUB", loyaltyLevel: 1, price: 8_000, priceRoubles: 8_000,
+          traderId: "mechanic", traderName: "Mechanic",
+        }],
+      },
       traderOffersByProfile: {
         pvp: [{
           currency: "RUB",
@@ -138,6 +149,151 @@ const build: WeaponBuild = {
 };
 
 describe("build price summary", () => {
+  it("does not charge included factory parts or substitute a receiver offer for a complete gun", () => {
+    const factoryCatalog: WeaponCatalog = {
+      ...catalog,
+      items: catalog.items.map((item) => item.kind === "weapon" ? {
+        ...item,
+        slots: [{ id: "optic-slot", name: "Optic", allowedItemIds: ["optic"] }],
+        factoryPresetBuild: [{ itemId: "optic", slotId: "optic-slot", children: [] }],
+        factoryTraderOffersByProfile: { pvp: [{
+          currency: "RUB", loyaltyLevel: 2, price: 30_000, priceRoubles: 30_000,
+          traderId: "skier", traderName: "Skier",
+        }] },
+      } : item),
+    };
+
+    const summary = summarizeBuildPrice(factoryCatalog, createFactoryBuild(factoryCatalog, "weapon"), "pvp");
+
+    expect(summary).toMatchObject({
+      partCount: 1, includedPartCount: 1, additionalPartCount: 0, removedFactoryPartCount: 0,
+    });
+    for (const strategy of Object.values(summary.strategies)) {
+      expect(strategy.parts).toMatchObject({ itemCount: 0, totalRoubles: 0, missingItemCount: 0 });
+      expect(strategy.weapon.totalRoubles).toBe(30_000);
+      expect(strategy.total.totalRoubles).toBe(30_000);
+      expect(strategy.traderRequirements).toEqual([{ loyaltyLevel: 2, traderId: "skier", traderName: "Skier" }]);
+      expect(strategy.questUnlocks).toEqual([]);
+      expect(strategy.purchaseLines).toEqual([]);
+    }
+  });
+
+  it("charges only duplicate quantities beyond the factory supply, even after moving slots", () => {
+    const factoryCatalog: WeaponCatalog = {
+      ...catalog,
+      items: catalog.items.map((item) => item.kind === "weapon" ? {
+        ...item,
+        slots: ["left", "right", "top"].map((id) => ({ id, name: id, allowedItemIds: ["rail"] })),
+        factoryPresetBuild: ["left", "right"].map((slotId) => ({ itemId: "rail", slotId, children: [] })),
+      } : item),
+    };
+    const factory = createFactoryBuild(factoryCatalog, "weapon");
+    const changed: WeaponBuild = {
+      ...factory,
+      root: { ...factory.root, children: ["top", "right", "left"].map((slotId) => ({
+        itemId: "rail", slotId, instanceId: `moved/${slotId}`, children: [],
+      })) },
+    };
+
+    const summary = summarizeBuildPrice(factoryCatalog, changed, "pvp");
+
+    expect(summary).toMatchObject({ partCount: 3, includedPartCount: 2, additionalPartCount: 1, removedFactoryPartCount: 0 });
+    expect(summary.strategies.trader.parts.totalRoubles).toBe(2_000);
+    expect(summary.strategies.trader.purchaseLines).toMatchObject([{ itemId: "rail", quantity: 1, priceRoubles: 2_000 }]);
+
+    const removed = summarizeBuildPrice(factoryCatalog, {
+      ...changed, root: { ...changed.root, children: changed.root.children.slice(0, 1) },
+    }, "pvp");
+    expect(removed).toMatchObject({ includedPartCount: 1, additionalPartCount: 0, removedFactoryPartCount: 1 });
+    expect(removed.strategies.trader.total.totalRoubles).toBe(10_000);
+  });
+
+  it("reuses nested factory parts on a replacement parent but does not give its new children for free", () => {
+    const oldMount = part("old-mount", {
+      slots: [{ id: "optic", name: "Optic", allowedItemIds: ["optic"] }],
+    });
+    const newMount = part("new-mount", {
+      factoryPartIds: ["rail"],
+      slots: [
+        { id: "optic", name: "Optic", allowedItemIds: ["optic"] },
+        { id: "rail", name: "Rail", allowedItemIds: ["rail"] },
+      ],
+      traderOffers: [{ currency: "RUB", loyaltyLevel: 1, price: 3_000, traderId: "skier", traderName: "Skier" }],
+    });
+    const nestedCatalog: WeaponCatalog = {
+      ...catalog,
+      items: [...catalog.items.map((item) => item.kind === "weapon" ? {
+        ...item,
+        slots: [{ id: "mount", name: "Mount", allowedItemIds: [oldMount.id, newMount.id] }],
+        factoryPresetBuild: [{ itemId: oldMount.id, slotId: "mount", children: [
+          { itemId: "optic", slotId: "optic", children: [] },
+        ] }],
+      } : item), oldMount, newMount],
+    };
+    const factory = createFactoryBuild(nestedCatalog, "weapon");
+    const changed: WeaponBuild = {
+      ...factory,
+      root: { ...factory.root, children: [{
+        itemId: newMount.id, slotId: "mount", instanceId: "new-mount-instance",
+        children: ["optic", "rail"].map((itemId) => ({ itemId, slotId: itemId, instanceId: `new/${itemId}`, children: [] })),
+      }] },
+    };
+
+    const summary = summarizeBuildPrice(nestedCatalog, changed, "pvp");
+
+    expect(summary).toMatchObject({ includedPartCount: 1, additionalPartCount: 2, removedFactoryPartCount: 1 });
+    expect(summary.strategies.trader.parts.totalRoubles).toBe(5_000);
+    expect(summary.strategies.trader.parts.questUnlocks).toEqual([]);
+    expect(summary.strategies.trader.purchaseLines.map((line) => line.itemId)).toEqual([newMount.id, "rail"]);
+  });
+
+  it("does not require individual prices or unlocks for included factory parts", () => {
+    const unpricedCatalog: WeaponCatalog = {
+      ...catalog,
+      items: catalog.items.map((item) => item.kind === "weapon" ? {
+        ...item,
+        slots: [{ id: "rail", name: "Rail", allowedItemIds: ["rail"] }],
+        factoryPresetBuild: [{ itemId: "rail", slotId: "rail", children: [] }],
+      } : item.id === "rail" ? { ...item, traderOffersByProfile: {}, fleaByProfile: {} } : item),
+    };
+
+    const summary = summarizeBuildPrice(unpricedCatalog, createFactoryBuild(unpricedCatalog, "weapon"), "pvp");
+
+    for (const strategy of Object.values(summary.strategies)) {
+      expect(strategy.parts).toMatchObject({ totalRoubles: 0, missingItemCount: 0, traderRequirements: [], questUnlocks: [] });
+    }
+  });
+
+  it("keeps an unknown complete gun price unknown despite known receiver and flea prices", () => {
+    const noPresetPrices: WeaponCatalog = {
+      ...catalog,
+      items: catalog.items.map((item) => item.kind === "weapon" ? { ...item, factoryTraderOffersByProfile: undefined } : item),
+    };
+    const summary = summarizeBuildPrice(noPresetPrices, build, "pvp");
+
+    expect(summary.weaponReferences.receiverTrader.totalRoubles).toBe(10_000);
+    expect(summary.weaponReferences.flea.totalRoubles).toBe(12_000);
+    for (const strategy of Object.values(summary.strategies)) {
+      expect(strategy.weapon).toMatchObject({ itemCount: 1, missingItemCount: 1, totalRoubles: null });
+      expect(strategy.total.totalRoubles).toBeNull();
+    }
+  });
+
+  it("excludes the base gun purchase and its trader requirements when the factory gun is owned", () => {
+    const summary = summarizeBuildPrice(catalog, build, "pvp", "owned");
+
+    expect(summary.purchaseMode).toBe("owned");
+    expect(summary.strategies.cheapest.weapon).toMatchObject({ itemCount: 0, totalRoubles: 0, missingItemCount: 0 });
+    expect(summary.strategies.cheapest.total.totalRoubles).toBe(8_000);
+    expect(summary.strategies.cheapest.traderRequirements).toEqual([{ loyaltyLevel: 1, traderId: "skier", traderName: "Skier" }]);
+    expect(summary.strategies.cheapest.purchaseLines).toMatchObject([
+      { itemId: "optic", quantity: 1, source: "flea", priceRoubles: 4_000 },
+      { itemId: "rail", quantity: 2, source: "trader", priceRoubles: 2_000 },
+    ]);
+    expect(summary.strategies.flea.purchaseLines[1]).toMatchObject({ itemId: "rail", quantity: 2, source: "missing" });
+    expect(summary.strategies.flea.purchaseLines[1].priceRoubles).toBeUndefined();
+  });
+
   it("separates the weapon and repeated parts for trader, flea, and cheapest plans", () => {
     const summary = summarizeBuildPrice(catalog, build, "pvp");
 
@@ -175,7 +331,7 @@ describe("build price summary", () => {
       totalRoubles: null,
     });
     expect(summary.strategies.flea.total).toMatchObject({
-      knownTotalRoubles: 16_000,
+      knownTotalRoubles: 14_000,
       missingItemCount: 2,
       totalRoubles: null,
     });
@@ -239,8 +395,10 @@ describe("build price summary", () => {
       missingItemCount: 2,
       totalRoubles: null,
     });
-    expect(summary.strategies.flea.weapon.totalRoubles).toBe(9_000);
-    expect(summary.strategies.flea.fleaMinimumPlayerLevel).toBe(25);
+    expect(summary.strategies.flea.weapon.totalRoubles).toBe(8_000);
+    expect(summary.strategies.flea.fleaMinimumPlayerLevel).toBeUndefined();
+    expect(summary.weaponReferences.flea.totalRoubles).toBe(9_000);
+    expect(summary.weaponReferences.flea.fleaMinimumPlayerLevel).toBe(25);
   });
 
   it("prefers flea on an exact price tie so the cheapest plan avoids an unnecessary trader level", () => {

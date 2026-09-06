@@ -106,6 +106,10 @@ export interface WeaponItem extends WeaponCatalogItemBase {
   factoryPartIds: string[];
   factoryPresetId?: string;
   factoryImageUrl?: string;
+  /** Cash quotes for this exact default preset, never receiver-only or cross-profile prices. */
+  factoryTraderOffersByProfile?: TraderOffersByProfile;
+  /** Collection time of factory package quotes; may differ from the catalog data version. */
+  factoryPriceUpdatedAt?: string;
   /** Default-preset children scoped to this weapon, keyed by parent item id. */
   factoryPartsByParent?: Record<string, string[]>;
   /** Exact slot tree for the default preset, including repeated identical parts. */

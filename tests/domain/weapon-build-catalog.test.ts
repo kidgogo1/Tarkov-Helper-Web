@@ -12,8 +12,27 @@ import {
   validateWeaponBuild,
 } from "../../src/domain/weapon-build";
 import { parseWeaponModCatalog } from "../../src/services/weapon-mod-data";
+import { summarizeBuildPrice } from "../../src/features/modding/build-price-summary";
 
 describe("bundled weapon catalog builds", () => {
+  it("never charges factory parts twice across the whole bundle in either profile", () => {
+    const catalog = parseWeaponModCatalog(JSON.parse(bundledCatalogJson) as unknown);
+    if (!catalog) throw new Error("invalid bundled catalog");
+    for (const weaponId of catalog.weaponIds) {
+      const build = createFactoryBuild(catalog, weaponId);
+      for (const profile of ["pvp", "pve"] as const) {
+        const summary = summarizeBuildPrice(catalog, build, profile);
+        expect(summary.additionalPartCount, `${weaponId}:${profile}`).toBe(0);
+        for (const strategy of Object.values(summary.strategies)) {
+          expect(strategy.parts.totalRoubles).toBe(0);
+          expect(strategy.total.totalRoubles).toBe(strategy.weapon.totalRoubles);
+          expect(strategy.purchaseLines).toEqual([]);
+        }
+        expect(summarizeBuildPrice(catalog, build, profile, "owned").strategies.cheapest.total.totalRoubles).toBe(0);
+      }
+    }
+  });
+
   it("can create a safe factory build for every bundled weapon", async () => {
     const payload = JSON.parse(bundledCatalogJson) as unknown;
     const catalog = parseWeaponModCatalog(payload);

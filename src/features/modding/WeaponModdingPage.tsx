@@ -22,6 +22,7 @@ import type {
   WeaponCatalogItem,
 } from "../../types/weapon-modding";
 import { WeaponWorkbench } from "./WeaponWorkbench";
+import { WeaponLibrary } from "./WeaponLibrary";
 import { WeaponItemImage } from "./WeaponItemImage";
 import type { SlotSelection } from "./WeaponSlotTree";
 
@@ -197,6 +198,14 @@ export function WeaponModdingPage({
         </div>
       ) : (
         <>
+          <WeaponLibrary build={displayedBuild} itemById={itemById} onSelectWeapon={selectWeapon}
+            onLoadPreset={(preset) => {
+              const migrated = { ...preset.build, catalogDataVersion: catalog.dataVersion };
+              if (validateWeaponBuild(catalog, migrated).issues.some((issue) => issue.code !== "MISSING_REQUIRED_SLOT")) return false;
+              updateBuild(migrated);
+              setSelectedSlot(null);
+              return true;
+            }} />
           <nav aria-label="총기 선택" className="modding-weapon-list">
             {weapons.length ? weapons.map((weapon) => (
               <button
@@ -249,7 +258,10 @@ function restoreOrCreateBuild(catalog: WeaponCatalog, weaponId: string): WeaponB
   const saved = loadWeaponBuild(weaponId);
   if (saved) {
     const migrated = { ...saved, catalogDataVersion: catalog.dataVersion };
-    if (validateWeaponBuild(catalog, migrated).isValid) return migrated;
+    // An unfinished draft is not a corrupt build. Keep missing required slots so
+    // returning to this weapon does not silently undo the user's work.
+    const validation = validateWeaponBuild(catalog, migrated);
+    if (validation.issues.every((issue) => issue.code === "MISSING_REQUIRED_SLOT")) return migrated;
   }
   return createFactoryBuild(catalog, weaponId);
 }

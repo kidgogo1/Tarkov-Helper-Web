@@ -143,6 +143,49 @@ describe("weapon mod catalog boundary", () => {
     expect(parseWeaponModCatalog(payload)).toBeNull();
   });
 
+  it("accepts optional factory package quotes without inventing another profile", () => {
+    const payload = catalog();
+    const factoryPricing = {
+      factoryPresetId: "5af08cf886f774223c269184",
+      factoryPriceUpdatedAt: "2026-09-07T00:00:00.000Z",
+      factoryTraderOffersByProfile: { pve: [{
+        traderId: "5935c25fb3acc3127c3d8cd9", traderName: "Peacekeeper",
+        price: 1_000, priceRoubles: 120_000, currency: "USD", loyaltyLevel: 2,
+      }] },
+    };
+    Object.assign(payload.items[0], factoryPricing);
+
+    const parsed = parseWeaponModCatalog(payload);
+    expect(parsed?.items[0]).toMatchObject(factoryPricing);
+    expect(parsed?.items[0]).not.toHaveProperty("factoryTraderOffersByProfile.pvp");
+    expect(parseWeaponModCatalog(catalog())).not.toBeNull();
+  });
+
+  it.each([
+    { factoryTraderOffersByProfile: { pvp: "invalid" } },
+    { factoryTraderOffersByProfile: { all: [] } },
+    { factoryTraderOffersByProfile: { pvp: [{ price: -1 }] } },
+    { factoryPriceUpdatedAt: "invalid timestamp" },
+  ])("rejects malformed factory pricing metadata: %j", (factoryPricing) => {
+    const payload = catalog();
+    Object.assign(payload.items[0], {
+      factoryPresetId: "5af08cf886f774223c269184", ...factoryPricing,
+    });
+    expect(parseWeaponModCatalog(payload)).toBeNull();
+  });
+
+  it("rejects factory quotes without a preset identity or on a part", () => {
+    const payload = catalog();
+    Object.assign(payload.items[0], { factoryTraderOffersByProfile: { pvp: [] } });
+    expect(parseWeaponModCatalog(payload)).toBeNull();
+    payload.items.push({
+      id: "55d4b9964bdc2d1d4e8b456e", name: "Grip", kind: "part", categories: [],
+      ...{ factoryTraderOffersByProfile: { pvp: [] } },
+    });
+    delete (payload.items[0] as unknown as Record<string, unknown>).factoryTraderOffersByProfile;
+    expect(parseWeaponModCatalog(payload)).toBeNull();
+  });
+
   it("falls back safely for unavailable, malformed, and legacy catalogs", async () => {
     const onFailure = vi.fn();
     const unavailable = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 503));

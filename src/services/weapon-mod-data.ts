@@ -215,12 +215,19 @@ function parseItem(value: unknown): WeaponCatalogItem | null {
     if (!Array.isArray(value.slots) || !Array.isArray(value.factoryPartIds) ||
         !parseWeaponStats(value.baseStats) || value.stats !== undefined ||
         (value.factoryPresetId !== undefined && !isId(value.factoryPresetId)) ||
+        (value.factoryTraderOffersByProfile !== undefined &&
+          (!isId(value.factoryPresetId) || !parseTraderOffersByProfile(value.factoryTraderOffersByProfile))) ||
+        (value.factoryPriceUpdatedAt !== undefined &&
+          (!isId(value.factoryPresetId) || !isText(value.factoryPriceUpdatedAt) ||
+            !Number.isFinite(Date.parse(value.factoryPriceUpdatedAt)) ||
+            new Date(value.factoryPriceUpdatedAt).toISOString() !== value.factoryPriceUpdatedAt)) ||
         (value.factoryImageUrl !== undefined &&
           (!isId(value.factoryPresetId) || !isAssetUrl(value.factoryImageUrl, value.factoryPresetId)))) return null;
   } else if ((value.stats !== undefined && !parsePartStats(value.stats)) ||
       value.baseStats !== undefined || value.factoryPartsByParent !== undefined ||
       value.factoryPresetBuild !== undefined || value.factoryPresetId !== undefined ||
-      value.factoryImageUrl !== undefined) {
+      value.factoryImageUrl !== undefined || value.factoryTraderOffersByProfile !== undefined ||
+      value.factoryPriceUpdatedAt !== undefined) {
     return null;
   }
   return value as unknown as WeaponCatalogItem;

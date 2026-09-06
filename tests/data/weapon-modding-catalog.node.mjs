@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   buildWeaponModCatalog,
+  enrichWeaponModFactoryPrices,
   readBoundedJsonResponse,
 } from "../../scripts/weapon-modding-catalog.mjs";
 
@@ -269,6 +270,103 @@ function sourceFixture() {
 }
 
 describe("weapon modding catalog generation", () => {
+  it("prices the verified default preset separately from the bare receiver", () => {
+    const source = sourceFixture();
+    const offer = (price) => ({
+      trader: "5935c25fb3acc3127c3d8cd9", price, priceRUB: price,
+      currency: "RUB", minTraderLevel: 2, taskUnlock: null,
+    });
+    source.regular.data.items[WEAPON_ID].buyFromTrader = [offer(20_000)];
+    source.regular.data.items[DEFAULT_PRESET_ID].buyFromTrader = [offer(110_000)];
+    source.pve.data.items[DEFAULT_PRESET_ID].buyFromTrader = [offer(120_000)];
+
+    const catalog = buildWeaponModCatalog({ generatedAt: "2026-09-07T00:00:00.000Z", ...source });
+    const weapon = catalog.items.find(({ id }) => id === WEAPON_ID);
+
+    assert.equal(weapon.traderOffersByProfile.pvp[0].priceRoubles, 20_000);
+    assert.equal(weapon.factoryTraderOffersByProfile.pvp[0].priceRoubles, 110_000);
+    assert.equal(weapon.factoryTraderOffersByProfile.pve[0].priceRoubles, 120_000);
+    assert.equal(weapon.factoryPriceUpdatedAt, "2026-09-07T00:00:00.000Z");
+    assert.equal(catalog.items.filter((item) => item.kind === "part")
+      .some((item) => item.factoryTraderOffersByProfile !== undefined), false);
+  });
+
+  it("does not replace an unavailable factory quote with a receiver or another profile", () => {
+    const source = sourceFixture();
+    const offer = {
+      trader: "5935c25fb3acc3127c3d8cd9", price: 110_000, priceRUB: 110_000,
+      currency: "RUB", minTraderLevel: 2, taskUnlock: null,
+    };
+    source.regular.data.items[WEAPON_ID].buyFromTrader = [offer];
+    source.pve.data.items[DEFAULT_PRESET_ID].buyFromTrader = [offer];
+    // The same preset identity now contains a different assembly in PVE.
+    source.pve.data.items[DEFAULT_PRESET_ID].containsItems = [
+      { item: WEAPON_ID, count: 1, attributes: {} },
+      { item: DEFAULT_PART_ID, count: 1, attributes: {} },
+    ];
+    const catalog = buildWeaponModCatalog({ generatedAt: "2026-09-07T00:00:00.000Z", ...source });
+    const weapon = catalog.items.find(({ id }) => id === WEAPON_ID);
+
+    assert.equal(weapon.factoryTraderOffersByProfile, undefined);
+    assert.equal(weapon.factoryPriceUpdatedAt, undefined);
+  });
+
+  it("enriches only factory pricing without refreshing catalog data or borrowing profile quotes", () => {
+    const source = sourceFixture();
+    const original = buildWeaponModCatalog({ generatedAt: "2026-08-26T00:00:00.000Z", ...source });
+    const before = structuredClone(original);
+    source.regular.data.items[DEFAULT_PRESET_ID].buyFromTrader = [{
+      trader: "5935c25fb3acc3127c3d8cd9", price: 110_000, priceRUB: 110_000,
+      currency: "RUB", minTraderLevel: 2, taskUnlock: null,
+    }];
+    // Unrelated newer data must not leak into this focused update.
+    source.regular.data.items[DIRECT_PART_ID].lastLowPrice = 999_999;
+    const enriched = enrichWeaponModFactoryPrices({
+      catalog: original, generatedAt: "2026-09-07T00:00:00.000Z", ...source,
+    });
+    const weapon = enriched.catalog.items.find(({ id }) => id === WEAPON_ID);
+
+    assert.deepEqual(original, before);
+    assert.equal(enriched.catalog.dataVersion, before.dataVersion);
+    assert.equal(weapon.factoryTraderOffersByProfile.pvp[0].priceRoubles, 110_000);
+    assert.equal(weapon.factoryTraderOffersByProfile.pve, undefined);
+    assert.equal(weapon.factoryPriceUpdatedAt, "2026-09-07T00:00:00.000Z");
+    assert.deepEqual(enriched.catalog.items.map((item) => {
+      const withoutPricing = { ...item };
+      delete withoutPricing.factoryTraderOffersByProfile;
+      delete withoutPricing.factoryPriceUpdatedAt;
+      return withoutPricing;
+    }), before.items);
+    assert.equal(enriched.report.pvp.quoted, 1);
+    assert.equal(enriched.report.pve.missing.length, 1);
+  });
+
+  it("removes stale factory quotes if the preset identity or full tree changed", () => {
+    const source = sourceFixture();
+    const original = buildWeaponModCatalog({ generatedAt: "2026-08-26T00:00:00.000Z", ...source });
+    const weapon = original.items.find(({ id }) => id === WEAPON_ID);
+    weapon.factoryTraderOffersByProfile = { pvp: [], pve: [] };
+    weapon.factoryPriceUpdatedAt = "2026-08-26T00:00:00.000Z";
+    const offer = {
+      trader: "5935c25fb3acc3127c3d8cd9", price: 110_000, priceRUB: 110_000,
+      currency: "RUB", minTraderLevel: 2, taskUnlock: null,
+    };
+    source.regular.data.items[DEFAULT_PRESET_ID].buyFromTrader = [offer];
+    source.pve.data.items[DEFAULT_PRESET_ID].buyFromTrader = [offer];
+    source.regular.data.items[DEFAULT_PRESET_ID].containsItems[2].count = 1;
+    source.pve.data.items[WEAPON_ID].properties.defaultPreset = UNRELATED_ID;
+    const enriched = enrichWeaponModFactoryPrices({
+      catalog: original, generatedAt: "2026-09-07T00:00:00.000Z", ...source,
+    });
+    const updatedWeapon = enriched.catalog.items.find(({ id }) => id === WEAPON_ID);
+
+    assert.equal(updatedWeapon.factoryTraderOffersByProfile, undefined);
+    assert.equal(updatedWeapon.factoryPriceUpdatedAt, undefined);
+    assert.equal(enriched.report.pvp.quoted, 0);
+    assert.equal(enriched.report.pvp.missing[0].reason, "preset-tree-changed");
+    assert.equal(enriched.report.pve.missing[0].reason, "preset-id-changed");
+  });
+
   it("collects weapons plus factory, direct, category, and recursively allowed parts", () => {
     const source = sourceFixture();
     const catalog = buildWeaponModCatalog({
