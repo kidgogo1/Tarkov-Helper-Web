@@ -4,6 +4,7 @@ import { Dialog } from "../../components/Dialog";
 import { getManualPrerequisites } from "../../domain/quest-sync";
 import type { QuestData } from "../../types/data";
 import type { SavedQuestStatus } from "../../types/state";
+import { normalizeQuestSearchText } from "../quests/quest-language";
 
 interface InProgressQuestDialogProps {
   open: boolean;
@@ -57,11 +58,16 @@ export function InProgressQuestDialog({
     [availableQuests],
   );
   const filteredQuests = useMemo(() => {
-    const term = search.normalize("NFKC").trim().toLocaleLowerCase("ko-KR");
+    const term = normalizeQuestSearchText(search);
     return availableQuests.filter((quest) => {
       const matchesTrader = trader === "all" || quest.trader === trader;
-      const matchesSearch = !term || [quest.name, quest.nameEn, quest.nameKo, quest.nameJa]
-        .some((name) => name?.normalize("NFKC").toLocaleLowerCase("ko-KR").includes(term));
+      const matchesSearch = !term || [
+        quest.name,
+        quest.nameEn,
+        quest.nameKo,
+        quest.nameJa,
+        ...(quest.nameAliases ?? []),
+      ].some((name) => name && normalizeQuestSearchText(name).includes(term));
       return matchesTrader && matchesSearch;
     });
   }, [availableQuests, search, trader]);

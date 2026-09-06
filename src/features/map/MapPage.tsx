@@ -52,7 +52,7 @@ import {
   type ScreenshotPosition,
 } from "../../domain/map";
 import { createQuestStatusResolver, isObjectiveComplete } from "../../domain/quests";
-import { objectiveDisplayText } from "../quests/quest-language";
+import { normalizeQuestSearchText, objectiveDisplayText } from "../quests/quest-language";
 import {
   keyItemFullName,
   keyItemLabel,
@@ -447,7 +447,7 @@ function questAppliesToMap(quest: QuestData, config: MapConfig): boolean {
 }
 
 function questSearchText(quest: QuestData): string {
-  return normalized([
+  return normalizeQuestSearchText([
     localQuestName(quest),
     quest.name,
     quest.nameEn,
@@ -1291,12 +1291,12 @@ export function MapPage({
     [data.quests],
   );
   const filteredRegionQuestEntries = useMemo(() => {
-    const needle = normalized(regionQuestQuery);
+    const needle = normalizeQuestSearchText(regionQuestQuery);
     return regionQuestEntries.filter(({ quest, status }) => {
       const traderLabel = traderLabels.get(normalized(quest.trader)) || quest.trader;
       const matchesQuery = !needle ||
         questSearchText(quest).includes(needle) ||
-        normalized(traderLabel).includes(needle);
+        normalizeQuestSearchText(traderLabel).includes(needle);
       return matchesQuery &&
         (effectiveRegionTraderFilter === "all" || quest.trader === effectiveRegionTraderFilter) &&
         regionQuestMatchesStatusFilter(status, regionQuestStatusFilter);
@@ -1323,7 +1323,7 @@ export function MapPage({
     return pointsByQuest;
   }, [config, data.mapFloorLocations, regionQuests]);
   const filteredAllQuests = useMemo(() => {
-    const needle = normalized(allQuestQuery);
+    const needle = normalizeQuestSearchText(allQuestQuery);
     if (!needle) return allQuests;
     return allQuests.filter((quest) => questSearchText(quest).includes(needle));
   }, [allQuestQuery, allQuests]);

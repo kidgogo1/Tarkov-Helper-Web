@@ -193,6 +193,25 @@
   font-size: 12px;
 }
 
+.quest-filter-notice {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.quest-filter-notice small {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.quest-filter-notice button {
+  justify-self: start;
+}
+
 .quest-list-region {
   min-height: 0;
   overflow: auto;

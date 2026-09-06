@@ -307,6 +307,33 @@ function mockMapViewport(initialWidth: number, initialHeight: number) {
 }
 
 describe("MapPage", () => {
+  it("matches copied quest punctuation consistently in regional and all-map search", () => {
+    const forester: QuestData = {
+      ...quest,
+      id: "foresters-duty",
+      name: "Forester's Duty",
+      nameEn: "Forester's Duty",
+      nameKo: "Forester's Duty",
+      normalizedName: "foresters-duty",
+      locations: ["Lighthouse", "Shoreline"],
+      objectives: [],
+    };
+    renderPage({}, false, { ...data, quests: [forester] });
+    fireEvent.change(screen.getByRole("combobox", { name: "지도 선택" }), {
+      target: { value: "Lighthouse" },
+    });
+    fireEvent.change(screen.getByRole("searchbox", { name: "현재 지역 퀘스트 검색" }), {
+      target: { value: "Forester’s  Duty" },
+    });
+    expect(within(screen.getByRole("region", { name: "지역 퀘스트 검색" }))
+      .getByTestId("map-region-quest-item")).toHaveTextContent("Forester's Duty");
+    fireEvent.change(screen.getByRole("searchbox", { name: "전체 퀘스트 검색" }), {
+      target: { value: "Forester’s Duty" },
+    });
+    expect(screen.getByRole("button", { name: "Forester's Duty 지도 목표로 이동" }))
+      .toBeInTheDocument();
+  });
+
   it("searches every quest across maps and filters the quest reward item index", () => {
     const rewardItem = {
       id: "reward-item",

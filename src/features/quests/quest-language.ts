@@ -2,6 +2,13 @@ import type { ItemData, QuestData, QuestObjective } from "../../types/data";
 
 export type QuestLanguage = "ko" | "en";
 
+/** Match copied/in-game titles independently of spaces, quotes, and separators. */
+export function normalizeQuestSearchText(value: string): string {
+  return value.normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[\s\p{P}]+/gu, "");
+}
+
 export function questDisplayName(
   quest: QuestData,
   language: QuestLanguage,

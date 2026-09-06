@@ -16,6 +16,7 @@ import "../../styles/quests.css";
 import { QuestDetail } from "./QuestDetail";
 import {
   alternateQuestDisplayName,
+  normalizeQuestSearchText,
   questDisplayName,
   questLegacyNames,
   questRequiredItemSearchText,
@@ -191,16 +192,21 @@ export function QuestsPage({
     statusFilter !== "all",
   );
 
+  const nameMatchedQuests = useMemo(() => {
+    const needle = normalizeQuestSearchText(query);
+    return needle
+      ? data.quests.filter((quest) =>
+          normalizeQuestSearchText(questSearchText(quest)).includes(needle))
+      : data.quests;
+  }, [data.quests, query]);
+
   const filteredQuests = useMemo(() => {
-    const needle = normalize(query);
     const requiredItemNeedle = normalize(requiredItemQuery);
     const rewardNeedle = normalize(rewardQuery);
-    const matches = data.quests.filter((quest) => {
-      const searchable = normalize(questSearchText(quest));
+    const matches = nameMatchedQuests.filter((quest) => {
       const searchableRequiredItems = normalize(questRequiredItemSearchText(quest, itemsById));
       const searchableRewards = normalize(questRewardSearchText(quest, itemsById));
       return (
-        (!needle || searchable.includes(needle)) &&
         (!requiredItemNeedle || searchableRequiredItems.includes(requiredItemNeedle)) &&
         (!rewardNeedle || searchableRewards.includes(rewardNeedle)) &&
         (!kappaOnly || quest.kappaRequired) &&
@@ -222,7 +228,6 @@ export function QuestsPage({
     }
     return matches;
   }, [
-    data.quests,
     focusRequested,
     focusedQuest,
     hasActiveQuestFilters,
@@ -230,14 +235,41 @@ export function QuestsPage({
     itemsById,
     kappaOnly,
     mapFilter,
+    nameMatchedQuests,
     profile,
-    query,
     requiredItemQuery,
     rewardQuery,
     statusFilter,
     statuses,
     traderFilter,
   ]);
+
+  const hiddenSearchMatchCount = useMemo(() => {
+    if (!normalizeQuestSearchText(query)) return 0;
+    const visibleIds = new Set(filteredQuests.map((quest) => quest.id));
+    return nameMatchedQuests.filter((quest) =>
+      !visibleIds.has(quest.id) && isFactionRequirementMet(quest, profile)).length;
+  }, [filteredQuests, nameMatchedQuests, profile, query]);
+
+  const activeFilterLabels = [
+    requiredItemQuery && "제출 아이템",
+    rewardQuery && "보상",
+    kappaOnly && "카파 필수",
+    itemOnly && "아이템 필요",
+    traderFilter !== "all" && `상인: ${traderFilter}`,
+    mapFilter !== "all" && `지도: ${mapFilter}`,
+    statusFilter !== "all" && `상태: ${STATUS_LABELS[statusFilter]}`,
+  ].filter(Boolean).join(" · ");
+
+  const clearOtherFilters = () => {
+    setRequiredItemQuery("");
+    setRewardQuery("");
+    setKappaOnly(false);
+    setItemOnly(false);
+    setTraderFilter("all");
+    setMapFilter("all");
+    setStatusFilter("all");
+  };
 
   const selectedQuest =
     filteredQuests.find((quest) => quest.id === selectedQuestId) ??
@@ -482,6 +514,15 @@ export function QuestsPage({
             <strong>{filteredQuests.length}</strong>
             <span> / {data.quests.length} 퀘스트</span>
           </div>
+          {hiddenSearchMatchCount > 0 ? (
+            <div className="quest-filter-notice" role="status">
+              <span>
+                검색어와 일치하는 퀘스트 {hiddenSearchMatchCount}개가 다른 필터로 숨겨져 있습니다.
+              </span>
+              <small>적용 중: {activeFilterLabels}</small>
+              <button onClick={clearOtherFilters} type="button">다른 필터 해제</button>
+            </div>
+          ) : null}
           <section aria-label="퀘스트 목록" className="quest-list-region">
             {filteredQuests.length > 0 ? (
               <ul className="quest-list">

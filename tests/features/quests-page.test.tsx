@@ -359,6 +359,112 @@ describe("QuestsPage", () => {
     expect(within(list).queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["사냥꾼의길-구역확보", "사냥꾼의 길 - 구역 확보"],
+    ["사냥꾼의 길 – 구역 확보", "사냥꾼의 길 - 구역 확보"],
+    ["Forester’s Duty", "Forester's Duty"],
+    ["Foresters Duty", "Forester's Duty"],
+    ["FORESTER'S   DUTY", "Forester's Duty"],
+  ])("finds quest names despite punctuation and spacing: %s", (query, title) => {
+    const names = [
+      quest("secured-perimeter", {
+        name: "The Huntsman Path - Secured Perimeter",
+        nameEn: "The Huntsman Path - Secured Perimeter",
+        nameKo: "사냥꾼의 길 - 구역 확보",
+      }),
+      quest("foresters-duty", {
+        name: "Forester's Duty",
+        nameEn: "Forester's Duty",
+      }),
+    ];
+    render(
+      <AppStoreProvider>
+        <QuestsPage data={{ ...testData, quests: names }} onOpenMap={vi.fn()} />
+      </AppStoreProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: query },
+    });
+    const list = screen.getByRole("region", { name: "퀘스트 목록" });
+    expect(within(list).getAllByRole("button")).toHaveLength(1);
+    expect(within(list).getByText(title)).toBeInTheDocument();
+  });
+
+  it("explains name matches hidden by other filters and clears those filters without losing the query", () => {
+    renderPage();
+    const search = screen.getByRole("searchbox", { name: "퀘스트 검색" });
+    fireEvent.change(search, { target: { value: "물병자리" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "상인" }), {
+      target: { value: "Prapor" },
+    });
+    fireEvent.change(screen.getByRole("searchbox", { name: "보상 검색" }), {
+      target: { value: "존재하지 않는 보상" },
+    });
+
+    expect(screen.getByText("검색어와 일치하는 퀘스트 1개가 다른 필터로 숨겨져 있습니다."))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다른 필터 해제" }));
+
+    expect(search).toHaveValue("물병자리");
+    expect(screen.getByRole("combobox", { name: "상인" })).toHaveValue("all");
+    expect(screen.getByRole("searchbox", { name: "보상 검색" })).toHaveValue("");
+    expect(within(screen.getByRole("region", { name: "퀘스트 목록" }))
+      .getByRole("button", { name: /물병자리 작전/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다른 필터 해제" })).not.toBeInTheDocument();
+  });
+
+  it("offers filter recovery even when some name matches are still visible", () => {
+    renderPage();
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "쉬운 임무" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "지도" }), {
+      target: { value: "Woods" },
+    });
+
+    const list = screen.getByRole("region", { name: "퀘스트 목록" });
+    expect(within(list).getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "다른 필터 해제" }));
+    expect(within(list).getAllByRole("button")).toHaveLength(2);
+    expect(screen.getByRole("searchbox", { name: "퀘스트 검색" })).toHaveValue("쉬운 임무");
+  });
+
+  it("identifies the Kappa filter when an exact quest title is hidden", () => {
+    const forester = quest("foresters-duty", {
+      name: "Forester's Duty",
+      nameEn: "Forester's Duty",
+      trader: "Jaeger",
+    });
+    render(
+      <AppStoreProvider>
+        <QuestsPage data={{ ...testData, quests: [forester] }} onOpenMap={vi.fn()} />
+      </AppStoreProvider>,
+    );
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "Forester's Duty" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "카파 필수" }));
+
+    expect(screen.getByText("적용 중: 카파 필수")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "카파 필수" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "다른 필터 해제" }));
+    expect(screen.getByRole("checkbox", { name: "카파 필수" })).not.toBeChecked();
+    expect(within(screen.getByRole("region", { name: "퀘스트 목록" }))
+      .getByRole("button", { name: /Forester's Duty/ })).toBeInTheDocument();
+  });
+
+  it("does not call opposite-faction quests recoverable through filter reset", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "USEC" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "퀘스트 검색" }), {
+      target: { value: "BEAR" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "카파 필수" }));
+
+    expect(screen.queryByRole("button", { name: "다른 필터 해제" })).not.toBeInTheDocument();
+  });
+
   it("finds a quest by an alternative hand-in item name", () => {
     const alternativeQuest = quest("q-alternative-item", {
       nameKo: "교환 가능한 의료품",
