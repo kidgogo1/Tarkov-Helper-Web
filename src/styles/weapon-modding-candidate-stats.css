@@ -1,0 +1,59 @@
+.modding-candidate-stat-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 4px;
+  border-block: 1px solid var(--line);
+  padding-block: 2px;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.modding-candidate-stat-grid.with-change {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.25fr);
+}
+
+.modding-candidate-stat-column {
+  display: grid;
+  min-width: 0;
+  grid-auto-rows: 17px;
+  text-align: right;
+}
+
+.modding-candidate-stat-column > em {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.modding-candidate-stat-column.labels {
+  color: var(--text-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.modding-candidate-stat-value {
+  position: relative;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.modding-candidate-stat-value[data-effect="improved"] { color: #a8dfc4; }
+.modding-candidate-stat-value[data-effect="reduced"] { color: #f0b85e; }
+
+.modding-stat-hidden-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.modding-candidate-stat-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+}

@@ -10,6 +10,7 @@ import type {
   PartCandidatePerformanceDelta,
 } from "./part-candidate-controls";
 import { WeaponItemImage } from "./WeaponItemImage";
+import "../../styles/weapon-modding-candidate-stats.css";
 
 interface PartCandidateRowProps {
   activeProfile: ProfileType;
@@ -70,9 +71,9 @@ export function PartCandidateRow({
           {equipped ? <span className="modding-equipped-badge">현재 장착</span> : null}
           <span className="modding-part-summary">
             <small>{candidate.shortName ?? candidate.nameEn ?? candidate.name}</small>
-            <PartPerformance item={candidate} />
           </span>
-          {!disabled && !equipped ? <ReplacementPerformance delta={performanceDelta} /> : null}
+          <CandidatePerformance item={candidate}
+            delta={!disabled && !equipped ? performanceDelta : undefined} />
           {conflictMessage ? (
             <span className={`modding-part-conflict ${availability}`}>
               {conflictMessage}
@@ -85,55 +86,83 @@ export function PartCandidateRow({
   );
 }
 
-function ReplacementPerformance({ delta }: { delta: PartCandidatePerformanceDelta }) {
-  const metrics = [
-    { label: "수직 반동", value: delta.recoil, digits: 1, unit: "", lower: true },
-    { label: "인체공학", value: delta.ergonomics, digits: 1, unit: "", lower: false },
-    { label: "무게", value: delta.weight, digits: 3, unit: " kg", lower: true },
-    { label: "정확도", value: delta.accuracy, digits: 2, unit: " MOA", lower: true },
-    { label: "탄속 보정", value: delta.velocity, digits: 2, unit: "%p", lower: false },
-  ].filter(({ value, digits }) => value !== undefined && Number.isFinite(value) &&
-    Math.abs(value) >= 0.5 * 10 ** -digits);
+interface CandidateMetric {
+  label: string;
+  intrinsic?: number;
+  delta?: number;
+  digits: number;
+  unit: string;
+  intrinsicUnit?: string;
+  unsigned?: boolean;
+  lower: boolean;
+}
+
+function CandidatePerformance({ item, delta }: {
+  item: WeaponPartItem;
+  delta?: PartCandidatePerformanceDelta;
+}) {
+  const stats = item.stats ?? {};
+  const accuracy = stats.centerOfImpact === undefined ? undefined
+    : Math.sign(stats.centerOfImpact) * centerOfImpactToMoa(Math.abs(stats.centerOfImpact));
+  const metrics: CandidateMetric[] = [
+    { label: "반동 보정", intrinsic: stats.recoilModifier, digits: 1, unit: "%", lower: true },
+    { label: "수직 반동", delta: delta?.recoil, digits: 1, unit: "", lower: true },
+    { label: "인체공학", intrinsic: stats.ergonomics, delta: delta?.ergonomics,
+      digits: 1, unit: "", lower: false },
+    { label: "무게", intrinsic: stats.weight, delta: delta?.weight,
+      digits: 3, unit: " kg", unsigned: true, lower: true },
+    { label: "정확도", intrinsic: accuracy, delta: delta?.accuracy,
+      digits: 2, unit: " MOA", lower: true },
+    { label: "탄속 보정", intrinsic: stats.muzzleVelocityModifier, delta: delta?.velocity,
+      digits: 2, unit: "%p", intrinsicUnit: "%", lower: false },
+  ];
+  const rows = metrics.filter((metric) => isFiniteValue(metric.intrinsic) ||
+    (isFiniteValue(metric.delta) && roundForDisplay(metric.delta, metric.digits) !== 0));
+  if (!rows.length) return <span className="modding-candidate-stat-empty">
+    {metrics.some((metric) => isFiniteValue(metric.delta)) ? "성능 변화 없음" : "성능 정보 없음"}
+  </span>;
   return (
-    <span aria-label="교체 후 변화" className="modding-replacement-performance"
-      title="현재 빌드 대비 예상 변화입니다. 함께 제거되는 하위·충돌 부품도 반영합니다.">
-      <em>교체 후 변화</em>
-      {metrics.length ? metrics.map(({ label, value, digits, unit, lower }) => (
-        <span key={label} data-effect={(value! < 0) === lower ? "improved" : "reduced"}>
-          {label} {signed(value!, digits)}{unit}
-        </span>
-      )) : <span>성능 변화 없음</span>}
+    <span aria-label="부품 수치 비교" className={`modding-candidate-stat-grid${delta ? " with-change" : ""}`}>
+      <span className="modding-candidate-stat-column labels" aria-hidden="true">
+        <em>수치</em>
+        {rows.map(({ label }) => <span key={label}>{label}</span>)}
+      </span>
+      <span aria-label="부품 효과" className="modding-candidate-stat-column"
+        title="부품 데이터에 등록된 고유 효과">
+        <em>부품 효과</em>
+        {rows.map((metric) => <MetricValue key={metric.label} metric={metric} />)}
+      </span>
+      {delta ? <span aria-label="교체 후 변화" className="modding-candidate-stat-column change"
+        title="현재 빌드 대비 예상 변화입니다. 함께 제거되는 하위·충돌 부품도 반영합니다.">
+        <em>교체 후 변화</em>
+        {rows.map((metric) => <MetricValue key={metric.label} metric={metric} replacement />)}
+      </span> : null}
     </span>
   );
 }
 
-function PartPerformance({ item }: { item: WeaponPartItem }) {
-  if (!item.stats) return null;
-  const stats = item.stats;
-  const values = [
-    stats.recoilModifier !== undefined && stats.recoilModifier !== 0
-      ? `반동 ${signed(stats.recoilModifier)}%`
-      : null,
-    stats.ergonomics !== undefined && stats.ergonomics !== 0
-      ? `인체공학 ${signed(stats.ergonomics)}`
-      : null,
-    stats.weight !== undefined && stats.weight !== 0
-      ? `무게 ${formatNumber(stats.weight, 3)} kg`
-      : null,
-    stats.centerOfImpact !== undefined && stats.centerOfImpact !== 0
-      ? `MOA ${signed(centerOfImpactToMoa(stats.centerOfImpact), 2)} · 낮을수록 좋음`
-      : null,
-    stats.muzzleVelocityModifier !== undefined && stats.muzzleVelocityModifier !== 0
-      ? `탄속 ${signed(stats.muzzleVelocityModifier, 2)}%`
-      : null,
-  ].filter((value): value is string => Boolean(value));
-  if (!values.length) return null;
-  return (
-    <span className="modding-part-performance" title="부품 데이터에 등록된 고유 효과">
-      <em>부품 효과</em>
-      {values.map((value) => <span key={value}>{value}</span>)}
-    </span>
-  );
+function MetricValue({ metric, replacement = false }: { metric: CandidateMetric; replacement?: boolean }) {
+  const rawValue = replacement ? metric.delta : metric.intrinsic;
+  const value = isFiniteValue(rawValue) ? roundForDisplay(rawValue, metric.digits) : undefined;
+  const unit = replacement ? metric.unit : metric.intrinsicUnit ?? metric.unit;
+  const text = value === undefined ? "—" :
+    `${!replacement && metric.unsigned ? formatNumber(value, metric.digits) : signed(value, metric.digits)}${unit}`;
+  const effect = replacement && value !== undefined && value !== 0
+    ? (value < 0) === metric.lower ? "improved" : "reduced" : undefined;
+  return <span aria-label={`${metric.label} ${value === undefined ? "정보 없음" : text}`}
+    className="modding-candidate-stat-value" data-effect={effect}
+    title={effect ? effect === "improved" ? "현재 빌드보다 유리" : "현재 빌드보다 불리" : undefined}>
+    <span className="modding-stat-hidden-label">{metric.label} </span>{text}
+  </span>;
+}
+
+function isFiniteValue(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value);
+}
+
+function roundForDisplay(value: number, digits: number): number {
+  const rounded = Number(value.toFixed(digits));
+  return Object.is(rounded, -0) ? 0 : rounded;
 }
 
 function formatNumber(value: number, digits = 0): string {

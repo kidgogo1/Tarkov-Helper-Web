@@ -1,0 +1,79 @@
+.modding-stat-comparison .modding-stat-explanation {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.modding-stat-table {
+  margin: 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.modding-stat-columns,
+.modding-stat-row {
+  display: grid;
+  grid-template-columns: minmax(104px, 1fr) minmax(76px, 0.75fr) minmax(76px, 0.75fr) minmax(84px, 0.8fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.modding-stat-columns {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.modding-stat-row {
+  position: relative;
+  isolation: isolate;
+  min-height: 44px;
+  margin-bottom: 4px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.modding-stat-columns > :not(:first-child),
+.modding-stat-row > [role="cell"] { text-align: right; }
+.modding-stat-label { font-weight: 700; }
+.modding-stat-baseline { color: var(--text-muted); }
+.modding-stat-current { font-size: 14px; }
+.modding-stat-delta { display: grid; gap: 1px; }
+.modding-stat-delta small { font-size: 10px; }
+.modding-stat-delta[data-effect="improved"] { color: var(--success); }
+.modding-stat-delta[data-effect="reduced"] { color: var(--danger); }
+.modding-stat-delta[data-effect="neutral"] { color: var(--info); }
+.modding-stat-delta[data-effect="unchanged"] { color: var(--text-muted); }
+
+.modding-stat-graph {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.modding-stat-graph > span { position: absolute; inset-block: 0; }
+.modding-stat-fill { background: var(--text-muted); opacity: 0.18; }
+.modding-stat-change {
+  color: var(--info);
+  background: repeating-linear-gradient(45deg, currentColor 0 3px, transparent 3px 7px);
+  opacity: 0.25;
+}
+.modding-stat-change[data-effect="improved"] { color: var(--success); }
+.modding-stat-change[data-effect="reduced"] { color: var(--danger); }
+.modding-stat-marker { border-left: 1px solid var(--text-muted); opacity: 0.6; }
+
+@media (max-width: 520px) {
+  .modding-stat-table { margin-inline: 6px; }
+  .modding-stat-columns,
+  .modding-stat-row {
+    grid-template-columns: minmax(68px, 1fr) repeat(3, minmax(0, 0.85fr));
+    gap: 4px;
+    padding: 6px;
+    font-size: 10px;
+  }
+  .modding-stat-current { font-size: 12px; }
+  .modding-stat-row > [role="cell"] { overflow-wrap: anywhere; }
+}

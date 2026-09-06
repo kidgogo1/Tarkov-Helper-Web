@@ -227,7 +227,14 @@ describe("WeaponModdingPage", () => {
       : item) };
     const first = render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
       loadCatalog={() => Promise.resolve(requiredCatalog)} />);
-    fireEvent.click(await screen.findByRole("button", { name: "조준경 부품 제거" }));
+    const removeSight = await screen.findByRole("button", { name: "조준경 부품 제거" });
+    const weightRow = screen.getByRole("row", { name: /^무게/ });
+    expect(within(weightRow).getAllByText("3.340 kg")).toHaveLength(2);
+    expect(weightRow).toHaveTextContent("변화 없음");
+    fireEvent.click(removeSight);
+    expect(weightRow).toHaveTextContent("3.340 kg");
+    expect(weightRow).toHaveTextContent("3.000 kg");
+    expect(weightRow).toHaveTextContent("-0.340 kg");
     expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("확인 필요");
     first.unmount();
     render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
@@ -235,6 +242,8 @@ describe("WeaponModdingPage", () => {
     await screen.findByRole("heading", { name: /Colt M4A1/ });
     expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("필수 부품 미장착");
+    expect(screen.getByRole("row", { name: /^무게/ })).toHaveTextContent("3.340 kg");
+    expect(screen.getByRole("row", { name: /^무게/ })).toHaveTextContent("-0.340 kg");
   });
 
   it("still rejects a saved draft containing an item incompatible with its slot", async () => {
@@ -313,8 +322,8 @@ describe("WeaponModdingPage", () => {
       name: "EOTech EXPS3 holographic sight 장착",
     })).toHaveTextContent("부품 효과인체공학 -2무게 0.340 kg");
     const stats = screen.getByRole("region", { name: "무기 능력치" });
-    expect(stats).toHaveTextContent(/인체공학\s*48/);
-    expect(stats).toHaveTextContent(/무게\s*3\.34\s*kg/);
+    expect(within(stats).getByRole("row", { name: /^인체공학/ })).toHaveTextContent("48");
+    expect(within(stats).getByRole("row", { name: /^무게/ })).toHaveTextContent("3.340 kg");
   });
 
   it("places build stats with the weapon and exposes compatible parts as a list", async () => {
@@ -346,10 +355,10 @@ describe("WeaponModdingPage", () => {
     expect(within(candidateRow).getByText("EXPS3")).toBeInTheDocument();
     expect(within(candidateRow).getByText("부품 효과")).toBeInTheDocument();
     expect(within(within(candidateRow).getByTitle("부품 데이터에 등록된 고유 효과"))
-      .getByText("인체공학 -2")).toBeInTheDocument();
+      .getByLabelText("인체공학 -2")).toBeInTheDocument();
   });
 
-  it("shows weapon prices, part totals, and required trader levels above the current build", async () => {
+  it("keeps aligned performance above purchase costs below the weapon image", async () => {
     const view = render(
       <WeaponModdingPage
         activeProfile="pvp"
@@ -361,7 +370,7 @@ describe("WeaponModdingPage", () => {
     await screen.findByRole("heading", { name: /Colt M4A1/ });
     const priceSummary = screen.getByRole("region", { name: "빌드 가격 요약" });
     const buildStats = screen.getByRole("region", { name: "무기 능력치" });
-    expect(priceSummary.compareDocumentPosition(buildStats) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(buildStats.compareDocumentPosition(priceSummary) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
 
     fireEvent.click(within(priceSummary).getByText("본체·플리 참고가 보기"));

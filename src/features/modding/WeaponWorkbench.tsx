@@ -1,11 +1,11 @@
 import {
-  CircleAlert,
   RotateCcw,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
   calculateBuildStats,
+  createFactoryBuild,
   evaluateCandidateCompatibility,
   flattenBuildTree,
   getSlotCandidates,
@@ -23,6 +23,7 @@ import type {
   WeaponSlotRule,
 } from "../../types/weapon-modding";
 import { BuildPriceSummary } from "./BuildPriceSummary";
+import { BuildStats } from "./BuildStats";
 import { PartCandidateControls } from "./PartCandidateControls";
 import { PartCandidateRow } from "./PartCandidateRow";
 import { PartImagePreviewDialog } from "./PartImagePreviewDialog";
@@ -84,6 +85,10 @@ export function WeaponWorkbench({
     node.parentInstanceId === selectedSlot.parentInstanceId && node.slotId === selectedSlot.slotId)?.itemId;
   const selectedPart = selectedPartId ? itemById.get(selectedPartId) : undefined;
   const stats = useMemo(() => calculateBuildStats(catalog, build), [build, catalog]);
+  const factoryStats = useMemo(
+    () => calculateBuildStats(catalog, createFactoryBuild(catalog, build.weaponId)),
+    [catalog, build.weaponId],
+  );
   const priceSummary = useMemo(
     () => summarizeBuildPrice(catalog, build, activeProfile, purchaseMode),
     [activeProfile, build, catalog, purchaseMode],
@@ -300,10 +305,10 @@ export function WeaponWorkbench({
           />
         </div>
 
+        <BuildStats itemById={itemById} stats={stats} factoryStats={factoryStats} validation={validation} />
         <BuildPriceSummary activeProfile={activeProfile} summary={priceSummary}
           purchaseMode={purchaseMode} onPurchaseModeChange={setPurchaseMode}
           factoryPriceUpdatedAt={weapon.factoryPriceUpdatedAt} />
-        <BuildStats itemById={itemById} stats={stats} validation={validation} />
       </section>
 
       <aside aria-label="장착·필수 파츠" className="modding-installed-parts" role="region">
@@ -407,58 +412,4 @@ function candidateConflictMessage(choice: CandidateChoice): string | null {
   return conflictNames
     ? `장착 불가: ${conflictNames}과 충돌`
     : "장착 불가: 현재 총기 또는 상위 부품과 충돌";
-}
-
-function BuildStats({ itemById, stats, validation }: {
-  itemById: ReadonlyMap<string, WeaponCatalogItem>;
-  stats: ReturnType<typeof calculateBuildStats>;
-  validation: ReturnType<typeof validateWeaponBuild>;
-}) {
-  return (
-    <aside className="modding-stats" aria-label="무기 능력치" role="region">
-      <header>
-        <span>현재 빌드</span>
-        <strong className={validation.isValid ? "valid" : "invalid"}>
-          {validation.isValid ? "사용 가능" : "확인 필요"}
-        </strong>
-      </header>
-      <dl>
-        <Stat label="수직 반동" value={formatNumber(stats.verticalRecoil)} />
-        <Stat label="수평 반동" value={formatNumber(stats.horizontalRecoil)} />
-        <Stat label="인체공학" value={formatNumber(stats.ergonomics)} />
-        <Stat label="무게" value={`${formatNumber(stats.weight, 2)} kg`} />
-        {stats.accuracyMoa != null ? (
-          <Stat label="정확도" value={`${formatNumber(stats.accuracyMoa, 2)} MOA`} />
-        ) : null}
-        {stats.muzzleVelocityModifier != null ? (
-          <Stat
-            label="총구 속도 보정"
-            value={`${stats.muzzleVelocityModifier > 0 ? "+" : ""}${formatNumber(stats.muzzleVelocityModifier, 2)}%`}
-          />
-        ) : null}
-      </dl>
-      {!validation.isValid ? (
-        <div className="modding-issues">
-          {validation.issues.slice(0, 6).map((issue, index) => (
-            <p key={`${issue.code}:${index}`}>
-              <CircleAlert aria-hidden="true" size={14} />
-              {issue.code === "MISSING_REQUIRED_SLOT" ? (() => {
-                const item = itemById.get(issue.itemId ?? "");
-                const slot = item?.slots?.find((candidate) => candidate.id === issue.slotId);
-                return `${item?.shortName ?? item?.name ?? "부품"} · ${slot?.name ?? "필수 부위"}: 필수 부품 미장착`;
-              })() : issue.message}
-            </p>
-          ))}
-        </div>
-      ) : null}
-    </aside>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div><dt>{label}</dt><dd>{value}</dd></div>;
-}
-
-function formatNumber(value: number, digits = 0): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(digits);
 }
