@@ -165,7 +165,7 @@ export function WeaponModdingPage({
         <div>
           <span className="eyebrow"><Wrench aria-hidden="true" size={15} /> WORKBENCH</span>
           <h1>무기 모딩</h1>
-          <p>상점 기본 외형을 보면서 부착 부위와 호환 부품을 구성합니다.</p>
+          <p>부위를 선택해 호환 부품을 조립하고 외형·성능·추가 구매 비용을 비교합니다.</p>
           <small className="modding-data-note">
             {`가격·호환성 데이터: 번들 기준 ${formatCatalogDate(catalog.dataVersion)} · 실시간 아님`}
           </small>

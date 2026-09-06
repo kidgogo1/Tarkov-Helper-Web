@@ -61,15 +61,15 @@ async function assertWeaponModdingDesktopLayout(page) {
     const picker = globalThis.document.querySelector(".modding-part-picker");
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
     const installed = globalThis.document.querySelector(".modding-installed-parts");
-    const image = globalThis.document.querySelector(".modding-weapon-image");
-    const priceSummary = globalThis.document.querySelector(".modding-build-price-summary");
+    const image = globalThis.document.querySelector(".modding-visual-preview");
+    const priceSummary = globalThis.document.querySelector(".modding-purchase-summary");
     const stats = globalThis.document.querySelector(".modding-stats");
     const candidateList = globalThis.document.querySelector(".modding-part-list");
     const candidateRows = [
       ...globalThis.document.querySelectorAll(".modding-part-row"),
     ];
     const candidate = candidateRows.find(
-      (row) => row.querySelector(".modding-part-performance"),
+      (row) => row.querySelector(".modding-candidate-stat-grid.with-change"),
     ) ?? candidateRows[0];
     const pricedCandidate = candidateRows.find((row) => {
       const trader = row.querySelector('[data-price-kind="trader"]');
@@ -83,7 +83,7 @@ async function assertWeaponModdingDesktopLayout(page) {
     const candidateName = candidate?.querySelector(".modding-part-name");
     const candidateSummary = candidate?.querySelector(".modding-part-summary");
     const candidateShortName = candidateSummary?.querySelector("small");
-    const candidatePerformance = candidateSummary?.querySelector(".modding-part-performance");
+    const candidatePerformance = candidate?.querySelector(".modding-candidate-stat-grid");
     const candidateCommerce = candidate?.querySelector(".modding-part-commerce");
     const traderCell = pricedCandidate?.querySelector('[data-price-kind="trader"]');
     const fleaCell = pricedCandidate?.querySelector('[data-price-kind="flea"]');
@@ -101,6 +101,11 @@ async function assertWeaponModdingDesktopLayout(page) {
     const listRect = rect(candidateList);
     const nameStyle = globalThis.getComputedStyle(candidateName);
     const installedNameStyle = globalThis.getComputedStyle(installedPartName);
+    const metricColumns = [...candidatePerformance.querySelectorAll(".modding-candidate-stat-column")];
+    const metricRowOffsets = [...metricColumns[0].children].map((cell, index) => {
+      const top = rect(cell).top;
+      return Math.max(...metricColumns.map((column) => Math.abs(rect(column.children[index]).top - top)));
+    });
     const fullyVisibleRows = candidateRows.filter((row) => {
       const rowRect = rect(row);
       return rowRect.top >= listRect.top - 1 && rowRect.bottom <= listRect.bottom + 1;
@@ -120,6 +125,8 @@ async function assertWeaponModdingDesktopLayout(page) {
       candidateSummary: rect(candidateSummary),
       candidateShortName: rect(candidateShortName),
       candidatePerformance: rect(candidatePerformance),
+      metricColumnCount: metricColumns.length,
+      metricRowOffsets,
       candidateCommerce: rect(candidateCommerce),
       fullyVisibleRows,
       priceCellsInOrder: Boolean(
@@ -140,20 +147,21 @@ async function assertWeaponModdingDesktopLayout(page) {
     `Weapon workbench columns are out of order: ${JSON.stringify(geometry)}`,
   );
   assert(
-    geometry.priceSummary.top >= geometry.image.bottom - 2 &&
-      geometry.stats.top >= geometry.priceSummary.bottom - 2 &&
+    geometry.stats.top >= geometry.image.bottom - 2 &&
+      geometry.priceSummary.top >= geometry.stats.bottom - 2 &&
       Math.abs(geometry.priceSummary.left - geometry.stage.left) <= 2 &&
       Math.abs(geometry.priceSummary.right - geometry.stage.right) <= 2 &&
       Math.abs(geometry.stats.left - geometry.stage.left) <= 2 &&
       Math.abs(geometry.stats.right - geometry.stage.right) <= 2,
-    `Build prices and current stats are not below the weapon image in order: ${JSON.stringify(geometry)}`,
+    `Current stats and purchase prices are not below the weapon preview in order: ${JSON.stringify(geometry)}`,
   );
   assert(
     geometry.candidatePreview.left < geometry.candidateDetails.left &&
       geometry.candidatePreview.right <= geometry.candidateDetails.left + 2 &&
       geometry.candidateName.top < geometry.candidateSummary.top &&
-      Math.abs(geometry.candidateShortName.top - geometry.candidatePerformance.top) <= 4 &&
-      geometry.candidateCommerce.top >= geometry.candidateSummary.bottom - 2 &&
+      geometry.candidatePerformance.top >= geometry.candidateSummary.bottom - 2 &&
+      geometry.candidateCommerce.top >= geometry.candidatePerformance.bottom - 2 &&
+      geometry.metricColumnCount === 3 && geometry.metricRowOffsets.every((offset) => offset <= 1) &&
       geometry.candidateNameWhiteSpace === "normal" &&
       geometry.candidateNameTextOverflow !== "ellipsis" &&
       geometry.installedNameWhiteSpace === "normal" &&
@@ -161,12 +169,12 @@ async function assertWeaponModdingDesktopLayout(page) {
     `Compatible part row hierarchy is incorrect: ${JSON.stringify(geometry)}`,
   );
   assert(
-    geometry.candidate.height < 96 && geometry.candidatePreview.width <= 60,
+    geometry.candidate.height <= 240 && geometry.candidatePreview.width <= 60,
     `Compatible part rows are not compact enough: ${JSON.stringify(geometry)}`,
   );
   assert(
-    geometry.fullyVisibleRows >= 7,
-    `Expected at least seven fully visible part rows: ${JSON.stringify(geometry)}`,
+    geometry.fullyVisibleRows >= 3,
+    `Expected at least three fully visible aligned-stat part rows: ${JSON.stringify(geometry)}`,
   );
   assert(
     geometry.priceCellsInOrder && geometry.priceValueOffset <= 2,
@@ -174,14 +182,17 @@ async function assertWeaponModdingDesktopLayout(page) {
   );
 }
 
-async function assertWeaponHotspotLabels(page, label) {
+async function assertWeaponAssemblyLayout(page, label) {
   const result = await page.evaluate(() => {
-    const container = globalThis.document.querySelector(".modding-weapon-image");
-    const buttons = [...globalThis.document.querySelectorAll(".modding-hotspots > button")];
-    if (!(container instanceof globalThis.HTMLElement) || !buttons.every(
+    const container = globalThis.document.querySelector(".modding-assembly-scene");
+    const center = globalThis.document.querySelector(".modding-assembly-center");
+    const image = globalThis.document.querySelector(".modding-preview-figure > img");
+    const buttons = [...globalThis.document.querySelectorAll(".modding-assembly-group")];
+    if (!(container instanceof globalThis.HTMLElement) || !(center instanceof globalThis.HTMLElement) || !buttons.every(
       (button) => button instanceof globalThis.HTMLElement,
     )) return null;
     const containerRect = container.getBoundingClientRect();
+    const centerRect = center.getBoundingClientRect();
     const rectangles = buttons.map((button) => {
       const rect = button.getBoundingClientRect();
       return {
@@ -205,11 +216,22 @@ async function assertWeaponHotspotLabels(page, label) {
         ) overlaps.push(`${rect.name} <> ${other.name}`);
       }
     }
-    return { clipped, overlaps };
+    const coversImage = rectangles.filter((rect) =>
+      rect.left < centerRect.right - 1 && rect.right > centerRect.left + 1 &&
+      rect.top < centerRect.bottom - 1 && rect.bottom > centerRect.top + 1,
+    ).map((rect) => rect.name);
+    const imageRect = image?.getBoundingClientRect();
+    const imageClipped = imageRect && (imageRect.left < centerRect.left - 1 ||
+      imageRect.right > centerRect.right + 1 || imageRect.top < centerRect.top - 1 ||
+      imageRect.bottom > centerRect.bottom + 1);
+    return { clipped, overlaps, coversImage, imageClipped, count: buttons.length };
   });
-  assert(result, `${label}: hotspot labels were unavailable`);
-  assert(result.clipped.length === 0, `${label}: clipped hotspot labels: ${result.clipped.join(", ")}`);
-  assert(result.overlaps.length === 0, `${label}: overlapping hotspot labels: ${result.overlaps.join(", ")}`);
+  assert(result, `${label}: assembly cards were unavailable`);
+  assert(result.count > 0 && result.count <= 10, `${label}: expected one to ten functional group cards`);
+  assert(result.clipped.length === 0, `${label}: clipped assembly cards: ${result.clipped.join(", ")}`);
+  assert(result.overlaps.length === 0, `${label}: overlapping assembly cards: ${result.overlaps.join(", ")}`);
+  assert(result.coversImage.length === 0, `${label}: cards cover the central image: ${result.coversImage.join(", ")}`);
+  assert(!result.imageClipped, `${label}: weapon image overflows its central viewing area`);
 }
 
 async function assertWeaponModdingTabletLayout(page) {
@@ -244,8 +266,8 @@ async function assertWeaponModdingStackedLayout(page, label) {
     const picker = globalThis.document.querySelector(".modding-part-picker");
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
     const installed = globalThis.document.querySelector(".modding-installed-parts");
-    const image = globalThis.document.querySelector(".modding-weapon-image");
-    const priceSummary = globalThis.document.querySelector(".modding-build-price-summary");
+    const image = globalThis.document.querySelector(".modding-visual-preview");
+    const priceSummary = globalThis.document.querySelector(".modding-purchase-summary");
     const stats = globalThis.document.querySelector(".modding-stats");
     if (![picker, stage, installed, image, priceSummary, stats].every(
       (element) => element instanceof globalThis.HTMLElement,
@@ -262,8 +284,8 @@ async function assertWeaponModdingStackedLayout(page, label) {
   });
   assert(geometry, `${label}: stacked layout elements were unavailable`);
   assert(
-    geometry.priceSummary.top >= geometry.image.bottom - 2 &&
-      geometry.stats.top >= geometry.priceSummary.bottom - 2 &&
+    geometry.stats.top >= geometry.image.bottom - 2 &&
+      geometry.priceSummary.top >= geometry.stats.bottom - 2 &&
       geometry.stage.bottom <= geometry.installed.top + 2 &&
       geometry.installed.bottom <= geometry.picker.top + 2,
     `${label}: stacked workbench order is incorrect: ${JSON.stringify(geometry)}`,
@@ -319,6 +341,7 @@ try {
   const failedResponses = [];
   const externalRequests = [];
   let weaponCatalogRequests = 0;
+  let weaponPreviewRequests = 0;
 
   page.on("console", (message) => {
     const location = message.location();
@@ -343,6 +366,7 @@ try {
     if (url.origin === BASE_URL && url.pathname.endsWith("/data/weapon-modding/catalog.json")) {
       weaponCatalogRequests += 1;
     }
+    if (url.origin === BASE_URL && url.pathname.endsWith("/api/modding/preview")) weaponPreviewRequests += 1;
     if (url.origin !== BASE_URL && !isAllowedExternalAsset(url)) externalRequests.push(request.url());
   });
 
@@ -436,19 +460,24 @@ try {
   const buildPriceSummary = page.getByRole("region", { name: "빌드 가격 요약" });
   await buildPriceSummary.waitFor();
   assert(
-    await buildPriceSummary.getByRole("region", { name: "원본 총기 가격" }).count() === 1 &&
-      await buildPriceSummary.getByRole("region", { name: "상인만 부품 가격" }).count() === 1 &&
-      await buildPriceSummary.getByRole("region", { name: "플리만 부품 가격" }).count() === 1 &&
-      await buildPriceSummary.getByRole("region", { name: "최저가 부품 가격" }).count() === 1 &&
-      await buildPriceSummary.getByRole("region", { name: "장착 부품 상인 요구 조건" }).count() === 1,
+    await buildPriceSummary.getByRole("region", { name: "상인만 구매 예상 비용" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "플리만 구매 예상 비용" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "최저가 혼합 구매 예상 비용" }).count() === 1 &&
+      await buildPriceSummary.getByRole("region", { name: "구매 상인 요구 조건" }).count() === 1,
     "Build price summary is missing a purchase plan or trader requirement section",
   );
-  const weaponHotspots = page.getByRole("group", { name: "총기 부위 선택" })
+  const weaponGroups = page.getByRole("group", { name: "총기 부위 선택" })
     .getByRole("button");
   assert(
-    await weaponHotspots.count() > 6,
-    "M4A1 must expose installed-part nested slots as central hotspots",
+    await weaponGroups.count() > 1 && await weaponGroups.count() <= 10,
+    "M4A1 must expose functional groups without covering the image with individual slot labels",
   );
+  const representedSlotCount = await page.locator(".modding-assembly-group").evaluateAll((buttons) =>
+    buttons.reduce((sum, button) => sum + Number(button.querySelector(".modding-assembly-count")?.textContent ?? 1), 0));
+  assert(representedSlotCount === await page.locator(".modding-installed-parts .modding-slot-select").count(),
+    "Assembly groups must retain every root and nested slot exposed by the full slot tree");
+  assert(!await page.getByRole("checkbox", { name: /조립 외형 자동 갱신/ }).isChecked(),
+    "External assembled image generation must remain opt-in");
   await page.getByRole("group", { name: "총기 부위 선택" })
     .getByRole("button", { name: /^권총 손잡이/ })
     .click();
@@ -481,28 +510,29 @@ try {
     await previewButton.evaluate((button) => globalThis.document.activeElement === button),
     "Closing a part image preview must restore thumbnail focus",
   );
-  await assertWeaponHotspotLabels(page, "weapon modding 1440px viewport");
+  await assertWeaponAssemblyLayout(page, "weapon modding 1440px viewport");
   await assertWeaponModdingDesktopLayout(page);
   await assertNoHorizontalOverflow(page, "weapon modding desktop");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1440.png"), fullPage: true });
 
   await page.setViewportSize({ width: 1221, height: 800 });
   await assertNoHorizontalOverflow(page, "weapon modding 1221px viewport");
-  await assertWeaponHotspotLabels(page, "weapon modding 1221px viewport");
+  await assertWeaponAssemblyLayout(page, "weapon modding 1221px viewport");
 
   await page.setViewportSize({ width: 1024, height: 800 });
   await assertNoHorizontalOverflow(page, "weapon modding 1024px viewport");
-  await assertWeaponHotspotLabels(page, "weapon modding 1024px viewport");
+  await assertWeaponAssemblyLayout(page, "weapon modding 1024px viewport");
   await assertWeaponModdingTabletLayout(page);
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-1024.png"), fullPage: true });
 
   await page.setViewportSize({ width: 861, height: 800 });
   await assertNoHorizontalOverflow(page, "weapon modding 861px viewport");
-  await assertWeaponHotspotLabels(page, "weapon modding 861px viewport");
+  await assertWeaponAssemblyLayout(page, "weapon modding 861px viewport");
 
   await page.setViewportSize({ width: 768, height: 800 });
   await assertNoHorizontalOverflow(page, "weapon modding 768px viewport");
   await assertWeaponModdingStackedLayout(page, "weapon modding 768px viewport");
+  await assertWeaponAssemblyLayout(page, "weapon modding 768px viewport");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-768.png"), fullPage: true });
 
   await page.setViewportSize({ width: 320, height: 720 });
@@ -511,15 +541,17 @@ try {
   await assertNoHorizontalOverflow(page, "weapon modding 320px viewport");
   await assertWeaponModdingStackedLayout(page, "weapon modding 320px viewport");
   assert(
-    await page.locator(".modding-hotspots").evaluate((element) =>
+    await page.locator(".modding-assembly-lines").evaluate((element) =>
       globalThis.getComputedStyle(element).display,
     ) === "none",
-    "Weapon hotspots should defer to the slot tree on narrow screens",
+    "Schematic lines should hide on narrow screens while functional group buttons remain accessible",
   );
+  await assertWeaponAssemblyLayout(page, "weapon modding 320px viewport");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-320.png"), fullPage: true });
   await page.getByRole("button", { name: "필터·정렬" }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
   assert(weaponCatalogRequests === 1, `Expected one modding catalog request, got ${weaponCatalogRequests}`);
+  assert(weaponPreviewRequests === 0, `Image generation ran without opt-in: ${weaponPreviewRequests} requests`);
   await page.getByRole("tab", { name: "아이템" }).click();
   await page.getByRole("tab", { name: "무기 모딩" }).click();
   await page.getByRole("searchbox", { name: "총기 검색" }).waitFor();

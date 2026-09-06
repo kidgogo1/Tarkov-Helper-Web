@@ -35,8 +35,7 @@ import {
   type PartCandidateRecord,
 } from "./part-candidate-controls";
 import { WeaponSlotTree, type SlotSelection } from "./WeaponSlotTree";
-import { WeaponHotspots } from "./WeaponHotspots";
-import { WeaponItemImage } from "./WeaponItemImage";
+import { WeaponVisualPreview } from "./WeaponVisualPreview";
 import { summarizeBuildPrice, type BuildPurchaseMode } from "./build-price-summary";
 
 interface WeaponWorkbenchProps {
@@ -276,7 +275,7 @@ export function WeaponWorkbench({
             {weapon.nameKo && weapon.nameKo !== weapon.name ? <p>{weapon.name}</p> : null}
           </div>
           <div className="modding-stage-actions">
-            <span className="modding-image-note">상점 기본 외형 · 참고 이미지</span>
+            <span className="modding-image-note">부위 선택 · 조립 외형</span>
             <button
               onClick={() => {
                 setSwapNotice(null);
@@ -290,20 +289,8 @@ export function WeaponWorkbench({
           </div>
         </header>
 
-        <div className="modding-weapon-image">
-          <WeaponItemImage
-            alt={`${weapon.nameKo ?? weapon.name} 상점 기본 외형`}
-            fallbackSize={64}
-            src={weapon.factoryImageUrl ?? weapon.imageUrl}
-          />
-          <WeaponHotspots
-            itemById={itemById}
-            onSelect={selectSlot}
-            root={build.root}
-            selectedSlot={selectedSlot}
-            slots={weapon.slots}
-          />
-        </div>
+        <WeaponVisualPreview key={weapon.id} weapon={weapon} itemById={itemById}
+          onSelect={selectSlot} root={build.root} selectedSlot={selectedSlot} />
 
         <BuildStats itemById={itemById} stats={stats} factoryStats={factoryStats} validation={validation} />
         <BuildPriceSummary activeProfile={activeProfile} summary={priceSummary}
