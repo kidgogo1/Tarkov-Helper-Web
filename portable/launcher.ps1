@@ -88,6 +88,24 @@ $itemPriceStaleSeconds = 604800
 $itemPriceMaximumBytes = 4194304
 $itemPriceUpstreamBaseUrl = "https://json.tarkov.dev"
 $itemPriceTestMode = [string]$env:TARKOV_HELPER_PRICE_TEST_MODE -ceq "1"
+$moddingPreviewUpstreamBaseUrl = "https://image-gen.tarkov-changes.com"
+$moddingPreviewJob = $null
+$moddingPreviewCache = [ordered]@{}
+$moddingPreviewSlotCache = @{}
+$moddingPreviewCooldownUtc = [DateTime]::MinValue
+if ($env:TARKOV_HELPER_MODDING_PREVIEW_TEST_MODE -ceq "1") {
+    try {
+        $previewTestUri = [Uri]::new([string]$env:TARKOV_HELPER_MODDING_PREVIEW_TEST_BASE_URL)
+        if (-not $previewTestUri.IsAbsoluteUri -or $previewTestUri.Scheme -cne "http" -or
+            $previewTestUri.Host -cne "127.0.0.1" -or $previewTestUri.Port -lt 1 -or
+            $previewTestUri.AbsolutePath -cne "/" -or $previewTestUri.Query -or
+            $previewTestUri.Fragment -or $previewTestUri.UserInfo) { throw "Invalid preview test endpoint" }
+        $moddingPreviewUpstreamBaseUrl = $previewTestUri.AbsoluteUri.TrimEnd("/")
+    } catch {
+        [Console]::Error.WriteLine("The internal preview test configuration is invalid.")
+        exit 2
+    }
+}
 if ($itemPriceTestMode) {
     try {
         $testPriceUri = [Uri]::new([string]$env:TARKOV_HELPER_PRICE_TEST_BASE_URL)
@@ -1319,17 +1337,19 @@ function Read-JsonRequestObject {
         [object[]]$ContentTypeHeaders,
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
-        [object[]]$TransferEncodingHeaders
+        [object[]]$TransferEncodingHeaders,
+        [ValidateRange(2, 65536)]
+        [int]$MaximumBytes = 8192
     )
 
     $contentLength = 0
     if (
         $TransferEncodingHeaders.Count -ne 0 -or
         $ContentLengthHeaders.Count -ne 1 -or
-        $ContentLengthHeaders[0] -notmatch "^\d{1,4}$" -or
+        $ContentLengthHeaders[0] -notmatch "^\d{1,5}$" -or
         -not [int]::TryParse([string]($ContentLengthHeaders[0]), [ref]$contentLength) -or
         $contentLength -lt 2 -or
-        $contentLength -gt 8192 -or
+        $contentLength -gt $MaximumBytes -or
         $ContentTypeHeaders.Count -ne 1 -or
         [string]($ContentTypeHeaders[0]) -notmatch "(?i)^application/json(?:\s*;\s*charset=utf-8)?$"
     ) {
@@ -1372,6 +1392,249 @@ function Assert-JsonObjectShape {
             throw [ArgumentException]::new("The request is missing a required property.")
         }
     }
+}
+
+function Get-ModdingPreviewHash {
+    param([string]$Value)
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Value)))).Replace("-", "").ToLowerInvariant() }
+    finally { $hash.Dispose() }
+}
+
+function Convert-ModdingPreviewBuild {
+    param([pscustomobject]$Value)
+    Assert-JsonObjectShape -Value $Value -AllowedProperties @("root", "angle") -RequiredProperties @("root", "angle")
+    if (($Value.angle -isnot [int] -and $Value.angle -isnot [long]) -or $Value.angle -notin @(-30, 0, 30)) {
+        throw [ArgumentException]::new("The preview angle is invalid.")
+    }
+    $items = [Collections.Generic.List[object]]::new()
+    $instances = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    function Visit-PreviewNode {
+        param($Node, [int]$Depth, [string]$NodePath, [string]$ParentId, [string]$ParentTpl)
+        if ($Node -isnot [pscustomobject] -or $Depth -gt 12 -or $items.Count -ge 96) { throw [ArgumentException]::new("The preview tree is invalid.") }
+        Assert-JsonObjectShape -Value $Node -AllowedProperties @("instanceId", "itemId", "slotId", "children") -RequiredProperties @("instanceId", "itemId", "children")
+        if ($Node.instanceId -isnot [string] -or $Node.instanceId -cnotmatch '^[A-Za-z0-9:_/-]{1,2048}$' -or
+            -not $instances.Add($Node.instanceId) -or $Node.itemId -isnot [string] -or
+            $Node.itemId -cnotmatch '^[0-9a-f]{24}$' -or $Node.children -isnot [Array]) { throw [ArgumentException]::new("The preview node is invalid.") }
+        if (($Depth -gt 0 -and ($Node.slotId -isnot [string] -or $Node.slotId -cnotmatch '^[0-9a-f]{24}$')) -or
+            ($Depth -eq 0 -and $null -ne $Node.slotId)) { throw [ArgumentException]::new("The preview slot is invalid.") }
+        $id = (Get-ModdingPreviewHash $NodePath).Substring(0, 24)
+        $items.Add([pscustomobject]@{ _id = $id; _tpl = [string]$Node.itemId; parentId = $ParentId; parentTplId = $ParentTpl; slotId = [string]$Node.slotId })
+        $occupied = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($child in @($Node.children | Sort-Object -Property slotId)) {
+            if ($null -eq $child -or -not $occupied.Add([string]$child.slotId)) { throw [ArgumentException]::new("The preview slot is repeated.") }
+            Visit-PreviewNode -Node $child -Depth ($Depth + 1) -NodePath "$id/$($child.slotId)" -ParentId $id -ParentTpl $Node.itemId
+        }
+    }
+    Visit-PreviewNode -Node $Value.root -Depth 0 -NodePath "root:$($Value.root.itemId)" -ParentId "" -ParentTpl ""
+    return [pscustomobject]@{ angle = [int]$Value.angle; items = @($items.ToArray()) }
+}
+
+function Invoke-ModdingPreviewHttp {
+    param([string]$BaseUrl, [string]$Path, [string]$BodyJson, [int]$MaximumBytes, [Diagnostics.Stopwatch]$Clock)
+    $remaining = 28000 - [int]$Clock.ElapsedMilliseconds
+    if ($remaining -le 0) { throw [TimeoutException]::new("Preview deadline exceeded.") }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $uri = [Uri]::new($BaseUrl + $Path)
+    $request = [Net.HttpWebRequest]::Create($uri)
+    $request.AllowAutoRedirect = $false
+    $request.Timeout = [Math]::Min(10000, $remaining)
+    $request.ReadWriteTimeout = $request.Timeout
+    $request.UserAgent = "TarkovHelperWeb-Preview/1"
+    $request.Accept = "application/json, image/png, image/jpeg, image/webp"
+    $response = $null
+    $memory = [IO.MemoryStream]::new()
+    try {
+        if (-not [string]::IsNullOrEmpty($BodyJson)) {
+            $request.Method = "POST"
+            $request.ContentType = "application/json; charset=utf-8"
+            $bytes = [Text.Encoding]::UTF8.GetBytes($BodyJson)
+            $request.ContentLength = $bytes.Length
+            $output = $request.GetRequestStream()
+            try { $output.Write($bytes, 0, $bytes.Length) } finally { $output.Dispose() }
+        }
+        try { $response = [Net.HttpWebResponse]$request.GetResponse() }
+        catch [Net.WebException] {
+            if ($_.Exception.Status -eq [Net.WebExceptionStatus]::Timeout) { throw [TimeoutException]::new("Preview upstream timed out.") }
+            if ($null -eq $_.Exception.Response) { throw }
+            $response = [Net.HttpWebResponse]$_.Exception.Response
+        }
+        if ([int]$response.StatusCode -eq 429) {
+            $retryAfter = [long]60
+            $seconds = [double]0
+            $maximumPause = [Math]::Floor(([DateTime]::MaxValue - [DateTime]::UtcNow).TotalSeconds) - 1
+            $retryHeader = [string]$response.Headers["Retry-After"]
+            if ($retryHeader -match '^\d+$' -and [double]::TryParse($retryHeader, [ref]$seconds) -and $seconds -gt 0) { $retryAfter = [long][Math]::Min($maximumPause, $seconds) }
+            else {
+                $retryDate = [DateTime]::MinValue
+                if ([DateTime]::TryParse([string]$response.Headers["Retry-After"], [ref]$retryDate)) {
+                    $retryAfter = [long][Math]::Min($maximumPause, [Math]::Max(1, [Math]::Ceiling(($retryDate.ToUniversalTime() - [DateTime]::UtcNow).TotalSeconds)))
+                }
+            }
+            $error = [InvalidOperationException]::new("Preview rate limited.")
+            $error.Data["retryAfterSeconds"] = $retryAfter
+            throw $error
+        }
+        if ([int]$response.StatusCode -ne 200 -or $response.ResponseUri.AbsoluteUri -cne $uri.AbsoluteUri) { throw [IO.InvalidDataException]::new("Preview upstream response rejected.") }
+        if ($response.ContentLength -gt $MaximumBytes) { throw [IO.InvalidDataException]::new("Preview response is too large.") }
+        $inputStream = $response.GetResponseStream()
+        try {
+            $buffer = New-Object byte[] 8192
+            while ($true) {
+                $remaining = 28000 - [int]$Clock.ElapsedMilliseconds
+                if ($remaining -le 0) { throw [TimeoutException]::new("Preview deadline exceeded.") }
+                $inputStream.ReadTimeout = [Math]::Min(10000, $remaining)
+                $count = $inputStream.Read($buffer, 0, $buffer.Length)
+                if ($count -eq 0) { break }
+                if ($memory.Length + $count -gt $MaximumBytes) { throw [IO.InvalidDataException]::new("Preview response is too large.") }
+                $memory.Write($buffer, 0, $count)
+            }
+        } finally { $inputStream.Dispose() }
+        return [pscustomobject]@{ bytes = $memory.ToArray(); contentType = ([string]$response.ContentType).Split(";", 2)[0].Trim().ToLowerInvariant() }
+    } finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $memory.Dispose()
+        $request.Abort()
+    }
+}
+
+function Read-ModdingPreviewJson {
+    param($Response)
+    if ($Response.contentType -cne "application/json") { throw [IO.InvalidDataException]::new("Expected preview JSON.") }
+    try {
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        $value = ConvertFrom-Json -InputObject $utf8.GetString($Response.bytes) -ErrorAction Stop
+        if ($value -isnot [pscustomobject]) { throw "Expected object" }
+        return $value
+    } catch { throw [IO.InvalidDataException]::new("Invalid preview JSON.") }
+}
+
+function Invoke-ModdingPreviewRender {
+    param($Build, [string]$BaseUrl, [hashtable]$SlotCache)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        $outputItems = [Collections.Generic.List[object]]::new()
+        foreach ($item in $Build.items) {
+            $entry = [ordered]@{ _id = $item._id; _tpl = $item._tpl }
+            if ([string]::IsNullOrEmpty($item.parentId)) { $entry.slotId = "FirstPrimaryWeapon" }
+            else {
+                $parentTpl = [string]$item.parentTplId
+                $cached = $SlotCache[$parentTpl]
+                if ($null -eq $cached -or $cached.expiresAt -lt [DateTime]::UtcNow) {
+                    $slotsResponse = Invoke-ModdingPreviewHttp -BaseUrl $BaseUrl -Path "/api/item-slots/$parentTpl" -MaximumBytes 1048576 -Clock $clock
+                    $slotsPayload = Read-ModdingPreviewJson $slotsResponse
+                    if ($slotsPayload.slots -isnot [Array] -or $slotsPayload.slots.Count -gt 512) { throw [IO.InvalidDataException]::new("Invalid preview slots.") }
+                    $cached = @{ slots = $slotsPayload.slots; expiresAt = [DateTime]::UtcNow.AddHours(24); byteCount = $slotsResponse.bytes.Length }
+                    if ($SlotCache.Count -ge 256) { $SlotCache.Remove(@($SlotCache.Keys)[0]) }
+                    $SlotCache[$parentTpl] = $cached
+                    $slotBytes = 0
+                    foreach ($slotEntry in $SlotCache.Values) { $slotBytes += $slotEntry.byteCount }
+                    while ($slotBytes -gt 4194304) {
+                        $evicted = @($SlotCache.Keys | Where-Object { $_ -cne $parentTpl })[0]
+                        $slotBytes -= $SlotCache[$evicted].byteCount
+                        $SlotCache.Remove($evicted)
+                    }
+                }
+                $slotMatches = @($cached.slots | Where-Object { $_.parentTplId -ceq $parentTpl -and $_.slotId -ceq $item.slotId })
+                if ($slotMatches.Count -ne 1 -or $slotMatches[0].slotName -isnot [string] -or
+                    $slotMatches[0].slotName -cnotmatch '^[A-Za-z][A-Za-z0-9_]{0,95}$' -or
+                    $slotMatches[0].resolvedItemTplIds -isnot [Array] -or
+                    $slotMatches[0].resolvedItemTplIds -cnotcontains $item._tpl) { throw [ArgumentException]::new("The exact preview slot mapping is unavailable.") }
+                $entry.parentId = $item.parentId
+                $entry.slotId = $slotMatches[0].slotName
+            }
+            $outputItems.Add([pscustomobject]$entry)
+        }
+        $payload = [ordered]@{ data = [ordered]@{ id = $Build.items[0]._id; items = @($outputItems.ToArray()) } }
+        $generatePath = "/api/generate-build"
+        if ($Build.angle -ne 0) {
+            $payload.data.rotationX = 0
+            $payload.data.rotationY = $Build.angle
+            $generatePath = "/api/generate-build-rotated"
+        }
+        $body = ConvertTo-Json -InputObject $payload -Compress -Depth 8
+        $generated = Read-ModdingPreviewJson (Invoke-ModdingPreviewHttp -BaseUrl $BaseUrl -Path $generatePath -BodyJson $body -MaximumBytes 1048576 -Clock $clock)
+        if ($generated.ok -isnot [bool] -or -not $generated.ok -or $generated.imageUrl -isnot [string]) { throw [IO.InvalidDataException]::new("Preview generation failed.") }
+        $imagePath = [string]$generated.imageUrl
+        if ($imagePath.StartsWith($BaseUrl + "/", [StringComparison]::Ordinal)) { $imagePath = $imagePath.Substring($BaseUrl.Length) }
+        if ($imagePath -cnotmatch '^/api/images/(?:build|icon)_[A-Za-z0-9_-]{1,160}$') { throw [IO.InvalidDataException]::new("Preview image location rejected.") }
+        $image = Invoke-ModdingPreviewHttp -BaseUrl $BaseUrl -Path $imagePath -MaximumBytes 5242880 -Clock $clock
+        $bytes = $image.bytes
+        $validImage = switch ($image.contentType) {
+            "image/png" {
+                if ($bytes.Length -lt 24 -or [BitConverter]::ToString($bytes, 0, 8) -cne "89-50-4E-47-0D-0A-1A-0A") { $false }
+                else {
+                    $width = [Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($bytes, 16))
+                    $height = [Net.IPAddress]::NetworkToHostOrder([BitConverter]::ToInt32($bytes, 20))
+                    $width -gt 0 -and $height -gt 0 -and $width -le 8192 -and $height -le 8192 -and [long]$width * $height -le 16777216
+                }
+            }
+            "image/jpeg" { $bytes.Length -ge 3 -and $bytes[0] -eq 255 -and $bytes[1] -eq 216 -and $bytes[2] -eq 255 }
+            "image/webp" { $bytes.Length -ge 12 -and [Text.Encoding]::ASCII.GetString($bytes, 0, 4) -ceq "RIFF" -and [Text.Encoding]::ASCII.GetString($bytes, 8, 4) -ceq "WEBP" }
+            default { $false }
+        }
+        if (-not $validImage) { throw [IO.InvalidDataException]::new("Preview image format rejected.") }
+        return @{ status = 200; value = @{ imageUrl = "data:$($image.contentType);base64,$([Convert]::ToBase64String($bytes))" } }
+    } catch {
+        $exception = $_.Exception
+        $status = 502; $code = "PROVIDER_UNAVAILABLE"; $message = "The preview provider is unavailable."
+        $retryAfter = $null
+        $timedOut = $clock.ElapsedMilliseconds -ge 28000
+        $cause = $exception
+        while ($null -ne $cause) {
+            if ($cause -is [TimeoutException] -or
+                ($cause -is [Net.WebException] -and $cause.Status -eq [Net.WebExceptionStatus]::Timeout) -or
+                ($cause -is [Net.Sockets.SocketException] -and $cause.SocketErrorCode -eq [Net.Sockets.SocketError]::TimedOut)) { $timedOut = $true }
+            $cause = $cause.InnerException
+        }
+        if ($exception.Data.Contains("retryAfterSeconds")) { $status = 429; $code = "RATE_LIMITED"; $message = "The preview provider requested a pause."; $retryAfter = [long]$exception.Data["retryAfterSeconds"] }
+        elseif ($timedOut) { $status = 504; $code = "PROVIDER_TIMEOUT"; $message = "The preview provider timed out." }
+        elseif ($exception -is [ArgumentException]) { $status = 422; $code = "SLOT_UNAVAILABLE"; $message = "An exact compatible slot mapping is unavailable." }
+        elseif ($exception -is [IO.InvalidDataException]) { $code = "PROVIDER_RESPONSE"; $message = "The preview provider returned an invalid response." }
+        $errorValue = @{ code = $code; message = $message }
+        if ($null -ne $retryAfter) { $errorValue.retryAfterSeconds = $retryAfter }
+        return @{ status = $status; value = @{ error = $errorValue } }
+    }
+}
+
+function Complete-ModdingPreviewJob {
+    if ($null -eq $script:moddingPreviewJob -or -not $script:moddingPreviewJob.async.IsCompleted) { return }
+    $job = $script:moddingPreviewJob
+    $script:moddingPreviewJob = $null
+    try {
+        $results = $job.worker.EndInvoke($job.async)
+        if ($results.Count -ne 1) { throw "Invalid preview worker result" }
+        $result = $results[0]
+        if ($result.status -eq 200) {
+            $script:moddingPreviewCache[$job.key] = $result.value
+            $cacheBytes = 0
+            foreach ($value in $script:moddingPreviewCache.Values) { $cacheBytes += [Text.Encoding]::UTF8.GetByteCount($value.imageUrl) }
+            while ($script:moddingPreviewCache.Count -gt 8 -or $cacheBytes -gt 33554432) {
+                $oldest = @($script:moddingPreviewCache.Keys)[0]
+                $cacheBytes -= [Text.Encoding]::UTF8.GetByteCount($script:moddingPreviewCache[$oldest].imageUrl)
+                $script:moddingPreviewCache.Remove($oldest)
+            }
+        } elseif ($result.status -eq 429) {
+            $script:moddingPreviewCooldownUtc = [DateTime]::UtcNow.AddSeconds($result.value.error.retryAfterSeconds)
+        }
+        Send-JsonResponse -Stream $job.stream -StatusCode $result.status -Reason "Preview" -Value $result.value
+    } catch {
+        try { Send-JsonError -Stream $job.stream -StatusCode 502 -Reason "Bad Gateway" -Code "PROVIDER_UNAVAILABLE" -Message "The preview could not be completed." } catch { }
+    } finally { $job.client.Dispose(); $job.worker.Dispose() }
+}
+
+function Start-ModdingPreviewJob {
+    param($Build, [string]$Key, $Client, $Stream)
+    $worker = [PowerShell]::Create()
+    try {
+        $source = 'param($Build, $BaseUrl, $SlotCache); $ErrorActionPreference = "Stop";' + "`n"
+        foreach ($name in @("Invoke-ModdingPreviewHttp", "Read-ModdingPreviewJson", "Invoke-ModdingPreviewRender")) {
+            $source += "function $name { $((Get-Item ('function:' + $name)).Definition) }`n"
+        }
+        $source += 'Invoke-ModdingPreviewRender -Build $Build -BaseUrl $BaseUrl -SlotCache $SlotCache'
+        $null = $worker.AddScript($source).AddArgument($Build).AddArgument($script:moddingPreviewUpstreamBaseUrl).AddArgument($script:moddingPreviewSlotCache)
+        $script:moddingPreviewJob = @{ worker = $worker; async = $worker.BeginInvoke(); key = $Key; client = $Client; stream = $Stream }
+    } catch { $worker.Dispose(); throw }
 }
 
 function Get-QueryParameters {
@@ -6723,7 +6986,9 @@ try {
     Open-PortableBrowser -Url $url
 
     while (-not $script:shutdownRequested -and ($MaxRequests -eq 0 -or $handledRequests -lt $MaxRequests)) {
+        Complete-ModdingPreviewJob
         while (-not $script:shutdownRequested -and -not $listener.Pending()) {
+            Complete-ModdingPreviewJob
             Update-ClientLeases
             if ([DateTime]::UtcNow -ge $script:trackerNextMapBootstrapUtc) {
                 $script:trackerNextMapBootstrapUtc = [DateTime]::UtcNow.AddMilliseconds(
@@ -6852,6 +7117,51 @@ try {
             $requestTarget = $requestParts[1]
             $headOnly = $method -eq "HEAD"
             $requestPath = $requestTarget.Split("?", 2)[0]
+
+            if ($requestPath -ceq "/api/modding/preview") {
+                if ($method -cne "POST") {
+                    Send-JsonError -Stream $stream -StatusCode 405 -Reason "Method Not Allowed" -Code "METHOD_NOT_ALLOWED" -Message "Preview requires POST."
+                    continue
+                }
+                if ($originHeaders.Count -ne 1 -or $originHeaders[0] -cne "http://127.0.0.1:$boundPort" -or
+                    $secFetchSiteHeaders.Count -ne 1 -or $secFetchSiteHeaders[0] -cne "same-origin") {
+                    Send-JsonError -Stream $stream -StatusCode 403 -Reason "Forbidden" -Code "FORBIDDEN" -Message "Preview requires a same-origin request."
+                    continue
+                }
+                try {
+                    $previewRequest = Read-JsonRequestObject -Stream $stream -ContentLengthHeaders $contentLengthHeaders `
+                        -ContentTypeHeaders $contentTypeHeaders -TransferEncodingHeaders $transferEncodingHeaders -MaximumBytes 65536
+                    if ($requestTarget -cne $requestPath) { throw [ArgumentException]::new("Preview queries are not supported.") }
+                    $previewBuild = Convert-ModdingPreviewBuild $previewRequest
+                } catch {
+                    Send-JsonError -Stream $stream -StatusCode 400 -Reason "Bad Request" -Code "INVALID_BUILD" -Message "A bounded valid weapon build and preview angle are required."
+                    continue
+                }
+                $previewKey = Get-ModdingPreviewHash (ConvertTo-Json -InputObject $previewBuild -Compress -Depth 8)
+                if ($script:moddingPreviewCache.Contains($previewKey)) {
+                    Send-JsonResponse -Stream $stream -StatusCode 200 -Reason "OK" -Value $script:moddingPreviewCache[$previewKey]
+                    continue
+                }
+                if ($script:moddingPreviewCooldownUtc -gt [DateTime]::UtcNow) {
+                    Send-JsonResponse -Stream $stream -StatusCode 429 -Reason "Too Many Requests" -Value @{ error = @{
+                        code = "RATE_LIMITED"; message = "The preview provider requested a pause."
+                        retryAfterSeconds = [long][Math]::Ceiling(($script:moddingPreviewCooldownUtc - [DateTime]::UtcNow).TotalSeconds)
+                    } }
+                    continue
+                }
+                if ($null -ne $script:moddingPreviewJob) {
+                    Send-JsonResponse -Stream $stream -StatusCode 503 -Reason "Service Unavailable" -Value @{ error = @{
+                        code = "PREVIEW_BUSY"; message = "Another preview is in progress."; retryAfterSeconds = 2
+                    } }
+                    continue
+                }
+                Start-ModdingPreviewJob -Build $previewBuild -Key $previewKey -Client $client -Stream $stream
+                # The background runspace owns only this response socket. Keep the
+                # main loop available to screenshots, maps and client heartbeats.
+                $client = $null
+                $stream = $null
+                continue
+            }
 
             $appUpdatePaths = @(
                 "/api/v1/app-update/session",
@@ -7669,7 +7979,7 @@ try {
                 # The client may already have disconnected.
             }
         } finally {
-            $client.Dispose()
+            if ($null -ne $client) { $client.Dispose() }
             $handledRequests++
             Update-ScreenshotWatcher
             Update-NativeOverlayBridge
@@ -7681,6 +7991,10 @@ try {
     throw
 } finally {
     $cleanupFailed = $false
+    if ($null -ne $script:moddingPreviewJob) {
+        try { $script:moddingPreviewJob.client.Dispose(); $script:moddingPreviewJob.worker.Stop(); $script:moddingPreviewJob.worker.Dispose() } catch { }
+        $script:moddingPreviewJob = $null
+    }
     try {
         Remove-AllNativeOverlays
     } catch {
