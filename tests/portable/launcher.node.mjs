@@ -365,16 +365,23 @@ function waitForExit(child) {
   });
 }
 
-function rawRequest(port, request) {
+function rawRequest(port, request, { timeoutMs } = {}) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: "127.0.0.1", port }, () => socket.end(request));
+    const timeout = timeoutMs === undefined ? undefined : setTimeout(() => {
+      socket.destroy(new Error(`Raw request did not complete within ${timeoutMs}ms`));
+    }, timeoutMs);
     let response = "";
     socket.setEncoding("latin1");
+    socket.once("close", () => clearTimeout(timeout));
     socket.on("data", (chunk) => {
       response += chunk;
     });
     socket.once("end", () => resolve(response));
-    socket.once("error", (error) => response ? resolve(response) : reject(error));
+    socket.once("error", (error) => response ? resolve(response) : reject(new Error(
+      `Raw request ${request.split("\r\n", 1)[0]} (${Buffer.byteLength(request, "latin1")} bytes) failed before a response: ${error.message}`,
+      { cause: error },
+    )));
   });
 }
 
@@ -552,11 +559,18 @@ test("portable launcher serves the app safely on loopback", { skip: process.plat
   );
   assert.match(malformedEscapeResponse, /^HTTP\/1\.1 400 Bad Request/);
 
-  const oversizedHeaderResponse = await rawRequest(
-    port,
-    `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nX-Large: ${"a".repeat(17_000)}\r\n\r\n`,
+  // An unterminated header that fills the 16 KiB cap must be rejected: its
+  // required terminator cannot fit. Send no unread tail, which can turn the
+  // server's rejection into a TCP reset before Windows delivers the response.
+  const oversizedHeaderPrefix = `GET / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nX-Large: `;
+  const oversizedHeaderRequest = oversizedHeaderPrefix + "a".repeat(
+    16_384 - Buffer.byteLength(oversizedHeaderPrefix, "latin1"),
   );
+  assert.equal(Buffer.byteLength(oversizedHeaderRequest, "latin1"), 16_384);
+  assert.doesNotMatch(oversizedHeaderRequest, /\r\n\r\n/);
+  const oversizedHeaderResponse = await rawRequest(port, oversizedHeaderRequest, { timeoutMs: 2000 });
   assert.match(oversizedHeaderResponse, /^HTTP\/1\.1 431 Request Header Fields Too Large/);
+  assert.match(oversizedHeaderResponse, /\r\n\r\nRequest Header Fields Too Large$/);
 
   const exit = await waitForExit(child);
   assert.deepEqual(exit, { code: 0, signal: null });
