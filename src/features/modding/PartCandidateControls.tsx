@@ -5,6 +5,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useId, useState } from "react";
+import { PartFilterPresets } from "./PartFilterPresets";
 
 import {
   DEFAULT_PART_CANDIDATE_FILTERS,
@@ -130,6 +131,12 @@ export function PartCandidateControls({
 
       {open ? (
         <section aria-label="부품 필터와 정렬" className="modding-filter-panel" id={panelId}>
+          <PartFilterPresets filters={filters} sortKeys={sortKeys} traderOptions={traderOptions}
+            onApply={(settings) => {
+              onFiltersChange(settings.filters);
+              onSortKeysChange(settings.sortKeys);
+              setSortNotice("");
+            }} />
           <div className="modding-filter-fields">
             <label>
               <span>장착 상태</span>
@@ -266,7 +273,7 @@ export function PartCandidateControls({
             <span>{`${visibleCount} / ${totalCount}개 표시`}</span>
             <button onClick={reset} type="button">필터 초기화</button>
           </footer>
-          <p aria-live="polite" className="sr-only" role="status">{sortNotice}</p>
+          <p aria-label="정렬 변경 알림" aria-live="polite" className="sr-only" role="status">{sortNotice}</p>
         </section>
       ) : null}
     </div>
