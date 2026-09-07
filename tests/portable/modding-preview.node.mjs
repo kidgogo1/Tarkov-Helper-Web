@@ -59,13 +59,13 @@ async function fixture(t, handler) {
   };
 }
 
-async function postHeadersOnly(baseUrl, requestPath, contentLength) {
+async function postHeadersOnly(baseUrl, requestPath, contentLength, headers = {}) {
   const target = new URL(baseUrl);
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: target.hostname, port: Number(target.port) });
     let response = "";
     // Stay below the launcher's ~5s read timeout: a delayed body-read error is not early rejection.
-    const timeout = setTimeout(() => socket.destroy(new Error(`${requestPath} did not reject oversized headers before reading the body`)), 2000);
+    const timeout = setTimeout(() => socket.destroy(new Error(`${requestPath} did not reject the request before reading the body`)), 2000);
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => { response += chunk; });
     socket.once("error", reject);
@@ -73,8 +73,8 @@ async function postHeadersOnly(baseUrl, requestPath, contentLength) {
     socket.once("connect", () => socket.write([
       `POST ${requestPath} HTTP/1.1`,
       `Host: ${target.host}`,
-      `Origin: ${target.origin}`,
-      "Sec-Fetch-Site: same-origin",
+      `Origin: ${headers.origin ?? target.origin}`,
+      `Sec-Fetch-Site: ${headers["sec-fetch-site"] ?? "same-origin"}`,
       "Content-Type: application/json",
       `Content-Length: ${contentLength}`,
       "Connection: close", "", "",
@@ -152,7 +152,10 @@ test("portable modding preview resolves exact slots, returns a bounded image, ca
 
 for (const bodyBytes of [8193, 65536]) {
   test(`portable preview accepts a valid ${bodyBytes}-byte JSON body within its 64 KiB limit`, { skip: process.platform !== "win32", timeout: 15000 }, async (t) => {
-    const server = await fixture(t, (request, response) => {
+    const server = await fixture(t, async (request, response) => {
+      let uploadedBytes = 0;
+      for await (const chunk of request) uploadedBytes += chunk.length;
+      assert.equal(uploadedBytes, Number(request.headers["content-length"] ?? 0));
       if (request.url === "/api/generate-build") {
         response.writeHead(200, { "content-type": "application/json" })
           .end(JSON.stringify({ ok: true, imageUrl: "/api/images/build_test" }));
@@ -208,8 +211,13 @@ test("portable preview rejects invalid trees and unsafe upstream responses and h
   let mode = "good";
   let calls = 0;
   let redirected = 0;
-  const server = await fixture(t, (request, response) => {
+  const server = await fixture(t, async (request, response) => {
     calls += 1;
+    // Exercise response validation after a complete upload, independently of the
+    // Expect: 100-continue/early-response transport race in .NET Framework.
+    let uploadedBytes = 0;
+    for await (const chunk of request) uploadedBytes += chunk.length;
+    assert.equal(uploadedBytes, Number(request.headers["content-length"] ?? 0));
     if (request.url === "/redirect-target") { redirected += 1; response.end(); return; }
     if (mode === "rate-limit") { response.writeHead(429, { "Retry-After": "172800" }).end(); return; }
     if (mode === "redirect") { response.writeHead(302, { location: "/redirect-target" }).end(); return; }
@@ -267,7 +275,11 @@ test("portable preview rejects invalid trees and unsafe upstream responses and h
   const defaultLimit = await postHeadersOnly(server.baseUrl, "/api/v1/client/heartbeat", 8193);
   assert.match(defaultLimit, /^HTTP\/1\.1 400 Bad Request\r\n/);
   assert.equal(JSON.parse(defaultLimit.split("\r\n\r\n")[1]).error.code, "INVALID_JSON");
-  assert.equal((await server.post({ root, angle: 0 }, { origin: "https://attacker.invalid", "sec-fetch-site": "cross-site" })).status, 403);
+  // Authentication also rejects before reading the body; require a real HTTP
+  // rejection without sending an unread upload that can reset the TCP socket.
+  const crossOrigin = await postHeadersOnly(server.baseUrl, "/api/modding/preview", 2, { origin: "https://attacker.invalid", "sec-fetch-site": "cross-site" });
+  assert.match(crossOrigin, /^HTTP\/1\.1 403 Forbidden\r\n/);
+  assert.equal(JSON.parse(crossOrigin.split("\r\n\r\n")[1]).error.code, "FORBIDDEN");
   assert.equal(calls, 0);
 
   const mapping = await server.post({ root, angle: 0 });
@@ -278,7 +290,8 @@ test("portable preview rejects invalid trees and unsafe upstream responses and h
     mode = failure;
     const response = await server.post({ root: leaf, angle: 0 });
     assert.equal(response.status, 502, failure);
-    assert.equal((await response.json()).error.code, "PROVIDER_RESPONSE", failure);
+    const result = await response.json();
+    assert.equal(result.error.code, "PROVIDER_RESPONSE", `${failure}: ${JSON.stringify(result)}`);
   }
   assert.equal(redirected, 0);
   mode = "rate-limit";
