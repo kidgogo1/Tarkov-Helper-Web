@@ -60,7 +60,7 @@ async function assertWeaponModdingDesktopLayout(page) {
   const geometry = await page.evaluate(() => {
     const picker = globalThis.document.querySelector(".modding-part-picker");
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
-    const installed = globalThis.document.querySelector(".modding-installed-parts");
+    const side = globalThis.document.querySelector(".modding-editor-side");
     const image = globalThis.document.querySelector(".modding-visual-preview");
     const priceSummary = globalThis.document.querySelector(".modding-purchase-summary");
     const stats = globalThis.document.querySelector(".modding-stats");
@@ -89,18 +89,16 @@ async function assertWeaponModdingDesktopLayout(page) {
     const fleaCell = pricedCandidate?.querySelector('[data-price-kind="flea"]');
     const traderValue = traderCell?.querySelector(".modding-price-value");
     const fleaValue = fleaCell?.querySelector(".modding-price-value");
-    const installedPartName = installed.querySelector(".modding-slot-select strong");
-    if (![picker, stage, installed, image, priceSummary, stats, candidateList, candidate,
+    if (![picker, stage, side, image, priceSummary, stats, candidateList, candidate,
       candidatePreview, candidateImage,
       candidateDetails, candidateName, candidateSummary, candidateShortName,
       candidatePerformance, candidateCommerce, traderCell, fleaCell, traderValue,
-      fleaValue, installedPartName].every(
+      fleaValue].every(
       (element) => element instanceof globalThis.HTMLElement,
     )) return null;
     const rect = (element) => element.getBoundingClientRect();
     const listRect = rect(candidateList);
     const nameStyle = globalThis.getComputedStyle(candidateName);
-    const installedNameStyle = globalThis.getComputedStyle(installedPartName);
     const metricColumns = [...candidatePerformance.querySelectorAll(".modding-candidate-stat-column")];
     const metricRowOffsets = [...metricColumns[0].children].map((cell, index) => {
       const top = rect(cell).top;
@@ -113,7 +111,7 @@ async function assertWeaponModdingDesktopLayout(page) {
     return {
       picker: rect(picker),
       stage: rect(stage),
-      installed: rect(installed),
+      side: rect(side),
       image: rect(image),
       priceSummary: rect(priceSummary),
       stats: rect(stats),
@@ -136,15 +134,13 @@ async function assertWeaponModdingDesktopLayout(page) {
       priceValueOffset: Math.abs(rect(traderValue).top - rect(fleaValue).top),
       candidateNameWhiteSpace: nameStyle.whiteSpace,
       candidateNameTextOverflow: nameStyle.textOverflow,
-      installedNameWhiteSpace: installedNameStyle.whiteSpace,
-      installedNameTextOverflow: installedNameStyle.textOverflow,
     };
   });
   assert(geometry, "Weapon modding layout elements were unavailable");
   assert(
-    geometry.picker.right <= geometry.stage.left + 2 &&
-      geometry.stage.right <= geometry.installed.left + 2,
-    `Weapon workbench columns are out of order: ${JSON.stringify(geometry)}`,
+    geometry.stage.right <= geometry.side.left + 2 &&
+      geometry.picker.left >= geometry.side.left - 2 && geometry.picker.right <= geometry.side.right + 2,
+    `Weapon stage and switchable side panel are out of order: ${JSON.stringify(geometry)}`,
   );
   assert(
     geometry.stats.top >= geometry.image.bottom - 2 &&
@@ -163,9 +159,7 @@ async function assertWeaponModdingDesktopLayout(page) {
       geometry.candidateCommerce.top >= geometry.candidatePerformance.bottom - 2 &&
       geometry.metricColumnCount === 3 && geometry.metricRowOffsets.every((offset) => offset <= 1) &&
       geometry.candidateNameWhiteSpace === "normal" &&
-      geometry.candidateNameTextOverflow !== "ellipsis" &&
-      geometry.installedNameWhiteSpace === "normal" &&
-      geometry.installedNameTextOverflow !== "ellipsis",
+      geometry.candidateNameTextOverflow !== "ellipsis",
     `Compatible part row hierarchy is incorrect: ${JSON.stringify(geometry)}`,
   );
   assert(
@@ -183,11 +177,17 @@ async function assertWeaponModdingDesktopLayout(page) {
 }
 
 async function assertWeaponAssemblyLayout(page, label) {
+  await page.waitForFunction(() => {
+    const assembly = globalThis.document.querySelector(".modding-assembly");
+    if (!assembly) return false;
+    const columns = Math.max(2, Math.min(7, Math.floor((assembly.getBoundingClientRect().width - 16) / 104)));
+    return assembly.querySelectorAll(".modding-assembly-slot-card").length <= columns * 2;
+  });
   const result = await page.evaluate(() => {
     const container = globalThis.document.querySelector(".modding-assembly-scene");
     const center = globalThis.document.querySelector(".modding-assembly-center");
     const image = globalThis.document.querySelector(".modding-preview-figure > img");
-    const buttons = [...globalThis.document.querySelectorAll(".modding-assembly-group")];
+    const buttons = [...globalThis.document.querySelectorAll(".modding-assembly-slot-card")];
     if (!(container instanceof globalThis.HTMLElement) || !(center instanceof globalThis.HTMLElement) || !buttons.every(
       (button) => button instanceof globalThis.HTMLElement,
     )) return null;
@@ -227,7 +227,7 @@ async function assertWeaponAssemblyLayout(page, label) {
     return { clipped, overlaps, coversImage, imageClipped, count: buttons.length };
   });
   assert(result, `${label}: assembly cards were unavailable`);
-  assert(result.count > 0 && result.count <= 10, `${label}: expected one to ten functional group cards`);
+  assert(result.count > 0 && result.count <= 14, `${label}: expected one to fourteen individual slot cards on the current page`);
   assert(result.clipped.length === 0, `${label}: clipped assembly cards: ${result.clipped.join(", ")}`);
   assert(result.overlaps.length === 0, `${label}: overlapping assembly cards: ${result.overlaps.join(", ")}`);
   assert(result.coversImage.length === 0, `${label}: cards cover the central image: ${result.coversImage.join(", ")}`);
@@ -239,8 +239,8 @@ async function assertWeaponModdingTabletLayout(page) {
     const workbench = globalThis.document.querySelector(".modding-workbench");
     const picker = globalThis.document.querySelector(".modding-part-picker");
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
-    const installed = globalThis.document.querySelector(".modding-installed-parts");
-    if (![workbench, picker, stage, installed].every(
+    const side = globalThis.document.querySelector(".modding-editor-side");
+    if (![workbench, picker, stage, side].every(
       (element) => element instanceof globalThis.HTMLElement,
     )) return null;
     const rect = (element) => element.getBoundingClientRect();
@@ -248,15 +248,15 @@ async function assertWeaponModdingTabletLayout(page) {
       workbench: rect(workbench),
       picker: rect(picker),
       stage: rect(stage),
-      installed: rect(installed),
+      side: rect(side),
     };
   });
   assert(geometry, "Weapon modding tablet layout elements were unavailable");
   assert(
-    geometry.stage.right <= geometry.installed.left + 2 &&
-      geometry.picker.top >= Math.max(geometry.stage.bottom, geometry.installed.bottom) - 2 &&
-      Math.abs(geometry.picker.left - geometry.workbench.left) <= 2 &&
-      Math.abs(geometry.picker.right - geometry.workbench.right) <= 2,
+    geometry.stage.bottom <= geometry.side.top + 2 &&
+      geometry.picker.top >= geometry.side.top - 2 &&
+      Math.abs(geometry.side.left - geometry.workbench.left) <= 2 &&
+      Math.abs(geometry.side.right - geometry.workbench.right) <= 2,
     `Weapon modding tablet layout is incorrect: ${JSON.stringify(geometry)}`,
   );
 }
@@ -265,18 +265,18 @@ async function assertWeaponModdingStackedLayout(page, label) {
   const geometry = await page.evaluate(() => {
     const picker = globalThis.document.querySelector(".modding-part-picker");
     const stage = globalThis.document.querySelector(".modding-weapon-stage");
-    const installed = globalThis.document.querySelector(".modding-installed-parts");
+    const side = globalThis.document.querySelector(".modding-editor-side");
     const image = globalThis.document.querySelector(".modding-visual-preview");
     const priceSummary = globalThis.document.querySelector(".modding-purchase-summary");
     const stats = globalThis.document.querySelector(".modding-stats");
-    if (![picker, stage, installed, image, priceSummary, stats].every(
+    if (![picker, stage, side, image, priceSummary, stats].every(
       (element) => element instanceof globalThis.HTMLElement,
     )) return null;
     const rect = (element) => element.getBoundingClientRect();
     return {
       picker: rect(picker),
       stage: rect(stage),
-      installed: rect(installed),
+      side: rect(side),
       image: rect(image),
       priceSummary: rect(priceSummary),
       stats: rect(stats),
@@ -286,10 +286,50 @@ async function assertWeaponModdingStackedLayout(page, label) {
   assert(
     geometry.stats.top >= geometry.image.bottom - 2 &&
       geometry.priceSummary.top >= geometry.stats.bottom - 2 &&
-      geometry.stage.bottom <= geometry.installed.top + 2 &&
-      geometry.installed.bottom <= geometry.picker.top + 2,
+      geometry.stage.bottom <= geometry.side.top + 2 &&
+      geometry.side.top <= geometry.picker.top + 2,
     `${label}: stacked workbench order is incorrect: ${JSON.stringify(geometry)}`,
   );
+}
+
+async function assertWeaponSlotPages(page) {
+  const controls = page.getByRole("group", { name: "총기 부위 선택" });
+  const filters = page.getByRole("group", { name: "슬롯 표시 필터" });
+  await filters.getByRole("button", { name: /^전체/ }).click();
+  const previous = page.getByRole("button", { name: "이전 슬롯 페이지" });
+  const next = page.getByRole("button", { name: "다음 슬롯 페이지" });
+  for (let step = 0; step < 100 && await previous.isEnabled(); step += 1) await previous.click();
+  assert(await previous.isDisabled(), "Could not return to the first assembly slot page");
+  const keys = [];
+  let pageIndex = 0;
+  let gripPage = -1;
+  for (; pageIndex < 100; pageIndex += 1) {
+    const cards = controls.getByRole("button");
+    const cardCount = await cards.count();
+    assert(cardCount > 0 && cardCount <= 14, "Each slot page must show at most 14 individual cards");
+    keys.push(...await cards.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-slot-key"))));
+    assert(await controls.getByRole("button", { pressed: true }).count() <= 1,
+      "Only one individual slot can be selected at a time");
+    if (await controls.getByRole("button", { name: /^권총 손잡이/ }).count()) gripPage = pageIndex;
+    if (await next.isDisabled()) break;
+    await next.click();
+  }
+  assert(pageIndex < 100 && gripPage >= 0, "Assembly pagination did not expose the pistol grip slot");
+  assert(keys.every(Boolean) && new Set(keys).size === keys.length, "Assembly pages duplicated or lost a parent/slot identity");
+  await page.getByRole("button", { name: "전체 장착 트리", exact: true }).click();
+  assert(await page.getByRole("region", { name: "장착·필수 파츠" }).isVisible(), "The full slot tree panel did not open");
+  assert(await page.getByRole("complementary", { name: "호환 부품 선택" }).isHidden(), "Candidate panel must hide while viewing the full tree");
+  assert(keys.length === await page.locator(".modding-installed-parts .modding-slot-select").count(),
+    "Assembly pages must retain every root and nested slot exposed by the full slot tree");
+  const installedNameStyle = await page.locator(".modding-installed-parts .modding-slot-select strong").first().evaluate((element) => {
+    const style = globalThis.getComputedStyle(element);
+    return { whiteSpace: style.whiteSpace, textOverflow: style.textOverflow };
+  });
+  assert(installedNameStyle.whiteSpace === "normal" && installedNameStyle.textOverflow !== "ellipsis",
+    "Full installed part names must wrap in the tree panel");
+  await page.getByRole("button", { name: "부품 선택 패널", exact: true }).click();
+  assert(await page.getByRole("region", { name: "장착·필수 파츠" }).isHidden(), "Tree panel must hide after returning to candidates");
+  for (; pageIndex > gripPage; pageIndex -= 1) await previous.click();
 }
 
 async function assertMapCentered(page, label) {
@@ -466,16 +506,7 @@ try {
       await buildPriceSummary.getByRole("region", { name: "구매 상인 요구 조건" }).count() === 1,
     "Build price summary is missing a purchase plan or trader requirement section",
   );
-  const weaponGroups = page.getByRole("group", { name: "총기 부위 선택" })
-    .getByRole("button");
-  assert(
-    await weaponGroups.count() > 1 && await weaponGroups.count() <= 10,
-    "M4A1 must expose functional groups without covering the image with individual slot labels",
-  );
-  const representedSlotCount = await page.locator(".modding-assembly-group").evaluateAll((buttons) =>
-    buttons.reduce((sum, button) => sum + Number(button.querySelector(".modding-assembly-count")?.textContent ?? 1), 0));
-  assert(representedSlotCount === await page.locator(".modding-installed-parts .modding-slot-select").count(),
-    "Assembly groups must retain every root and nested slot exposed by the full slot tree");
+  await assertWeaponSlotPages(page);
   assert(!await page.getByRole("checkbox", { name: /조립 외형 자동 갱신/ }).isChecked(),
     "External assembled image generation must remain opt-in");
   await page.getByRole("group", { name: "총기 부위 선택" })
@@ -544,7 +575,7 @@ try {
     await page.locator(".modding-assembly-lines").evaluate((element) =>
       globalThis.getComputedStyle(element).display,
     ) === "none",
-    "Schematic lines should hide on narrow screens while functional group buttons remain accessible",
+    "Schematic lines should hide on narrow screens while individual slot cards remain accessible",
   );
   await assertWeaponAssemblyLayout(page, "weapon modding 320px viewport");
   await page.screenshot({ path: path.join(OUTPUT_DIRECTORY, "modding-320.png"), fullPage: true });

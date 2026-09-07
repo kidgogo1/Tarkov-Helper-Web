@@ -1,0 +1,104 @@
+.modding-preset-editor.modding-workbench {
+  grid-template-areas: "toolbar toolbar" "stage side";
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
+  align-items: start;
+  background: var(--bg);
+}
+
+.modding-editor-toolbar {
+  grid-area: toolbar;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+}
+
+.modding-editor-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
+.modding-editor-title strong { color: var(--accent); font-size: 16px; }
+.modding-editor-title span { color: var(--text-muted); font-size: 12px; }
+.modding-edit-history { display: flex; gap: 4px; }
+.modding-edit-history button { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+
+.modding-editor-side {
+  grid-area: side;
+  scroll-margin-top: 112px;
+  min-width: 0;
+  align-self: stretch;
+  border-left: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+}
+
+.modding-editor-panel-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modding-editor-panel-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  font-size: 12px;
+}
+
+.modding-editor-panel-switch button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.modding-preset-editor .modding-editor-side > aside { border: 0; }
+.modding-preset-editor [hidden] { display: none !important; }
+.modding-preset-editor .modding-weapon-stage { min-width: 0; }
+.modding-preset-editor .modding-weapon-stage > header { gap: 16px; padding: 16px; }
+.modding-preset-editor .modding-weapon-stage h2 { font-size: clamp(20px, 2vw, 28px); overflow-wrap: anywhere; }
+.modding-preset-editor .modding-stage-actions { flex-shrink: 0; }
+.modding-preset-editor .modding-stage-actions button { max-width: none; }
+.modding-preset-editor .modding-image-note { display: none; }
+.modding-preset-editor .modding-part-list { max-height: 72vh; }
+.modding-preset-editor .modding-installed-parts-body { max-height: 90vh; }
+.modding-back-to-assembly { display: none; }
+.modding-preset-editor { scroll-margin-top: 112px; }
+
+.modding-selection-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11px; }
+.modding-selected-remove { display: inline-flex; justify-self: start; align-items: center; gap: 5px; margin-top: 4px; font-size: 11px; }
+.modding-child-slots { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 8px; }
+.modding-child-slots > span { flex-basis: 100%; color: var(--text-muted); font-size: 11px; }
+.modding-child-slots > button { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; min-height: 30px; }
+
+.modding-page .modding-page-header { padding-bottom: 12px; }
+.modding-page .modding-page-header h1 { font-size: 26px; }
+.modding-page .modding-weapon-list { min-height: 64px; border-radius: 0; }
+.modding-page .modding-weapon-list > button { min-width: 164px; width: 164px; grid-template-columns: 44px minmax(0, 1fr); padding: 4px; }
+.modding-page .modding-weapon-list > button > span { width: 38px; height: 38px; }
+.modding-page .modding-weapon-list strong { font-size: 12px; }
+.modding-page .modding-weapon-list small { font-size: 11px; }
+
+@media (min-width: 1800px) {
+  .modding-preset-editor.modding-workbench { grid-template-columns: minmax(0, 1fr) 420px; }
+}
+
+@media (max-width: 1100px) {
+  .modding-preset-editor.modding-workbench { grid-template-areas: "toolbar" "stage" "side"; grid-template-columns: minmax(0, 1fr); }
+  .modding-editor-side { border-left: 0; border-top: 1px solid var(--line-strong); }
+  .modding-back-to-assembly { display: inline-flex; align-items: center; gap: 5px; margin: 8px 8px 0; font-size: 12px; }
+  .modding-preset-editor .modding-part-list { max-height: 65vh; }
+  .modding-preset-editor .modding-weapon-stage > header { flex-wrap: wrap; }
+}
+
+@media (max-width: 520px) {
+  .modding-editor-toolbar { padding: 10px; }
+  .modding-editor-title span { display: none; }
+  .modding-edit-history button { padding: 6px 8px; }
+  .modding-preset-editor .modding-stage-actions { flex-shrink: 1; }
+  .modding-page .modding-page-header h1 { font-size: 23px; }
+}

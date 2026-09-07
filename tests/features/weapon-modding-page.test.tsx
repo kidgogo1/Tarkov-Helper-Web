@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WeaponModdingPage } from "../../src/features/modding/WeaponModdingPage";
 import { createFactoryBuild } from "../../src/domain/weapon-build";
-import { saveWeaponBuild } from "../../src/services/weapon-build-storage";
+import { loadWeaponBuild, saveWeaponBuild } from "../../src/services/weapon-build-storage";
+import { MODDING_LIBRARY_STORAGE_KEY } from "../../src/services/weapon-modding-library";
 
 const M4A1_ID = "5447a9cd4bdc2dbd208b4567";
 const SECOND_WEAPON_ID = "5644bd2b4bdc2d3b4c8b4572";
@@ -147,6 +148,109 @@ afterEach(() => {
 });
 
 describe("WeaponModdingPage", () => {
+  it("undoes and redoes edits with their prices and auto-saved draft", async () => {
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }));
+    const edited = loadWeaponBuild(M4A1_ID);
+    expect(screen.getByRole("region", { name: "최저가 혼합 구매 예상 비용" })).toHaveTextContent("₽106,000");
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
+    fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+    expect(loadWeaponBuild(M4A1_ID)?.root.children).toEqual([]);
+    expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "최저가 혼합 구매 예상 비용" })).toHaveTextContent("₽100,000");
+    fireEvent.click(screen.getByRole("button", { name: "다시 실행" }));
+    expect(loadWeaponBuild(M4A1_ID)).toEqual(edited);
+    expect(screen.getByRole("button", { name: "조준경 부품 제거" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 실행" })).toBeDisabled();
+  });
+
+  it("cancels factory reset without changing the draft and can undo a confirmed reset", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }));
+    const edited = loadWeaponBuild(M4A1_ID);
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
+    fireEvent.click(screen.getByRole("button", { name: "기본 구성으로 초기화" }));
+    expect(confirm).toHaveBeenCalled();
+    expect(loadWeaponBuild(M4A1_ID)).toEqual(edited);
+    expect(screen.getByRole("button", { name: "조준경 부품 제거" })).toBeInTheDocument();
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "기본 구성으로 초기화" }));
+    expect(loadWeaponBuild(M4A1_ID)?.root.children).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+    expect(loadWeaponBuild(M4A1_ID)).toEqual(edited);
+    expect(screen.getByRole("button", { name: "조준경 부품 제거" })).toBeInTheDocument();
+  });
+
+  it("undoes a same-weapon preset load without renaming or overwriting named saves", async () => {
+    render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
+      loadCatalog={() => Promise.resolve(catalog)} />);
+    const name = await screen.findByRole("textbox", { name: "모딩 이름" });
+    fireEvent.change(name, { target: { value: "보존할 원본" } });
+    fireEvent.click(screen.getByRole("button", { name: "새 모딩으로 저장" }));
+    const namedStore = localStorage.getItem(MODDING_LIBRARY_STORAGE_KEY);
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }));
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
+    fireEvent.click(screen.getByRole("button", { name: "모딩 불러오기" }));
+    expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+    expect(screen.getByRole("button", { name: "조준경 부품 제거" })).toBeInTheDocument();
+    expect(localStorage.getItem(MODDING_LIBRARY_STORAGE_KEY)).toBe(namedStore);
+    expect(name).toHaveValue("보존할 원본");
+  });
+
+  it("separates edit history across deep links even when returning without editing the other gun", async () => {
+    const twoWeaponCatalog = {
+      ...catalog,
+      weaponIds: [M4A1_ID, SECOND_WEAPON_ID],
+      items: [...catalog.items, { ...catalog.items[0], id: SECOND_WEAPON_ID, name: "Other rifle" }],
+    };
+    const loadCatalog = () => Promise.resolve(twoWeaponCatalog);
+    const view = render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID} loadCatalog={loadCatalog} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }));
+    expect(screen.getByRole("button", { name: "실행 취소" })).toBeEnabled();
+    view.rerender(<WeaponModdingPage activeProfile="pvp" focusWeaponId={SECOND_WEAPON_ID} loadCatalog={loadCatalog} />);
+    expect(screen.getByRole("heading", { name: "Other rifle" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
+    view.rerender(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID} loadCatalog={loadCatalog} />);
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
+    expect(screen.getByRole("button", { name: "조준경 부품 제거" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "다시 실행" })).toBeDisabled();
+  });
+
+  it("keeps purchase mode and history on a profile switch while recalculating current prices", async () => {
+    const loadCatalog = () => Promise.resolve(catalog);
+    const view = render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID} loadCatalog={loadCatalog} />);
+    await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(within(screen.getByRole("group", { name: "총기 부위 선택" }))
+      .getByRole("button", { name: /조준경/ }));
+    fireEvent.click(screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }));
+    fireEvent.click(screen.getByRole("radio", { name: "기본 총기 보유" }));
+    view.rerender(<WeaponModdingPage activeProfile="pve" focusWeaponId={M4A1_ID} loadCatalog={loadCatalog} />);
+    expect(screen.getByRole("radio", { name: "기본 총기 보유" })).toBeChecked();
+    expect(screen.getByRole("region", { name: "최저가 혼합 구매 예상 비용" })).toHaveTextContent("₽5,000");
+    fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+    expect(screen.getByRole("region", { name: "최저가 혼합 구매 예상 비용" })).toHaveTextContent("₽0");
+    fireEvent.click(screen.getByRole("button", { name: "다시 실행" }));
+    expect(screen.getByRole("region", { name: "최저가 혼합 구매 예상 비용" })).toHaveTextContent("₽5,000");
+    expect(screen.getByRole("radio", { name: "기본 총기 보유" })).toBeChecked();
+  });
+
   it("saves multiple named modding profiles and loads their own snapshots", async () => {
     render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
       loadCatalog={() => Promise.resolve(catalog)} />);
@@ -161,6 +265,7 @@ describe("WeaponModdingPage", () => {
     const presets = screen.getByRole("combobox", { name: "저장한 모딩" });
     const emptyPreset = within(presets).getByRole("option", { name: "기본 연습용" }) as HTMLOptionElement;
     const opticPreset = within(presets).getByRole("option", { name: "조준경 세팅" }) as HTMLOptionElement;
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     fireEvent.change(presets, { target: { value: emptyPreset.value } });
     fireEvent.click(screen.getByRole("button", { name: "모딩 불러오기" }));
     expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
@@ -227,6 +332,7 @@ describe("WeaponModdingPage", () => {
       : item) };
     const first = render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
       loadCatalog={() => Promise.resolve(requiredCatalog)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "전체 장착 트리" }));
     const removeSight = await screen.findByRole("button", { name: "조준경 부품 제거" });
     const weightRow = screen.getByRole("row", { name: /^무게/ });
     expect(within(weightRow).getAllByText("3.340 kg")).toHaveLength(2);
@@ -240,6 +346,7 @@ describe("WeaponModdingPage", () => {
     render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
       loadCatalog={() => Promise.resolve(requiredCatalog)} />);
     await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("필수 부품 미장착");
     expect(screen.getByRole("row", { name: /^무게/ })).toHaveTextContent("3.340 kg");
@@ -253,6 +360,7 @@ describe("WeaponModdingPage", () => {
     render(<WeaponModdingPage activeProfile="pvp" focusWeaponId={M4A1_ID}
       loadCatalog={() => Promise.resolve(catalog)} />);
     await screen.findByRole("heading", { name: /Colt M4A1/ });
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     expect(screen.queryByRole("button", { name: "조준경 부품 제거" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "무기 능력치" })).toHaveTextContent("사용 가능");
   });
@@ -312,12 +420,14 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("button", { name: "EOTech EXPS3 holographic sight 장착" }),
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
       "button",
       { name: /조준경.*EOTech EXPS3/ },
     )).toHaveTextContent(
       "EOTech EXPS3 holographic sight",
     );
+    fireEvent.click(screen.getByRole("button", { name: "부품 선택 패널" }));
     expect(screen.getByRole("button", {
       name: "EOTech EXPS3 holographic sight 장착",
     })).toHaveTextContent("부품 효과인체공학 -2무게 0.340 kg");
@@ -338,6 +448,7 @@ describe("WeaponModdingPage", () => {
     const weaponHeading = await screen.findByRole("heading", { name: /Colt M4A1/ });
     const weaponStage = weaponHeading.closest(".modding-weapon-stage");
     const buildStats = screen.getByRole("region", { name: "무기 능력치" });
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     const installedParts = screen.getByRole("region", { name: "장착·필수 파츠" });
 
     expect(weaponStage).toContainElement(buildStats);
@@ -347,7 +458,7 @@ describe("WeaponModdingPage", () => {
       screen.getByRole("group", { name: "총기 부위 선택" }),
     ).getByRole("button", { name: /조준경/ }));
 
-    expect(screen.getByRole("complementary", { name: "호환 부품 선택" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("complementary", { name: "호환 부품 선택" })).toHaveFocus());
     const candidateList = screen.getByRole("list", { name: "호환 부품 목록" });
     const candidateRow = within(candidateList).getByRole("listitem");
     expect(within(candidateRow).getByText("EOTech EXPS3 holographic sight"))
@@ -539,6 +650,15 @@ describe("WeaponModdingPage", () => {
     expect(within(list).getByText("인체공학 프리미엄 조준경")).toBeInTheDocument();
     expect(screen.getByText("1 / 3개 표시")).toBeInTheDocument();
 
+    const buildBeforePresets = loadWeaponBuild(M4A1_ID);
+    fireEvent.click(screen.getByRole("button", { name: "반동 우선 필터 프리셋 적용" }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("반동 특화 보급형 조준경");
+    fireEvent.click(screen.getByRole("button", { name: "인체공학 우선 필터 프리셋 적용" }));
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("인체공학 프리미엄 조준경");
+    expect(loadWeaponBuild(M4A1_ID)).toEqual(buildBeforePresets);
+    expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
+
     fireEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "상점가 낮은 순" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "인체공학 높은 순" }));
@@ -564,7 +684,7 @@ describe("WeaponModdingPage", () => {
     expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent(
       "인체공학 프리미엄 조준경",
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(screen.getByRole("status", { name: "정렬 변경 알림" })).toHaveTextContent(
       "인체공학 높은 순이 1순위가 되었습니다",
     );
   });
@@ -719,16 +839,19 @@ describe("WeaponModdingPage", () => {
     expect(within(dialog).getByRole("img", {
       name: "EOTech EXPS3 holographic sight 크게 보기",
     })).toHaveAttribute("src", "/assets/weapon-modding/eotech-exps3.png");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(previewButton).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).queryByRole(
       "button",
       { name: /조준경.*EOTech EXPS3/ },
     )).not.toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "닫기" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await waitFor(() => expect(previewButton).toHaveFocus());
-
+    fireEvent.click(screen.getByRole("button", { name: "부품 선택 패널" }));
     fireEvent.click(equipButton);
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
       "button",
       { name: /조준경.*EOTech EXPS3/ },
@@ -802,6 +925,7 @@ describe("WeaponModdingPage", () => {
     expect(screen.getByText("2개 장착 가능")).toBeInTheDocument();
     fireEvent.click(conflictChoice);
 
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     const installedParts = screen.getByRole("region", { name: "장착·필수 파츠" });
     expect(within(installedParts).queryByRole("button", {
       name: /조준경.*Conflict-aware optic/,
@@ -810,6 +934,7 @@ describe("WeaponModdingPage", () => {
       name: /보조 레일.*Blocking rail/,
     })).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "부품 선택 패널" }));
     fireEvent.click(conflictChoice);
 
     expect(confirm).toHaveBeenLastCalledWith(expect.stringMatching(
@@ -818,10 +943,19 @@ describe("WeaponModdingPage", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Conflict-aware optic 장착 · Blocking rail 자동 해제",
     );
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole(
       "button",
       { name: /조준경.*Conflict-aware optic/ },
     )).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+    expect(screen.queryByText("Conflict-aware optic 장착 · Blocking rail 자동 해제")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "장착·필수 파츠" })).getByRole("button", {
+      name: /보조 레일.*Blocking rail/,
+    })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 실행" }));
+    expect(screen.queryByText("Conflict-aware optic 장착 · Blocking rail 자동 해제")).not.toBeInTheDocument();
 
     view.rerender(
       <WeaponModdingPage
@@ -917,13 +1051,16 @@ describe("WeaponModdingPage", () => {
     fireEvent.click(screen.getByRole("button", {
       name: "EOTech EXPS3 holographic sight 장착",
     }));
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     fireEvent.click(within(
       screen.getByRole("region", { name: "장착·필수 파츠" }),
     ).getByRole("button", { name: /보조 장착대.*비어 있음/ }));
 
     expect(screen.getByText("0개 장착 가능")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "전체 장착 트리" }));
     fireEvent.click(screen.getByRole("button", { name: "조준경 부품 제거" }));
 
+    fireEvent.click(screen.getByRole("button", { name: "부품 선택 패널" }));
     expect(screen.getByText("먼저 부위를 선택하세요")).toBeInTheDocument();
     expect(screen.queryByText("0개 장착 가능")).not.toBeInTheDocument();
   });
@@ -1052,6 +1189,7 @@ describe("WeaponModdingPage", () => {
   });
 
   it("restores a saved build and can reset it to the factory configuration", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     const first = render(
       <WeaponModdingPage
         activeProfile="pvp"
@@ -1076,6 +1214,7 @@ describe("WeaponModdingPage", () => {
       />,
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: "전체 장착 트리" }));
     expect(await screen.findByRole("button", {
       name: /조준경.*EOTech EXPS3/,
     })).toBeInTheDocument();

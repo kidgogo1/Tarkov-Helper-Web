@@ -1,5 +1,12 @@
 import {
+  ChevronLeft,
+  ChevronRight,
+  ListTree,
+  Redo2,
   RotateCcw,
+  SlidersHorizontal,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
@@ -37,6 +44,8 @@ import {
 import { WeaponSlotTree, type SlotSelection } from "./WeaponSlotTree";
 import { WeaponVisualPreview } from "./WeaponVisualPreview";
 import { summarizeBuildPrice, type BuildPurchaseMode } from "./build-price-summary";
+import { displayWeaponSlotName } from "./weapon-slot-display";
+import "../../styles/weapon-preset-editor.css";
 
 interface WeaponWorkbenchProps {
   activeProfile: ProfileType;
@@ -47,6 +56,10 @@ interface WeaponWorkbenchProps {
   onBuildChange: (build: WeaponBuild) => void;
   onReset: () => void;
   onSlotSelect: (selection: SlotSelection | null) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 interface CandidateChoice extends PartCandidateRecord {
@@ -63,10 +76,15 @@ export function WeaponWorkbench({
   onBuildChange,
   onReset,
   onSlotSelect,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
 }: WeaponWorkbenchProps) {
   const partPickerRef = useRef<HTMLElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
   const previewTriggerRef = useRef<HTMLButtonElement>(null);
-  const [swapNotice, setSwapNotice] = useState<string | null>(null);
+  const [swapNotice, setSwapNotice] = useState<{ assemblyKey: string; message: string } | null>(null);
   const [previewItem, setPreviewItem] = useState<WeaponPartItem | null>(null);
   const [candidateFilters, setCandidateFilters] = useState({
     ...DEFAULT_PART_CANDIDATE_FILTERS,
@@ -74,14 +92,17 @@ export function WeaponWorkbench({
   const [traderFilterByContext, setTraderFilterByContext] = useState<Record<string, string>>({});
   const [candidateSortKeys, setCandidateSortKeys] = useState<CandidateSortKey[]>([]);
   const [purchaseMode, setPurchaseMode] = useState<BuildPurchaseMode>("buy");
+  const [panel, setPanel] = useState<"parts" | "tree">("parts");
   const weapon = itemById.get(build.weaponId);
   const flatNodes = useMemo(() => flattenBuildTree(build.root), [build]);
+  const assemblyKey = useMemo(() => JSON.stringify(build.root), [build.root]);
   const selectedParent = itemById.get(flatNodes.find(
     (node) => node.instanceId === selectedSlot?.parentInstanceId,
   )?.itemId ?? "");
   const selectedSlotRule = selectedParent?.slots?.find((slot) => slot.id === selectedSlot?.slotId);
-  const selectedPartId = flatNodes.find((node) => selectedSlot &&
-    node.parentInstanceId === selectedSlot.parentInstanceId && node.slotId === selectedSlot.slotId)?.itemId;
+  const selectedPartNode = flatNodes.find((node) => selectedSlot &&
+    node.parentInstanceId === selectedSlot.parentInstanceId && node.slotId === selectedSlot.slotId);
+  const selectedPartId = selectedPartNode?.itemId;
   const selectedPart = selectedPartId ? itemById.get(selectedPartId) : undefined;
   const stats = useMemo(() => calculateBuildStats(catalog, build), [build, catalog]);
   const factoryStats = useMemo(
@@ -206,8 +227,17 @@ export function WeaponWorkbench({
 
   const selectSlot = (selection: SlotSelection) => {
     setSwapNotice(null);
+    setPanel("parts");
     onSlotSelect(selection);
-    partPickerRef.current?.focus();
+    requestAnimationFrame(() => {
+      const picker = partPickerRef.current;
+      picker?.focus({ preventScroll: true });
+      // In the stacked layout, the candidate panel follows the stats and costs.
+      // Bring the result of the user's click into view without scrolling desktop layouts.
+      if (window.matchMedia?.("(max-width: 1100px)").matches) {
+        picker?.parentElement?.scrollIntoView({ block: "start", behavior: "auto" });
+      }
+    });
   };
 
   const replacePart = (choice: CandidateChoice) => {
@@ -225,7 +255,7 @@ export function WeaponWorkbench({
 
     onBuildChange(choice.replacement.build);
     setSwapNotice(choice.availability === "auto-resolvable"
-      ? `${candidateName} 장착 · ${conflictNames} 자동 해제`
+      ? { assemblyKey: JSON.stringify(choice.replacement.build.root), message: `${candidateName} 장착 · ${conflictNames} 자동 해제` }
       : null);
   };
 
@@ -266,8 +296,17 @@ export function WeaponWorkbench({
   };
 
   return (
-    <div className="modding-workbench">
-      <section className="modding-weapon-stage">
+    <div className="modding-workbench modding-preset-editor">
+      <div className="modding-editor-toolbar">
+        <div className="modding-editor-title"><strong>프리셋 편집</strong><span>부위 선택 → 부품 장착 → 하위 부위 편집</span></div>
+        <div className="modding-edit-history" role="group" aria-label="편집 기록">
+          <button type="button" onClick={() => { setSwapNotice(null); onUndo?.(); }} disabled={!canUndo} aria-label="실행 취소" title="직전 조립 변경 되돌리기">
+            <Undo2 size={16} aria-hidden="true" />실행 취소</button>
+          <button type="button" onClick={() => { setSwapNotice(null); onRedo?.(); }} disabled={!canRedo} aria-label="다시 실행" title="되돌린 조립 변경 다시 적용">
+            <Redo2 size={16} aria-hidden="true" />다시 실행</button>
+        </div>
+      </div>
+      <section className="modding-weapon-stage" ref={stageRef}>
         <header>
           <div>
             <span className="modding-mode-badge">{activeProfile.toUpperCase()}</span>
@@ -298,7 +337,21 @@ export function WeaponWorkbench({
           factoryPriceUpdatedAt={weapon.factoryPriceUpdatedAt} />
       </section>
 
-      <aside aria-label="장착·필수 파츠" className="modding-installed-parts" role="region">
+      <div className="modding-editor-side">
+      <button type="button" className="modding-back-to-assembly" onClick={() => {
+        const card = stageRef.current?.querySelector<HTMLElement>('.modding-assembly-slot-card[aria-pressed="true"]');
+        if (card) {
+          card.focus({ preventScroll: true });
+          card.scrollIntoView({ block: "center", behavior: "auto" });
+        } else stageRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      }}><ChevronLeft size={15} aria-hidden="true" />총기 부위로 돌아가기</button>
+      <div className="modding-editor-panel-switch" role="group" aria-label="편집 패널 선택">
+        <button type="button" aria-label="부품 선택 패널" aria-pressed={panel === "parts"}
+          onClick={() => setPanel("parts")}><SlidersHorizontal size={16} aria-hidden="true" />부품 선택</button>
+        <button type="button" aria-label="전체 장착 트리" aria-pressed={panel === "tree"}
+          onClick={() => setPanel("tree")}><ListTree size={16} aria-hidden="true" />전체 장착 트리</button>
+      </div>
+      <aside aria-label="장착·필수 파츠" className="modding-installed-parts" role="region" hidden={panel !== "tree"}>
         <header>
           <span>장착·필수 파츠</span>
           <small>부위를 눌러 교체</small>
@@ -322,6 +375,7 @@ export function WeaponWorkbench({
         className="modding-part-picker"
         ref={partPickerRef}
         tabIndex={-1}
+        hidden={panel !== "parts"}
       >
         <header aria-live="polite">
           <span>부품 선택</span>
@@ -329,12 +383,18 @@ export function WeaponWorkbench({
         </header>
         {selectedSlotRule ? (
           <section aria-label="선택한 부위" className="modding-selection-context">
-            <strong>{selectedSlotRule.name}{selectedSlotRule.required ? " · 필수" : ""}</strong>
-            <span>{selectedParent?.shortName ?? selectedParent?.name}</span>
+            <span className="modding-selection-path">{weapon.shortName ?? weapon.name}<ChevronRight size={12} aria-hidden="true" />
+              {selectedParent?.shortName ?? selectedParent?.name}</span>
+            <strong>{displayWeaponSlotName(selectedSlotRule)}{selectedSlotRule.required ? " · 필수" : ""}</strong>
             <small>현재 장착: {selectedPart?.shortName ?? selectedPart?.name ?? "비어 있음"}</small>
+            {selectedPart && selectedSlot && <button type="button" className="modding-selected-remove" aria-label="선택 부품 제거"
+              onClick={() => removePart(selectedSlot.parentInstanceId, selectedSlotRule)}>
+              <Trash2 size={13} aria-hidden="true" />장착 해제{selectedSlotRule.required ? " · 필수 부품" : ""}</button>}
+            {selectedPartNode && Boolean(selectedPart?.slots?.length) && <ChildSlotShortcuts
+              parentInstanceId={selectedPartNode.instanceId} slots={selectedPart?.slots ?? []} onSelect={selectSlot} />}
           </section>
         ) : null}
-        {swapNotice ? <p className="modding-swap-notice" role="status">{swapNotice}</p> : null}
+        {swapNotice?.assemblyKey === assemblyKey ? <p className="modding-swap-notice" role="status">{swapNotice.message}</p> : null}
         {selectedSlot ? (
           candidateChoices.length ? (
             <>
@@ -385,6 +445,7 @@ export function WeaponWorkbench({
           ) : <p className="modding-picker-empty">이 슬롯에 등록된 부품이 없습니다.</p>
         ) : <p className="modding-picker-empty">총기 이미지 주변이나 장착 트리에서 부위를 선택하세요.</p>}
       </aside>
+      </div>
       <PartImagePreviewDialog item={previewItem} onClose={closePreview} />
     </div>
   );
@@ -399,4 +460,18 @@ function candidateConflictMessage(choice: CandidateChoice): string | null {
   return conflictNames
     ? `장착 불가: ${conflictNames}과 충돌`
     : "장착 불가: 현재 총기 또는 상위 부품과 충돌";
+}
+
+function ChildSlotShortcuts({ parentInstanceId, slots, onSelect }: {
+  parentInstanceId: string;
+  slots: readonly WeaponSlotRule[];
+  onSelect: (selection: SlotSelection) => void;
+}) {
+  return <div className="modding-child-slots" role="group" aria-label="장착한 부품의 하위 부위">
+    <span>이 부품에 추가 장착</span>
+    {slots.map((slot) => <button type="button" key={slot.id}
+      aria-label={`하위 부위: ${displayWeaponSlotName(slot)}`}
+      onClick={() => onSelect({ parentInstanceId, slotId: slot.id })}>
+      {displayWeaponSlotName(slot)}<ChevronRight size={13} aria-hidden="true" /></button>)}
+  </div>;
 }

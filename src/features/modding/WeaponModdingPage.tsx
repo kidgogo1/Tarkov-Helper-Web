@@ -3,11 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   createFactoryBuild,
+  flattenBuildTree,
   validateWeaponBuild,
 } from "../../domain/weapon-build";
 import {
   loadWeaponBuild,
-  resetWeaponBuild,
   saveWeaponBuild,
 } from "../../services/weapon-build-storage";
 import { recordClientDiagnostic } from "../../services/client-diagnostics";
@@ -25,6 +25,8 @@ import { WeaponWorkbench } from "./WeaponWorkbench";
 import { WeaponLibrary } from "./WeaponLibrary";
 import { WeaponItemImage } from "./WeaponItemImage";
 import type { SlotSelection } from "./WeaponSlotTree";
+import { useWeaponBuildHistory } from "./use-weapon-build-history";
+import { sameBuildAssembly } from "./weapon-build-history";
 
 interface WeaponModdingPageProps {
   activeProfile: ProfileType;
@@ -42,7 +44,7 @@ export function WeaponModdingPage({
   const [catalog, setCatalog] = useState<WeaponCatalog>();
   const [error, setError] = useState<string>();
   const [search, setSearch] = useState("");
-  const [build, setBuild] = useState<WeaponBuild>();
+  const [selection, setSelection] = useState({ focusWeaponId, weaponId: focusWeaponId });
   const [selectedSlot, setSelectedSlot] = useState<SlotSelection | null>(null);
   const [storageWarning, setStorageWarning] = useState(false);
 
@@ -106,33 +108,55 @@ export function WeaponModdingPage({
       ));
   }, [catalog, itemById, search]);
 
-  const routeBuild = useMemo(() => (
-    catalog && focusWeaponId && build?.weaponId !== focusWeaponId &&
-      catalog.weaponIds.includes(focusWeaponId)
-      ? restoreOrCreateBuild(catalog, focusWeaponId)
+  // A changed deep link replaces the editor context before rendering its controls.
+  const selectedWeaponId = selection.focusWeaponId === focusWeaponId
+    ? selection.weaponId
+    : focusWeaponId;
+  if (selection.focusWeaponId !== focusWeaponId) {
+    setSelection({ focusWeaponId, weaponId: focusWeaponId });
+    setSelectedSlot(null);
+  }
+  const initialBuild = useMemo(() => (
+    catalog && selectedWeaponId && catalog.weaponIds.includes(selectedWeaponId)
+      ? restoreOrCreateBuild(catalog, selectedWeaponId)
       : undefined
-  ), [build?.weaponId, catalog, focusWeaponId]);
-  const displayedBuild = routeBuild ?? build;
-  const displayedSlot = displayedBuild && selectedSlot?.parentInstanceId.startsWith(
-    `root:${displayedBuild.weaponId}`,
+  ), [catalog, selectedWeaponId]);
+  const editor = useWeaponBuildHistory(initialBuild);
+  const displayedBuild = editor.build;
+  const selectedParent = displayedBuild && selectedSlot
+    ? flattenBuildTree(displayedBuild.root).find((node) => node.instanceId === selectedSlot.parentInstanceId)
+    : undefined;
+  const displayedSlot = selectedParent && itemById.get(selectedParent.itemId)?.slots?.some(
+    (slot) => slot.id === selectedSlot?.slotId,
   ) ? selectedSlot : null;
 
   const selectWeapon = (weaponId: string) => {
-    if (!catalog) return;
-    setBuild(restoreOrCreateBuild(catalog, weaponId));
+    if (!catalog?.weaponIds.includes(weaponId)) return;
+    setSelection({ focusWeaponId, weaponId });
     setSelectedSlot(null);
     onWeaponSelect?.(weaponId);
   };
 
-  const updateBuild = (nextBuild: WeaponBuild) => {
-    setBuild(nextBuild);
+  const persistBuild = (nextBuild: WeaponBuild | undefined) => {
+    if (!nextBuild) return;
     if (!saveWeaponBuild(nextBuild)) setStorageWarning(true);
+  };
+
+  const updateBuild = (nextBuild: WeaponBuild) => persistBuild(editor.commit(nextBuild));
+
+  const restoreHistory = (direction: "undo" | "redo") => {
+    const nextBuild = editor[direction]();
+    if (!nextBuild) return;
+    persistBuild(nextBuild);
+    setSelectedSlot(null);
   };
 
   const resetBuild = () => {
     if (!catalog || !displayedBuild) return;
-    if (!resetWeaponBuild(displayedBuild.weaponId)) setStorageWarning(true);
-    setBuild(createFactoryBuild(catalog, displayedBuild.weaponId));
+    const factoryBuild = createFactoryBuild(catalog, displayedBuild.weaponId);
+    if (sameBuildAssembly(displayedBuild, factoryBuild)) return;
+    if (!window.confirm("현재 작업을 상점 기본 구성으로 초기화할까요? 실행 취소로 복원할 수 있으며, 이름 붙여 저장한 모딩은 바뀌지 않습니다.")) return;
+    updateBuild(factoryBuild);
     setSelectedSlot(null);
   };
 
@@ -237,6 +261,10 @@ export function WeaponModdingPage({
               itemById={itemById}
               key={displayedBuild.weaponId}
               onBuildChange={updateBuild}
+              canUndo={editor.canUndo}
+              canRedo={editor.canRedo}
+              onUndo={() => restoreHistory("undo")}
+              onRedo={() => restoreHistory("redo")}
               onReset={resetBuild}
               onSlotSelect={setSelectedSlot}
               selectedSlot={displayedSlot}

@@ -1,11 +1,16 @@
-import { Plus, X } from "lucide-react";
-import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { BuildNode, WeaponCatalogItem, WeaponSlotRule } from "../../types/weapon-modding";
 import type { SlotSelection } from "./WeaponSlotTree";
-import type { WeaponHotspotSlot } from "./weapon-hotspot-slots";
 import { WeaponItemImage } from "./WeaponItemImage";
-import { displayWeaponSlotName } from "./weapon-slot-display";
-import { describeWeaponVisualSlot, groupWeaponVisualSlots, type VisualSlotGroup } from "./weapon-visual-groups";
+import {
+  collectWeaponAssemblyCards,
+  filterWeaponAssemblyCards,
+  paginateWeaponAssemblyCards,
+  weaponAssemblyColumns,
+  type AssemblySlotCard,
+  type AssemblySlotFilter,
+} from "./weapon-assembly-layout";
 import "../../styles/weapon-assembly-slots.css";
 
 interface WeaponAssemblySlotsProps {
@@ -18,126 +23,111 @@ interface WeaponAssemblySlotsProps {
   angled?: boolean;
 }
 
-interface OpenGroup {
-  rootKey: string;
-  selectionKey: string;
-  groupId: string | null;
-  slotKeys: string[];
-}
+const FILTERS: ReadonlyArray<{ id: AssemblySlotFilter; label: string }> = [
+  { id: "all", label: "전체" }, { id: "required", label: "필수" },
+  { id: "installed", label: "장착" }, { id: "empty", label: "빈 슬롯" },
+];
 
-function slotKey(entry: WeaponHotspotSlot): string {
-  return `${entry.parentInstanceId}:${entry.slot.id}`;
-}
-
-function matchesSelection(entry: WeaponHotspotSlot, selection: SlotSelection | null): boolean {
-  return entry.parentInstanceId === selection?.parentInstanceId && entry.slot.id === selection.slotId;
-}
-
-function childName(entry: WeaponHotspotSlot): string {
-  return entry.childItem?.shortName || entry.childItem?.nameKo || entry.childItem?.name || "비어 있음";
-}
-
-function SlotThumbnail({ entry }: { entry: WeaponHotspotSlot | undefined }) {
+function SlotThumbnail({ card }: { card: AssemblySlotCard }) {
   return <span className="modding-assembly-thumbnail" aria-hidden="true">
-    {entry?.childItem ? <WeaponItemImage alt="" fallbackSize={20}
-      src={entry.childItem.iconUrl ?? entry.childItem.imageUrl} /> : <Plus size={18} />}
+    {card.installed ? <WeaponItemImage alt="" fallbackSize={20}
+      src={card.entry.childItem?.iconUrl ?? card.entry.childItem?.imageUrl} /> : <Plus size={22} />}
   </span>;
 }
 
 export function WeaponAssemblySlots({ itemById, root, slots, selectedSlot, onSelect, children, angled = false }: WeaponAssemblySlotsProps) {
-  const groups = groupWeaponVisualSlots(root, itemById, slots);
-  const [openGroup, setOpenGroup] = useState<OpenGroup | null>(null);
-  const buttons = useRef(new Map<string, HTMLButtonElement>());
-  const trayId = useId();
-  const rootKey = `${root.itemId}:${root.instanceId}`;
-  const selectionKey = selectedSlot ? `${selectedSlot.parentInstanceId}:${selectedSlot.slotId}` : "";
-  const selectedGroup = groups.find((group) => group.slots.some((entry) => matchesSelection(entry, selectedSlot)));
-  const manualContext = openGroup?.rootKey === rootKey && openGroup.selectionKey === selectionKey;
-  const activeGroup = manualContext
-    ? groups.find((group) => group.id === openGroup.groupId && group.slots.some((entry) => openGroup.slotKeys.includes(slotKey(entry))))
-    : selectedGroup;
-  const trayGroup = activeGroup && activeGroup.slots.length > 1 ? activeGroup : undefined;
-  const split = Math.ceil(groups.length / 2);
-  const rows = [groups.slice(0, split), groups.slice(split)];
-  const open = (group: VisualSlotGroup | null) => setOpenGroup({
-    rootKey, selectionKey, groupId: group?.id ?? null, slotKeys: group?.slots.map(slotKey) ?? [],
-  });
-  const select = (entry: WeaponHotspotSlot) => onSelect({ parentInstanceId: entry.parentInstanceId, slotId: entry.slot.id });
-  const close = () => {
-    open(null);
-    if (trayGroup) buttons.current.get(trayGroup.id)?.focus();
-  };
+  const container = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(7);
+  const [filter, setFilter] = useState<AssemblySlotFilter>("all");
+  const [navigation, setNavigation] = useState<{ context: string; page: number } | null>(null);
+  useEffect(() => {
+    const element = container.current;
+    if (!element) return;
+    const resize = () => setColumns(weaponAssemblyColumns(element.getBoundingClientRect().width));
+    resize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
-  return <div className="modding-assembly">
-    <div className="modding-assembly-scene">
+  const cards = collectWeaponAssemblyCards(root, itemById, slots);
+  const filtered = filterWeaponAssemblyCards(cards, filter);
+  const selectionKey = selectedSlot ? `${selectedSlot.parentInstanceId}:${selectedSlot.slotId}` : "";
+  const selectedIndex = filtered.findIndex((card) => card.key === selectionKey);
+  const selectedCard = cards.find((card) => card.key === selectionKey);
+  const pageSize = columns * 2;
+  const selectedPage = selectedIndex >= 0 ? Math.floor(selectedIndex / pageSize) : 0;
+  // A new external selection or weapon gets its own page context. Manual paging
+  // remains possible without clearing the selection or invoking onSelect.
+  const context = `${root.itemId}:${root.instanceId}|${filter}|${selectionKey}|${columns}`;
+  const page = paginateWeaponAssemblyCards(filtered, navigation?.context === context ? navigation.page : selectedPage, pageSize);
+  const edgeColumns = Math.max(1, Math.ceil(page.cards.length / 2));
+  const rows = [page.cards.slice(0, edgeColumns), page.cards.slice(edgeColumns)];
+  const moveToPage = (nextPage: number) => setNavigation({ context, page: nextPage });
+  const selectedHidden = Boolean(selectedCard && selectedIndex < 0);
+  const selectedElsewhere = selectedIndex >= 0 && selectedPage !== page.page;
+
+  return <div className="modding-assembly" ref={container}>
+    <div className="modding-assembly-toolbar">
+      <div className="modding-assembly-filters" role="group" aria-label="슬롯 표시 필터">
+        {FILTERS.map(({ id, label }) => <button key={id} type="button" aria-pressed={filter === id}
+          onClick={() => setFilter(id)}>{label} <span>{filterWeaponAssemblyCards(cards, id).length}</span></button>)}
+      </div>
+      <span className="modding-assembly-total">전체 {cards.length}개 슬롯</span>
+    </div>
+    <div className={`modding-assembly-selection-note${selectedHidden || selectedElsewhere ? " attention" : ""}`}>
+      {selectedHidden ? <>
+        <span title="선택한 슬롯이 현재 필터에서 숨겨져 있습니다.">선택한 슬롯이 현재 필터에서 숨겨져 있습니다.</span>
+        <button type="button" onClick={() => { setFilter("all"); setNavigation(null); }}>전체 슬롯 보기</button>
+      </> : selectedElsewhere ? <>
+        <span title={`선택: ${selectedCard?.label} · ${selectedCard?.parentLabel}`}>선택: {selectedCard?.label} · {selectedCard?.parentLabel}</span>
+        <button type="button" onClick={() => moveToPage(selectedPage)}>선택 슬롯 보기</button>
+      </> : <span>부품 카드를 선택하면 호환 부품 목록이 열립니다.</span>}
+    </div>
+    <div className="modding-assembly-scene" style={{ "--assembly-columns": edgeColumns } as CSSProperties}>
       <div className="modding-assembly-controls" role="group" aria-label="총기 부위 선택">
-        {rows.map((row, rowIndex) => <div className={`modding-assembly-edge ${rowIndex === 0 ? "top" : "bottom"}`}
-          key={rowIndex} style={{ "--assembly-columns": Math.max(1, row.length) } as CSSProperties}>
-          {row.map((group) => {
-            const single = group.slots.length === 1;
-            const selected = group.slots.some((entry) => matchesSelection(entry, selectedSlot));
-            const representative = group.slots.find((entry) => matchesSelection(entry, selectedSlot) && entry.childItem)
-              ?? group.slots.find((entry) => entry.childItem);
-            const label = single ? displayWeaponSlotName(group.slots[0].slot) : group.label;
-            const expanded = trayGroup?.id === group.id;
-            return <button type="button" key={group.id}
-              ref={(button) => { if (button) buttons.current.set(group.id, button); else buttons.current.delete(group.id); }}
-              className={`modding-assembly-group${selected ? " selected" : ""}${expanded ? " expanded" : ""}`}
-              aria-pressed={single ? selected : undefined} aria-expanded={single ? undefined : expanded}
-              aria-controls={!single && expanded ? trayId : undefined}
-              onClick={() => { if (single) { open(null); select(group.slots[0]); } else open(expanded ? null : group); }}>
-              <SlotThumbnail entry={representative} />
-              <span className="modding-assembly-group-label"><strong>{label}</strong>
-                <small>{single ? childName(group.slots[0]) : `${group.slots.filter((entry) => entry.childItem).length}/${group.slots.length} 장착`}</small>
-              </span>
-              {!single && <span className="modding-assembly-count">{group.slots.length}</span>}
+        {rows.map((row, rowIndex) => <div className={`modding-assembly-edge ${rowIndex === 0 ? "top" : "bottom"}`} key={rowIndex}>
+          {row.map((card) => {
+            const selected = card.key === selectionKey;
+            const state = card.installed ? "장착됨" : "빈 슬롯";
+            const description = `${card.label} · ${card.parentLabel} · ${card.partLabel} · ${state}${card.entry.slot.required ? " · 필수" : ""}`;
+            return <button type="button" key={card.key} data-slot-key={card.key}
+              className={`modding-assembly-slot-card${selected ? " selected" : ""}${card.installed ? " installed" : " empty"}`}
+              aria-label={description} title={`${description}${card.entry.childItem?.name ? `\n${card.entry.childItem.nameKo || card.entry.childItem.name}` : ""}`}
+              aria-pressed={selected}
+              onClick={() => onSelect({ parentInstanceId: card.entry.parentInstanceId, slotId: card.entry.slot.id })}>
+              <span className="modding-assembly-card-status">{card.entry.slot.required && <b>필수</b>}<span>{state}</span></span>
+              <SlotThumbnail card={card} />
+              <strong className="modding-assembly-part-name">{card.partLabel}</strong>
+              <span className="modding-assembly-slot-name">{card.label}</span>
+              <small className="modding-assembly-parent-name">{card.parentLabel}</small>
             </button>;
           })}
         </div>)}
       </div>
       <div className="modding-assembly-center">{children}</div>
-      {!angled && groups.length > 0 && <svg className="modding-assembly-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        {rows.flatMap((row, rowIndex) => row.map((group, index) => {
-          const active = group.id === activeGroup?.id || group.id === selectedGroup?.id;
-          const targetY = 28 + group.anchor.y * 0.44;
-          return <g className={active ? "active" : ""} key={group.id}>
-            <line x1={(index + 0.5) * 100 / row.length} y1={rowIndex === 0 ? 17 : 83} x2={group.anchor.x} y2={targetY} />
-            <circle cx={group.anchor.x} cy={targetY} r={active ? 0.65 : 0.4} />
+      {!angled && page.cards.length > 0 && <svg className="modding-assembly-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        {rows.flatMap((row, rowIndex) => row.map((card, index) => {
+          const active = card.key === selectionKey;
+          const targetY = 28 + card.anchor.y * 0.44;
+          return <g className={active ? "active" : ""} key={card.key}>
+            <line x1={(index + 0.5) * 100 / edgeColumns} y1={rowIndex === 0 ? 20 : 80} x2={card.anchor.x} y2={targetY} />
+            <circle cx={card.anchor.x} cy={targetY} r={active ? 0.65 : 0.35} />
           </g>;
         }))}
       </svg>}
     </div>
+    {filtered.length === 0 && <p className="modding-assembly-note">{cards.length === 0
+      ? "선택할 수 있는 장착 부위가 없습니다." : "현재 필터에 해당하는 슬롯이 없습니다."}</p>}
+    <nav className="modding-assembly-pagination" aria-label="슬롯 페이지">
+      <button type="button" aria-label="이전 슬롯 페이지" disabled={page.page === 0} onClick={() => moveToPage(page.page - 1)}><ChevronLeft size={16} /></button>
+      <span aria-live="polite"><strong>{page.page + 1} / {page.pageCount} 페이지</strong>
+        <small>{filtered.length ? `${page.page * pageSize + 1}–${page.page * pageSize + page.cards.length} / ${filtered.length}개 표시` : "0개 표시"}</small></span>
+      <button type="button" aria-label="다음 슬롯 페이지" disabled={page.page === page.pageCount - 1} onClick={() => moveToPage(page.page + 1)}><ChevronRight size={16} /></button>
+    </nav>
     <p className="modding-assembly-note">{angled
-      ? "이미지 각도 조절 중에는 개략 연결선을 숨깁니다."
-      : "연결선은 부위별 개략 위치입니다."} <span>부위 카드를 눌러 슬롯을 선택하세요.</span></p>
-    {groups.length === 0 && <p className="modding-assembly-note">선택할 수 있는 장착 부위가 없습니다.</p>}
-    {trayGroup && <AssemblySlotTray group={trayGroup} id={trayId} selectedSlot={selectedSlot} onSelect={select} onClose={close} />}
+      ? "확대·각도 보기에서는 개략 연결선을 숨깁니다."
+      : "연결선은 부위별 개략 위치입니다."} <span>부품 카드를 눌러 해당 슬롯의 호환 부품을 선택하세요.</span></p>
   </div>;
-}
-
-function AssemblySlotTray({ group, id, selectedSlot, onSelect, onClose }: {
-  group: VisualSlotGroup;
-  id: string;
-  selectedSlot: SlotSelection | null;
-  onSelect: (entry: WeaponHotspotSlot) => void;
-  onClose: () => void;
-}) {
-  const labels = group.slots.map(describeWeaponVisualSlot);
-  return <section className="modding-assembly-tray" id={id} aria-label="선택 부위의 슬롯"
-    onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
-    <header><strong>{group.label} <small>전체 {group.slots.length}개 슬롯</small></strong>
-      <button type="button" aria-label="슬롯 목록 접기" onClick={onClose}><X size={16} /></button></header>
-    <div className="modding-assembly-slot-list">
-      {group.slots.map((entry, index) => {
-        const repeated = labels.filter((label) => label === labels[index]).length > 1;
-        const ordinal = labels.slice(0, index + 1).filter((label) => label === labels[index]).length;
-        const suffix = repeated ? ` ${ordinal <= 20 ? String.fromCodePoint(0x2460 + ordinal - 1) : `(${ordinal})`}` : "";
-        return <button type="button" key={slotKey(entry)} aria-pressed={matchesSelection(entry, selectedSlot)}
-          className="modding-assembly-slot" onClick={() => onSelect(entry)}>
-          <SlotThumbnail entry={entry} />
-          <span><strong>{labels[index]}{suffix}</strong><small>{childName(entry)}{entry.slot.required ? " · 필수" : ""}</small></span>
-        </button>;
-      })}
-    </div>
-  </section>;
 }
