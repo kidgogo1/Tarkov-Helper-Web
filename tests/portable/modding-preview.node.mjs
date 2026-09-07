@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -58,6 +59,29 @@ async function fixture(t, handler) {
   };
 }
 
+async function postHeadersOnly(baseUrl, requestPath, contentLength) {
+  const target = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: target.hostname, port: Number(target.port) });
+    let response = "";
+    // Stay below the launcher's ~5s read timeout: a delayed body-read error is not early rejection.
+    const timeout = setTimeout(() => socket.destroy(new Error(`${requestPath} did not reject oversized headers before reading the body`)), 2000);
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => { response += chunk; });
+    socket.once("error", reject);
+    socket.once("close", () => { clearTimeout(timeout); resolve(response); });
+    socket.once("connect", () => socket.write([
+      `POST ${requestPath} HTTP/1.1`,
+      `Host: ${target.host}`,
+      `Origin: ${target.origin}`,
+      "Sec-Fetch-Site: same-origin",
+      "Content-Type: application/json",
+      `Content-Length: ${contentLength}`,
+      "Connection: close", "", "",
+    ].join("\r\n")));
+  });
+}
+
 test("portable modding preview resolves exact slots, returns a bounded image, caches and stays responsive", { skip: process.platform !== "win32", timeout: 30000 }, async (t) => {
   const calls = [];
   let submitted;
@@ -106,6 +130,16 @@ test("portable modding preview resolves exact slots, returns a bounded image, ca
   assert.equal(calls[3], "/api/generate-build-rotated");
   assert.equal(calls.filter((url) => url.startsWith("/api/item-slots/")).length, 1);
   assert.equal(calls.length, 5);
+  for (const angle of [-180, -90, -15, 15, 90, 180]) {
+    assert.equal((await server.post({ root, angle })).status, 200, `angle ${angle}`);
+    assert.equal(submitted.data.rotationX, 0);
+    assert.equal(submitted.data.rotationY, angle);
+    assert.equal(calls.at(-2), "/api/generate-build-rotated");
+  }
+  const countAfterAngles = calls.length;
+  for (const angle of [-180, 90, 180]) assert.equal((await server.post({ root, angle })).status, 200);
+  assert.equal((await server.post(JSON.stringify({ root, angle: 90 }).replace('"angle":90', '"angle":90.0'))).status, 200);
+  assert.equal(calls.length, countAfterAngles, 'viewing-angle cache includes extended numeric angles');
   const repeatedParts = { ...root, children: [...root.children, { ...root.children[0], slotId: secondSlotId, instanceId: "second" }] };
   assert.equal((await server.post({ root: repeatedParts, angle: 0 })).status, 200);
   const countBeforeReorder = calls.length;
@@ -115,6 +149,60 @@ test("portable modding preview resolves exact slots, returns a bounded image, ca
   assert.equal((await server.post({ root: otherWeapon, angle: 0 })).status, 200);
   assert.equal(submitted.data.id, createHash("sha256").update(`root:${otherWeapon.itemId}`).digest("hex").slice(0, 24));
 });
+
+for (const bodyBytes of [8193, 65536]) {
+  test(`portable preview accepts a valid ${bodyBytes}-byte JSON body within its 64 KiB limit`, { skip: process.platform !== "win32", timeout: 15000 }, async (t) => {
+    const server = await fixture(t, (request, response) => {
+      if (request.url === "/api/generate-build") {
+        response.writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify({ ok: true, imageUrl: "/api/images/build_test" }));
+      } else {
+        response.writeHead(200, { "content-type": "image/png" }).end(png);
+      }
+    });
+    const body = JSON.stringify({ root: { ...root, children: [] }, angle: 0 }).padEnd(bodyBytes, " ");
+    assert.equal(Buffer.byteLength(body), bodyBytes);
+    const response = await server.post(body);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).imageUrl, `data:image/png;base64,${png.toString("base64")}`);
+  });
+}
+
+for (const failureAt of ["declared length", "streamed length"]) {
+  test(`portable preview preserves ${failureAt} rejection when cleanup throws`, { skip: process.platform !== "win32" }, async () => {
+    const launcher = await readFile(launcherPath, "utf8");
+    const start = launcher.indexOf("function Invoke-ModdingPreviewHttp {");
+    const end = launcher.indexOf("function Read-ModdingPreviewJson {", start);
+    assert.ok(start >= 0 && end > start);
+    // Keep the real validation/cleanup body; replace only its concrete HTTP dependency.
+    const invoke = launcher.slice(start, end)
+      .replace("[Net.HttpWebRequest]::Create($uri)", "$script:fakeRequest")
+      .replace("[Net.HttpWebResponse]$request.GetResponse()", "$request.GetResponse()");
+    const script = `
+$ErrorActionPreference = 'Stop'
+$script:cleanup = [Collections.Generic.List[string]]::new()
+$script:fakeStream = [pscustomobject]@{ ReadTimeout = 0 }
+$script:fakeStream | Add-Member ScriptMethod Read { return 5 }
+$script:fakeStream | Add-Member ScriptMethod Dispose { $script:cleanup.Add('stream'); throw [IO.IOException]::new('fixture stream cleanup failed') }
+$script:fakeResponse = [pscustomobject]@{ StatusCode = 200; ResponseUri = [Uri]'http://127.0.0.1/api/images/build_test'; ContentLength = ${failureAt === "declared length" ? 5 : -1} }
+$script:fakeResponse | Add-Member ScriptMethod GetResponseStream { return $script:fakeStream }
+$script:fakeResponse | Add-Member ScriptMethod Dispose { $script:cleanup.Add('response'); throw [IO.IOException]::new('fixture response cleanup failed') }
+$script:fakeRequest = [pscustomobject]@{ AllowAutoRedirect = $false; Timeout = 0; ReadWriteTimeout = 0; UserAgent = ''; Accept = '' }
+$script:fakeRequest | Add-Member ScriptMethod GetResponse { return $script:fakeResponse }
+$script:fakeRequest | Add-Member ScriptMethod Abort { $script:cleanup.Add('abort'); throw [IO.IOException]::new('fixture request cleanup failed') }
+${invoke}
+$caught = $null
+try { Invoke-ModdingPreviewHttp -BaseUrl 'http://127.0.0.1' -Path '/api/images/build_test' -MaximumBytes 4 -Clock ([Diagnostics.Stopwatch]::StartNew()) }
+catch { $caught = $_.Exception }
+if ($null -eq $caught -or $caught -isnot [IO.InvalidDataException]) { throw "Expected original size rejection, got $($caught.GetType().Name): $($caught.Message)" }
+if (($script:cleanup -join ',') -cne '${failureAt === "declared length" ? "response,abort" : "stream,response,abort"}') { throw "Cleanup was skipped: $($script:cleanup -join ',')" }
+`;
+    const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], {
+      windowsHide: true, encoding: "utf8", timeout: 10000,
+    });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  });
+}
 
 test("portable preview rejects invalid trees and unsafe upstream responses and honors cooldown", { skip: process.platform !== "win32", timeout: 30000 }, async (t) => {
   let mode = "good";
@@ -132,7 +220,10 @@ test("portable preview rejects invalid trees and unsafe upstream responses and h
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ ok: true, imageUrl: mode === "unsafe-path" ? "https://attacker.invalid/api/images/build_bad" : "/api/images/build_test" }));
     } else if (mode === "oversized") {
-      response.writeHead(200, { "content-type": "image/png", "content-length": String(6 * 1024 * 1024) }).end(png);
+      // Valid HTTP framing isolates the size limit from truncated-response cleanup errors.
+      const oversized = Buffer.alloc(6 * 1024 * 1024);
+      png.copy(oversized);
+      response.writeHead(200, { "content-type": "image/png", "content-length": String(oversized.length) }).end(oversized);
     } else if (mode === "wrong-mime") {
       response.writeHead(200, { "content-type": "text/html" }).end(png);
     } else if (mode === "wrong-magic") {
@@ -151,6 +242,11 @@ test("portable preview rejects invalid trees and unsafe upstream responses and h
     { ...root, instanceId: "x".repeat(2049) },
     { ...root, extra: true },
   ];
+  for (const angle of [-195, 195, -181, 181, -1, 1, 5, 14, 16, 30.5, '90', null, undefined, true, [], {}]) {
+    const response = await server.post({ root, angle });
+    assert.equal(response.status, 400, `invalid angle ${JSON.stringify(angle)}`);
+    assert.equal((await response.json()).error.code, "INVALID_BUILD");
+  }
   for (const invalid of invalidRoots) {
     const response = await server.post({ root: invalid, angle: 0 });
     assert.equal(response.status, 400);
@@ -163,7 +259,14 @@ test("portable preview rejects invalid trees and unsafe upstream responses and h
     current = current.children[0];
   }
   assert.equal((await server.post({ root: tooDeep, angle: 0 })).status, 400);
-  assert.equal((await server.post("{" + " ".repeat(65536))).status, 400);
+  // Verify header-time rejection without an unread upload triggering the TCP reset
+  // described in RFC 9112 section 9.6. No body is sent, so waiting to read it fails.
+  const oversized = await postHeadersOnly(server.baseUrl, "/api/modding/preview", 65537);
+  assert.match(oversized, /^HTTP\/1\.1 400 Bad Request\r\n/);
+  assert.equal(JSON.parse(oversized.split("\r\n\r\n")[1]).error.code, "INVALID_BUILD");
+  const defaultLimit = await postHeadersOnly(server.baseUrl, "/api/v1/client/heartbeat", 8193);
+  assert.match(defaultLimit, /^HTTP\/1\.1 400 Bad Request\r\n/);
+  assert.equal(JSON.parse(defaultLimit.split("\r\n\r\n")[1]).error.code, "INVALID_JSON");
   assert.equal((await server.post({ root, angle: 0 }, { origin: "https://attacker.invalid", "sec-fetch-site": "cross-site" })).status, 403);
   assert.equal(calls, 0);
 

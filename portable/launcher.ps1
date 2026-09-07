@@ -1204,7 +1204,7 @@ function Read-RequestBody {
     param(
         [Parameter(Mandatory = $true)]
         [IO.Stream]$Stream,
-        [ValidateRange(0, 8192)]
+        [ValidateRange(0, 65536)]
         [int]$Length
     )
 
@@ -1404,7 +1404,8 @@ function Get-ModdingPreviewHash {
 function Convert-ModdingPreviewBuild {
     param([pscustomobject]$Value)
     Assert-JsonObjectShape -Value $Value -AllowedProperties @("root", "angle") -RequiredProperties @("root", "angle")
-    if (($Value.angle -isnot [int] -and $Value.angle -isnot [long]) -or $Value.angle -notin @(-30, 0, 30)) {
+    if (($Value.angle -isnot [int] -and $Value.angle -isnot [long] -and $Value.angle -isnot [double] -and $Value.angle -isnot [decimal]) -or
+        $Value.angle -lt -180 -or $Value.angle -gt 180 -or $Value.angle % 15 -ne 0) {
         throw [ArgumentException]::new("The preview angle is invalid.")
     }
     $items = [Collections.Generic.List[object]]::new()
@@ -1444,6 +1445,7 @@ function Invoke-ModdingPreviewHttp {
     $request.Accept = "application/json, image/png, image/jpeg, image/webp"
     $response = $null
     $memory = [IO.MemoryStream]::new()
+    $httpFailure = $null
     try {
         if (-not [string]::IsNullOrEmpty($BodyJson)) {
             $request.Method = "POST"
@@ -1478,6 +1480,7 @@ function Invoke-ModdingPreviewHttp {
         if ([int]$response.StatusCode -ne 200 -or $response.ResponseUri.AbsoluteUri -cne $uri.AbsoluteUri) { throw [IO.InvalidDataException]::new("Preview upstream response rejected.") }
         if ($response.ContentLength -gt $MaximumBytes) { throw [IO.InvalidDataException]::new("Preview response is too large.") }
         $inputStream = $response.GetResponseStream()
+        $readFailure = $null
         try {
             $buffer = New-Object byte[] 8192
             while ($true) {
@@ -1489,12 +1492,25 @@ function Invoke-ModdingPreviewHttp {
                 if ($memory.Length + $count -gt $MaximumBytes) { throw [IO.InvalidDataException]::new("Preview response is too large.") }
                 $memory.Write($buffer, 0, $count)
             }
-        } finally { $inputStream.Dispose() }
+        } catch {
+            $readFailure = $_
+            throw
+        } finally {
+            try { $inputStream.Dispose() } catch { if ($null -eq $readFailure) { throw } }
+        }
         return [pscustomobject]@{ bytes = $memory.ToArray(); contentType = ([string]$response.ContentType).Split(";", 2)[0].Trim().ToLowerInvariant() }
+    } catch {
+        $httpFailure = $_
+        throw
     } finally {
-        if ($null -ne $response) { $response.Dispose() }
-        $memory.Dispose()
-        $request.Abort()
+        # Cleanup must reach every resource without replacing an earlier validation/network error.
+        $cleanupFailure = $null
+        foreach ($resource in @($response, $memory)) {
+            if ($null -eq $resource) { continue }
+            try { $resource.Dispose() } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
+        }
+        try { $request.Abort() } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
+        if ($null -eq $httpFailure -and $null -ne $cleanupFailure) { throw $cleanupFailure }
     }
 }
 
