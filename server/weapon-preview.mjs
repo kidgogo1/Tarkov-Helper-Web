@@ -35,7 +35,9 @@ const id = value => typeof value === 'string' && HEX_ID.test(value);
 const hash = value => createHash('sha256').update(value).digest('hex');
 
 function normalizeInput(value) {
-  if (!record(value) || ![-30, 0, 30].includes(value.angle)) throw new PreviewError('INVALID_BUILD', 400);
+  if (!record(value) || !Number.isInteger(value.angle) || value.angle < -180 || value.angle > 180 || value.angle % 15 !== 0) {
+    throw new PreviewError('INVALID_BUILD', 400);
+  }
   const seen = new Set();
   function visit(node, depth) {
     if (!record(node) || depth > 12 || seen.size >= 96 || !id(node.itemId) ||

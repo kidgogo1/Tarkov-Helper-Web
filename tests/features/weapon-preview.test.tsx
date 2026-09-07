@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useWeaponPreview } from "../../src/features/modding/use-weapon-preview";
+import { useWeaponPreview, type PreviewAngle } from "../../src/features/modding/use-weapon-preview";
 import type { BuildNode } from "../../src/types/weapon-modding";
 
 const root: BuildNode = { instanceId: "weapon:abc", itemId: "5447a9cd4bdc2dbd208b4567", children: [] };
 const firstImage = "data:image/png;base64,aGVsbG8=";
 const nextImage = "data:image/png;base64,d29ybGQ=";
-function Probe({ node = root, enabled = false, angle = 0 }: { node?: BuildNode; enabled?: boolean; angle?: -30 | 0 | 30 }) {
+function Probe({ node = root, enabled = false, angle = 0 }: { node?: BuildNode; enabled?: boolean; angle?: PreviewAngle }) {
   const preview = useWeaponPreview(node, enabled, angle);
   return <><p>{preview.status}</p><p>{preview.error}</p>{preview.imageUrl && <img alt="조립 결과" src={preview.imageUrl} />}
     <button onClick={preview.retry}>재시도</button></>;
@@ -30,6 +30,24 @@ describe("assembled weapon preview", () => {
     view.rerender(<Probe enabled angle={30} />);
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     await tick(); expect(JSON.parse(fetcher.mock.calls[1][1].body).angle).toBe(30);
+  });
+  it("sends extended 15-degree viewing angles unchanged and hides stale images", async () => {
+    vi.useFakeTimers(); const fetcher = vi.fn().mockImplementation(() => Promise.resolve(result())); vi.stubGlobal("fetch", fetcher);
+    const view = render(<Probe enabled angle={-180} />); await tick();
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).angle).toBe(-180);
+    view.rerender(<Probe enabled angle={90} />);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    await tick(); expect(JSON.parse(fetcher.mock.calls[1][1].body).angle).toBe(90);
+    view.rerender(<Probe enabled angle={180} />);
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    await tick(); expect(JSON.parse(fetcher.mock.calls[2][1].body).angle).toBe(180);
+  });
+  it.each([-195, 195, 5, 90.5, NaN, Infinity])("rejects invalid angle %s locally instead of requesting or rounding it", async (angle) => {
+    vi.useFakeTimers(); const fetcher = vi.fn().mockImplementation(() => Promise.resolve(result())); vi.stubGlobal("fetch", fetcher);
+    render(<Probe enabled angle={angle} />); await tick();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(screen.getByText("error")).toBeInTheDocument();
+    expect(screen.getByText(/15도 간격/)).toBeInTheDocument();
   });
   it("does not let an obsolete response replace the current build and serializes requests", async () => {
     vi.useFakeTimers(); let finish!: (response: Response) => void;
@@ -75,11 +93,11 @@ describe("assembled weapon preview", () => {
     const fetcher = vi.fn().mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }))
       .mockImplementation(() => Promise.resolve(result(nextImage))); vi.stubGlobal("fetch", fetcher);
     const view = render(<Probe enabled />); await tick();
-    view.rerender(<Probe enabled angle={-30} />); await tick();
-    view.rerender(<Probe enabled angle={30} />); await tick();
+    view.rerender(<Probe enabled angle={90} />); await tick();
+    view.rerender(<Probe enabled angle={180} />); await tick();
     await act(async () => { finish(result()); });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetcher.mock.calls[1][1].body).angle).toBe(30);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).angle).toBe(180);
     expect(screen.getByRole("img")).toHaveAttribute("src", nextImage);
   });
   it("releases the serialized request after a 35-second timeout so the newest build can proceed", async () => {

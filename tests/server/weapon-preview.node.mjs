@@ -47,10 +47,22 @@ test('maps exact parent slot IDs, generates current assembly, and returns valida
 
 test('uses the rotated endpoint only for supported nonzero viewing angles', async () => {
   const { service, calls } = fixture();
-  await service.render(input(-30));
-  assert.ok(calls[1].url.endsWith('/api/generate-build-rotated'));
-  assert.equal(JSON.parse(calls[1].body).data.rotationY, -30);
-  await rejectsCode(service.render(input(15)), 'INVALID_BUILD');
+  for (let angle = -180; angle <= 180; angle += 15) {
+    await service.render(input(angle));
+    const generated = calls.at(-2);
+    const data = JSON.parse(generated.body).data;
+    assert.ok(generated.url.endsWith(angle === 0 ? '/api/generate-build' : '/api/generate-build-rotated'));
+    assert.equal(data.rotationY, angle === 0 ? undefined : angle);
+    assert.equal(data.rotationX, angle === 0 ? undefined : 0);
+  }
+});
+
+test('rejects invalid viewing angles without clamping, coercion, or network traffic', async () => {
+  const { service, calls } = fixture();
+  for (const angle of [-195, 195, -181, 181, -1, 1, 5, 14, 16, 30.5, NaN, Infinity, -Infinity, '90', null, undefined, true, [], {}]) {
+    await rejectsCode(service.render({ ...input(), angle }), 'INVALID_BUILD');
+  }
+  assert.equal(calls.length, 0);
 });
 
 test('rejects malformed identifiers, duplicate instances, duplicate slots, depth and node excess before network', async () => {
@@ -75,6 +87,12 @@ test('uses semantic tree and viewing angle cache, not caller instance names', as
   assert.equal(calls.length, 3);
   await service.render(input(30));
   assert.equal(calls.length, 5, 'slot lookup is cached; another angle renders a new image');
+  await service.render(input(90));
+  await service.render(input(180));
+  assert.equal(calls.length, 9);
+  await service.render(input(90));
+  await service.render(input(180));
+  assert.equal(calls.length, 9, 'extended viewing angles use separate cached images');
 });
 
 test('coalesces identical requests and rejects other requests while one render is running', async () => {

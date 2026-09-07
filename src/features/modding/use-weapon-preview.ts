@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { BuildNode } from "../../types/weapon-modding";
 
-export type PreviewAngle = -30 | 0 | 30;
+/** Integer yaw in degrees, from -180 to 180 inclusive in 15-degree steps. Validated at runtime, never rounded. */
+export type PreviewAngle = number;
 interface PreviewResult { key: string; imageUrl?: string; error?: string }
 let pending: Promise<unknown> = Promise.resolve();
 
@@ -53,8 +54,9 @@ export function useWeaponPreview(root: BuildNode, enabled: boolean, angle: Previ
   const [result, setResult] = useState<PreviewResult | null>(null);
   const body = JSON.stringify({ root: previewNode(root), angle });
   const key = `${body}:${attempt}`;
+  const validAngle = Number.isInteger(angle) && angle >= -180 && angle <= 180 && angle % 15 === 0;
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !validAngle) return;
     let active = true;
     const timer = setTimeout(() => {
       // One actual request at a time. Obsolete queued builds never reach the provider.
@@ -72,13 +74,14 @@ export function useWeaponPreview(root: BuildNode, enabled: boolean, angle: Previ
       });
     }, 1_500);
     return () => { active = false; clearTimeout(timer); };
-  }, [body, key, enabled]);
+  }, [body, key, enabled, validAngle]);
   // A new tree or angle must never show the last successful image as current.
   const current = enabled && result?.key === key ? result : null;
+  const error = enabled && !validAngle ? "각도는 -180도부터 180도까지 15도 간격으로 선택해 주세요." : current?.error;
   return {
     imageUrl: current?.imageUrl,
-    error: current?.error,
-    status: !enabled ? "off" : current?.error ? "error" : current?.imageUrl ? "ready" : "loading",
+    error,
+    status: !enabled ? "off" : error ? "error" : current?.imageUrl ? "ready" : "loading",
     retry: () => setAttempt((value) => value + 1),
   } as const;
 }
