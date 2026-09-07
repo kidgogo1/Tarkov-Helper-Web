@@ -179,4 +179,52 @@ describe("weapon build storage", () => {
     expect(setItem).not.toHaveBeenCalled();
     expect(removeItem).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["malformed JSON", "{unfinished"],
+    ["empty but existing payload", ""],
+    ["legacy schema", JSON.stringify({ schemaVersion: 0, builds: [build(weaponB)] })],
+    ["future schema", JSON.stringify({ schemaVersion: 2, builds: [build(weaponB)] })],
+    ["malformed collection", JSON.stringify({ schemaVersion: 1, builds: {} })],
+    ["a damaged entry alongside a valid draft", JSON.stringify({ schemaVersion: 1, builds: [build(weaponB), { broken: true }] })],
+    ["duplicate weapon entries", JSON.stringify({ schemaVersion: 1, builds: [build(weaponB), build(weaponB)] })],
+  ])("preserves %s without treating it as an empty writable store", (_description, payload) => {
+    localStorage.setItem(WEAPON_BUILD_STORAGE_KEY, payload);
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+
+    expect(saveWeaponBuild(build(weaponA))).toBe(false);
+    expect(resetWeaponBuild(weaponB)).toBe(false);
+    expect(localStorage.getItem(WEAPON_BUILD_STORAGE_KEY)).toBe(payload);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).not.toHaveBeenCalled();
+  });
+
+  it("accepts an absent store or a valid empty collection as a writable initial state", () => {
+    for (const payload of [null, JSON.stringify({ schemaVersion: 1, builds: [] })]) {
+      if (payload === null) localStorage.removeItem(WEAPON_BUILD_STORAGE_KEY);
+      else localStorage.setItem(WEAPON_BUILD_STORAGE_KEY, payload);
+      expect(saveWeaponBuild(build(weaponA))).toBe(true);
+      expect(loadWeaponBuild(weaponA)).toEqual(build(weaponA));
+      expect(resetWeaponBuild(weaponA)).toBe(true);
+      expect(localStorage.getItem(WEAPON_BUILD_STORAGE_KEY)).toBeNull();
+    }
+  });
+
+  it("preserves an existing collection above the supported limit instead of dropping its unread tail", () => {
+    const builds = Array.from({ length: MAX_SAVED_WEAPON_BUILDS + 1 }, (_, index) =>
+      build(index.toString(16).padStart(24, "0")),
+    );
+    const original = JSON.stringify({ schemaVersion: 1, builds });
+    localStorage.setItem(WEAPON_BUILD_STORAGE_KEY, original);
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+
+    expect(loadWeaponBuild(builds[0].weaponId)).toBeNull();
+    expect(saveWeaponBuild(build(weaponA))).toBe(false);
+    expect(resetWeaponBuild(builds[0].weaponId)).toBe(false);
+    expect(localStorage.getItem(WEAPON_BUILD_STORAGE_KEY)).toBe(original);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).not.toHaveBeenCalled();
+  });
 });

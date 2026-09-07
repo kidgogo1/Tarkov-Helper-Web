@@ -118,28 +118,31 @@ function browserStorage(storage?: Storage | null): Storage | null {
   }
 }
 
-function parseStoredBuilds(raw: string | null): WeaponBuild[] {
-  if (!raw || raw.length > MAX_STORAGE_CHARACTERS) return [];
+/** Only an absent key is an empty store. Unreadable existing data must remain untouched. */
+function parseStoredBuilds(raw: string | null): WeaponBuild[] | null {
+  if (raw === null) return [];
+  if (!raw || raw.length > MAX_STORAGE_CHARACTERS) return null;
 
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    return [];
+    return null;
   }
   if (
     !isRecord(value) ||
     value.schemaVersion !== STORAGE_SCHEMA_VERSION ||
-    !Array.isArray(value.builds)
+    !Array.isArray(value.builds) ||
+    value.builds.length > MAX_SAVED_WEAPON_BUILDS
   ) {
-    return [];
+    return null;
   }
 
   const builds: WeaponBuild[] = [];
   const weaponIds = new Set<string>();
   for (const candidate of value.builds) {
     const build = sanitizeWeaponBuild(candidate);
-    if (!build || weaponIds.has(build.weaponId)) continue;
+    if (!build || weaponIds.has(build.weaponId)) return null;
     weaponIds.add(build.weaponId);
     builds.push(build);
     if (builds.length >= MAX_SAVED_WEAPON_BUILDS) break;
@@ -151,10 +154,8 @@ function readStoredBuilds(
   storage: Storage,
 ): { ok: true; builds: WeaponBuild[] } | { ok: false; builds: [] } {
   try {
-    return {
-      ok: true,
-      builds: parseStoredBuilds(storage.getItem(WEAPON_BUILD_STORAGE_KEY)),
-    };
+    const builds = parseStoredBuilds(storage.getItem(WEAPON_BUILD_STORAGE_KEY));
+    return builds === null ? { ok: false, builds: [] } : { ok: true, builds };
   } catch {
     return { ok: false, builds: [] };
   }
